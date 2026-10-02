@@ -1,0 +1,4 @@
+# Testumgebung passend zu Home Assistant 2024.7 (Python 3.12)
+pytest-homeassistant-custom-component==0.13.145
+home-assistant-frontend==20240705.0
+josepy<2

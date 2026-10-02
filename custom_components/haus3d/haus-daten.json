@@ -1,0 +1,749 @@
+{
+  "version": 1,
+  "floors": [
+    {
+      "id": "kg",
+      "name": "KG",
+      "elevation": -2.8,
+      "height": 2.4,
+      "cut_height": 1.15,
+      "rooms": [
+        {
+          "id": "garage",
+          "name": "Garage",
+          "area_id": "garage",
+          "points": [
+            [
+              0,
+              0
+            ],
+            [
+              6,
+              0
+            ],
+            [
+              6,
+              5
+            ],
+            [
+              0,
+              5
+            ]
+          ],
+          "floor_material": "concrete"
+        },
+        {
+          "id": "waschraum",
+          "name": "Waschraum",
+          "area_id": "waschraum",
+          "points": [
+            [
+              6,
+              0
+            ],
+            [
+              11,
+              0
+            ],
+            [
+              11,
+              3
+            ],
+            [
+              6,
+              3
+            ]
+          ],
+          "floor_material": "tiles"
+        },
+        {
+          "id": "bar",
+          "name": "Bar",
+          "area_id": "bar",
+          "points": [
+            [
+              6,
+              3
+            ],
+            [
+              11,
+              3
+            ],
+            [
+              11,
+              7
+            ],
+            [
+              6,
+              7
+            ]
+          ],
+          "floor_material": "wood"
+        }
+      ],
+      "openings": [
+        {
+          "id": "garagentor",
+          "room_id": "garage",
+          "edge": 0,
+          "offset": 3.0,
+          "width": 2.6,
+          "type": "garage",
+          "sill": 0,
+          "height": 2.1,
+          "hinge": "left",
+          "leaves": 1,
+          "swing": "in",
+          "style": null,
+          "contact2": null,
+          "cover": null,
+          "contact": null,
+          "tilt": null
+        },
+        {
+          "id": "garage_wasch",
+          "room_id": "garage",
+          "edge": 1,
+          "offset": 1.5,
+          "width": 0.9,
+          "type": "door",
+          "sill": 0,
+          "height": 2.0,
+          "hinge": "left",
+          "leaves": 1,
+          "swing": "in",
+          "style": null,
+          "contact2": null,
+          "cover": null,
+          "contact": null,
+          "tilt": null
+        },
+        {
+          "id": "wasch_bar",
+          "room_id": "waschraum",
+          "edge": 2,
+          "offset": 2.5,
+          "width": 0.9,
+          "type": "door",
+          "sill": 0,
+          "height": 2.0,
+          "hinge": "left",
+          "leaves": 1,
+          "swing": "out",
+          "style": null,
+          "contact2": null,
+          "cover": null,
+          "contact": null,
+          "tilt": null
+        },
+        {
+          "id": "bar_fenster",
+          "room_id": "bar",
+          "edge": 1,
+          "offset": 2.0,
+          "width": 1.0,
+          "type": "window",
+          "sill": 1.2,
+          "height": 0.8,
+          "hinge": "left",
+          "leaves": 1,
+          "swing": "in",
+          "style": null,
+          "contact2": null,
+          "cover": null,
+          "contact": null,
+          "tilt": null
+        }
+      ],
+      "furniture": [],
+      "placements": [],
+      "background": null,
+      "outdoor": [],
+      "walls": [],
+      "ha_floor": "kg"
+    },
+    {
+      "id": "eg",
+      "name": "EG",
+      "elevation": 0.0,
+      "height": 2.6,
+      "cut_height": 1.15,
+      "rooms": [
+        {
+          "id": "wohnzimmer",
+          "name": "Wohnzimmer",
+          "area_id": "wohnzimmer",
+          "points": [
+            [
+              0,
+              0
+            ],
+            [
+              7,
+              0
+            ],
+            [
+              7,
+              5
+            ],
+            [
+              0,
+              5
+            ]
+          ],
+          "floor_material": "oak"
+        },
+        {
+          "id": "kueche",
+          "name": "Küche",
+          "area_id": "kuche",
+          "points": [
+            [
+              7,
+              0
+            ],
+            [
+              11,
+              0
+            ],
+            [
+              11,
+              4
+            ],
+            [
+              7,
+              4
+            ]
+          ],
+          "floor_material": "tiles"
+        },
+        {
+          "id": "flur",
+          "name": "Flur",
+          "area_id": "flur",
+          "points": [
+            [
+              7,
+              4
+            ],
+            [
+              11,
+              4
+            ],
+            [
+              11,
+              7
+            ],
+            [
+              7,
+              7
+            ]
+          ],
+          "floor_material": "stone"
+        },
+        {
+          "id": "bad",
+          "name": "Badezimmer",
+          "area_id": "badezimmer",
+          "points": [
+            [
+              0,
+              5
+            ],
+            [
+              3,
+              5
+            ],
+            [
+              3,
+              8
+            ],
+            [
+              0,
+              8
+            ]
+          ],
+          "floor_material": "tiles"
+        },
+        {
+          "id": "schlafzimmer",
+          "name": "Schlafzimmer",
+          "area_id": "schlafzimmer",
+          "points": [
+            [
+              3,
+              5
+            ],
+            [
+              7,
+              5
+            ],
+            [
+              7,
+              8
+            ],
+            [
+              3,
+              8
+            ]
+          ],
+          "floor_material": "carpet"
+        },
+        {
+          "id": "schuppen",
+          "name": "Schuppen",
+          "area_id": "balkonkraftwerk",
+          "points": [
+            [
+              14,
+              9
+            ],
+            [
+              17,
+              9
+            ],
+            [
+              17,
+              11
+            ],
+            [
+              14,
+              11
+            ]
+          ],
+          "floor_material": "concrete"
+        }
+      ],
+      "openings": [
+        {
+          "id": "wz_fenster_alt",
+          "room_id": "wohnzimmer",
+          "edge": 0,
+          "offset": 3.5,
+          "width": 2.0,
+          "type": "window",
+          "sill": 0.5,
+          "height": 1.5,
+          "hinge": "left",
+          "leaves": 1,
+          "swing": "in",
+          "style": null,
+          "contact2": null,
+          "cover": null,
+          "contact": null,
+          "tilt": null
+        },
+        {
+          "id": "wz_fenster_west",
+          "room_id": "wohnzimmer",
+          "edge": 3,
+          "offset": 2.5,
+          "width": 1.5,
+          "type": "window",
+          "sill": 0.8,
+          "height": 1.4,
+          "hinge": "left",
+          "leaves": 1,
+          "swing": "in",
+          "style": null,
+          "contact2": null,
+          "cover": null,
+          "contact": null,
+          "tilt": null
+        },
+        {
+          "id": "wz_kueche",
+          "room_id": "wohnzimmer",
+          "edge": 1,
+          "offset": 2.0,
+          "width": 1.2,
+          "type": "door",
+          "sill": 0,
+          "height": 2.1,
+          "hinge": "left",
+          "leaves": 1,
+          "swing": "in",
+          "style": "passage",
+          "contact2": null,
+          "cover": null,
+          "contact": null,
+          "tilt": null
+        },
+        {
+          "id": "wz_flur",
+          "room_id": "wohnzimmer",
+          "edge": 1,
+          "offset": 4.5,
+          "width": 0.85,
+          "type": "door",
+          "sill": 0,
+          "height": 2.05,
+          "hinge": "left",
+          "leaves": 1,
+          "swing": "in",
+          "style": null,
+          "contact2": null,
+          "cover": null,
+          "contact": null,
+          "tilt": null
+        },
+        {
+          "id": "ku_fenster_nord",
+          "room_id": "kueche",
+          "edge": 0,
+          "offset": 2.0,
+          "width": 1.2,
+          "type": "window",
+          "sill": 1.0,
+          "height": 1.2,
+          "hinge": "left",
+          "leaves": 1,
+          "swing": "in",
+          "style": null,
+          "contact2": null,
+          "cover": null,
+          "contact": null,
+          "tilt": null
+        },
+        {
+          "id": "ku_fenster_ost",
+          "room_id": "kueche",
+          "edge": 1,
+          "offset": 2.0,
+          "width": 1.0,
+          "type": "window",
+          "sill": 1.0,
+          "height": 1.2,
+          "hinge": "left",
+          "leaves": 1,
+          "swing": "in",
+          "style": null,
+          "contact2": null,
+          "cover": null,
+          "contact": null,
+          "tilt": null
+        },
+        {
+          "id": "flur_haustuer",
+          "room_id": "flur",
+          "edge": 1,
+          "offset": 1.5,
+          "width": 1.1,
+          "type": "door",
+          "sill": 0,
+          "height": 2.15,
+          "hinge": "left",
+          "leaves": 1,
+          "swing": "in",
+          "style": "front_glass",
+          "contact2": null,
+          "cover": null,
+          "contact": null,
+          "tilt": null
+        },
+        {
+          "id": "bad_fenster",
+          "room_id": "bad",
+          "edge": 2,
+          "offset": 1.5,
+          "width": 0.8,
+          "type": "window",
+          "sill": 1.4,
+          "height": 0.8,
+          "hinge": "left",
+          "leaves": 1,
+          "swing": "in",
+          "style": null,
+          "contact2": null,
+          "cover": null,
+          "contact": null,
+          "tilt": null
+        },
+        {
+          "id": "bad_tuer",
+          "room_id": "bad",
+          "edge": 1,
+          "offset": 1.0,
+          "width": 0.8,
+          "type": "door",
+          "sill": 0,
+          "height": 2.0,
+          "hinge": "left",
+          "leaves": 1,
+          "swing": "in",
+          "style": null,
+          "contact2": null,
+          "cover": null,
+          "contact": null,
+          "tilt": null
+        },
+        {
+          "id": "sz_flur",
+          "room_id": "schlafzimmer",
+          "edge": 1,
+          "offset": 1.0,
+          "width": 0.9,
+          "type": "door",
+          "sill": 0,
+          "height": 2.05,
+          "hinge": "right",
+          "leaves": 1,
+          "swing": "in",
+          "style": null,
+          "contact2": null,
+          "cover": null,
+          "contact": null,
+          "tilt": null
+        },
+        {
+          "id": "sz_fenster",
+          "room_id": "schlafzimmer",
+          "edge": 2,
+          "offset": 2.0,
+          "width": 1.6,
+          "type": "window",
+          "sill": 0.8,
+          "height": 1.4,
+          "hinge": "left",
+          "leaves": 1,
+          "swing": "in",
+          "style": null,
+          "contact2": null,
+          "cover": null,
+          "contact": null,
+          "tilt": null
+        },
+        {
+          "id": "schuppen_tuer",
+          "room_id": "schuppen",
+          "edge": 3,
+          "offset": 1.0,
+          "width": 0.9,
+          "type": "door",
+          "sill": 0,
+          "height": 2.0,
+          "hinge": "left",
+          "leaves": 1,
+          "swing": "in",
+          "style": null,
+          "contact2": null,
+          "cover": null,
+          "contact": null,
+          "tilt": null
+        }
+      ],
+      "furniture": [],
+      "placements": [],
+      "background": null,
+      "outdoor": [
+        {
+          "id": "rasen",
+          "type": "lawn",
+          "points": [
+            [
+              -3,
+              -4
+            ],
+            [
+              19,
+              -4
+            ],
+            [
+              19,
+              13
+            ],
+            [
+              -3,
+              13
+            ]
+          ]
+        },
+        {
+          "id": "terrasse",
+          "type": "terrace",
+          "points": [
+            [
+              1,
+              -3.2
+            ],
+            [
+              7,
+              -3.2
+            ],
+            [
+              7,
+              -0.24
+            ],
+            [
+              1,
+              -0.24
+            ]
+          ]
+        },
+        {
+          "id": "pool",
+          "type": "pool",
+          "points": [
+            [
+              9,
+              -3.6
+            ],
+            [
+              13,
+              -3.6
+            ],
+            [
+              13,
+              -1.4
+            ],
+            [
+              9,
+              -1.4
+            ]
+          ]
+        },
+        {
+          "id": "weg",
+          "type": "path",
+          "points": [
+            [
+              11.24,
+              5
+            ],
+            [
+              15,
+              5
+            ],
+            [
+              15,
+              6
+            ],
+            [
+              11.24,
+              6
+            ]
+          ]
+        },
+        {
+          "id": "einfahrt",
+          "type": "driveway",
+          "points": [
+            [
+              15,
+              1
+            ],
+            [
+              19,
+              1
+            ],
+            [
+              19,
+              8
+            ],
+            [
+              15,
+              8
+            ]
+          ]
+        },
+        {
+          "id": "beet",
+          "type": "bed",
+          "points": [
+            [
+              -2.5,
+              0
+            ],
+            [
+              -0.6,
+              0
+            ],
+            [
+              -0.6,
+              6
+            ],
+            [
+              -2.5,
+              6
+            ]
+          ]
+        },
+        {
+          "id": "hecke",
+          "type": "hedge",
+          "points": [
+            [
+              -3,
+              -4
+            ],
+            [
+              -2.6,
+              -4
+            ],
+            [
+              -2.6,
+              13
+            ],
+            [
+              -3,
+              13
+            ]
+          ]
+        },
+        {
+          "id": "zaun",
+          "type": "fence",
+          "points": [
+            [
+              -2.6,
+              12.85
+            ],
+            [
+              19,
+              12.85
+            ],
+            [
+              19,
+              13
+            ],
+            [
+              -2.6,
+              13
+            ]
+          ]
+        }
+      ],
+      "walls": [],
+      "ha_floor": "eg"
+    }
+  ],
+  "settings": {
+    "wall_exterior": 0.24,
+    "wall_interior": 0.12,
+    "grid": 0.05,
+    "north": 0,
+    "roof": {
+      "type": "none",
+      "pitch": 35,
+      "overhang": 0.4
+    },
+    "energy": {
+      "solar": "sensor.system_anker_solix_sb_solarleistung",
+      "einspeisung": "sensor.aktuell_pv_einspeisung",
+      "akku_ladestand": "sensor.system_anker_solix_sb_ladestand",
+      "akku_leistung": "sensor.system_anker_solix_sb_akkuleistung",
+      "ertrag_heute": "sensor.balkonkraftwerk_shelly_anker_balkonkraftwerk_balkonkraftwerk_ertrag_tag"
+    }
+  },
+  "energy": {
+    "meter": null,
+    "grid": null,
+    "grid_invert": false,
+    "solar": null,
+    "battery": null,
+    "battery_invert": false,
+    "battery_soc": null,
+    "tariff": null
+  },
+  "presence": []
+}

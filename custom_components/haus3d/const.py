@@ -1,0 +1,35 @@
+"""Konstanten für Haus 3D."""
+
+from __future__ import annotations
+
+DOMAIN = "haus3d"
+VERSION = "0.1.0"
+
+STORAGE_VERSION = 1
+STORAGE_KEY_BUILDING = f"{DOMAIN}.building"
+STORAGE_KEY_HISTORY = f"{DOMAIN}.history"
+
+# Anzahl der aufgehobenen Stände
+HISTORY_LIMIT = 20
+
+# Startstand beim ersten Laden (liegt im Paket)
+SEED_FILE = "haus-daten.json"
+
+PANEL_URL_PATH = "haus3d"
+PANEL_TITLE = "Haus 3D"
+PANEL_ICON = "mdi:home-floor-3"
+PANEL_COMPONENT = "haus3d-panel"
+
+STATIC_URL = "/haus3d_static"
+
+# Formatkennung der NeonPlan-Exporte (für Kompatibilität beim Import/Export)
+NEONPLAN_EXPORT_FORMAT = "neonplan3d"
+NEONPLAN_BACKUP_FORMAT = "neonplan3d-backup"
+
+DEFAULT_ENERGY = {
+    "solar": "sensor.system_anker_solix_sb_solarleistung",
+    "einspeisung": "sensor.aktuell_pv_einspeisung",
+    "akku_ladestand": "sensor.system_anker_solix_sb_ladestand",
+    "akku_leistung": "sensor.system_anker_solix_sb_akkuleistung",
+    "ertrag_heute": "sensor.balkonkraftwerk_shelly_anker_balkonkraftwerk_balkonkraftwerk_ertrag_tag",
+}
