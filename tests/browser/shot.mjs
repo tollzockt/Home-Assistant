@@ -27,7 +27,7 @@ async function shot(name, query, viewport, deviceScaleFactor = 1) {
   const page = await browser.newPage({ viewport, deviceScaleFactor });
   page.on("pageerror", (e) => errors.push(`${name}: ${e.message}`));
   page.on("console", (m) => { if (m.type() === "error" || m.type() === "warning") errors.push(`${name} [${m.type()}]: ${m.text()}`); });
-  await page.goto(`http://localhost:${port}/tests/browser/harness.html${query}`);
+  await page.goto(`http://localhost:${port}/tests/browser/harness.html${query}${process.env.HARNESS_DATA ? (query ? "&" : "?") + "data=" + process.env.HARNESS_DATA : ""}`);
   await page.waitForTimeout(2500);
   await page.screenshot({ path: `${out}/${name}.png` });
   return page;

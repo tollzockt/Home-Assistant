@@ -226,7 +226,10 @@ export class HouseScene {
     const group = new THREE.Group();
     group.name = `floor:${floor.id}`;
     const elev = floor.elevation ?? 0;
-    const entry = { floor, group, rooms: new Map(), openings: new Map(), occluders: [] };
+    // Garten in eigener Gruppe: bleibt sichtbar, wenn nur eine Etage gezeigt wird (Gelände ums Haus)
+    const garden = new THREE.Group();
+    garden.name = `garden:${floor.id}`;
+    const entry = { floor, group, garden, rooms: new Map(), openings: new Map(), occluders: [] };
 
     // Böden
     for (const room of floor.rooms ?? []) {
@@ -286,7 +289,7 @@ export class HouseScene {
 
     // Garten; Gartenflächen mit Bereich bekommen einen Anker für Beschriftung und Geräte
     for (const area of floor.outdoor ?? []) {
-      group.add(this._buildOutdoor(area, elev));
+      garden.add(this._buildOutdoor(area, elev));
       if (!area.area_id) continue;
       const c = labelPoint(area.points);
       const hs = Array.isArray(area.heights) ? area.heights : [];
@@ -294,7 +297,7 @@ export class HouseScene {
       this.anchors.push({ key: `room:${floor.id}:${area.id}`, floorId: floor.id, position: new THREE.Vector3(c[0], elev + y + 0.05, c[1]) });
     }
 
-    this.root.add(group);
+    this.root.add(group, garden);
     this.floors.set(floor.id, entry);
   }
 
