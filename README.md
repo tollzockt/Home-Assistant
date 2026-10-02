@@ -79,16 +79,6 @@ settings          wall_exterior (0.24), wall_interior (0.12), energy {…}
 
 ### Energie-Entitäten
 
-In `settings.energy` (Startwerte):
-
-| Schlüssel | Entität |
-|---|---|
-| `solar` | `sensor.pv_leistung` |
-| `einspeisung` | `sensor.pv_einspeisung` |
-| `akku_ladestand` | `sensor.akku_ladestand` |
-| `akku_leistung` | `sensor.akku_leistung` |
-| `ertrag_heute` | `sensor.pv_ertrag_heute` |
-
 Leistungen in kW und Energien in Wh werden automatisch umgerechnet.
 
 ## Korrektur Wohnzimmer (Werkzeug)
