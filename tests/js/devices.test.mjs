@@ -3,7 +3,12 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import {
+  buildingIcons,
+  buildingLinks,
   coverClosedFraction,
+  energyKWh,
+  isOpen,
+  layout,
   energyValues,
   entitiesByArea,
   floorIcons,
@@ -120,3 +125,79 @@ test("Import: rohes Gebäude, NeonPlan-Export und -Backup; Export im NeonPlan-Fo
   assert.equal(out.format, "neonplan3d");
   assert.equal(out.building, b);
 });
+
+// Regressionstests aus der Prüfung vor 0.1.0
+test("Garagentor-Cover (garage/gate) gehört zur Garage, nicht als Rollladen vor ein Fenster", () => {
+  const h = makeHass([
+    [st("cover.tor", "closed", { device_class: "gate" }), { area_id: "garage" }],
+    [st("cover.rollo", "closed", { device_class: "shutter" }), { area_id: "garage" }],
+  ]);
+  const f = {
+    id: "kg",
+    rooms: [{ id: "g", area_id: "garage", points: [[0, 0], [6, 0], [6, 5], [0, 5]] }],
+    openings: [
+      { id: "a_fenster", room_id: "g", edge: 1, type: "window", contact: null, cover: null },
+      { id: "b_tor", room_id: "g", edge: 0, type: "garage", contact: null, cover: null },
+    ],
+  };
+  const links = buildingLinks({ floors: [f] }, h, entitiesByArea(h)).get("kg");
+  assert.equal(links.get("b_tor").cover, "cover.tor");
+  assert.equal(links.get("a_fenster").cover, "cover.rollo");
+});
+
+test("ein Bereich auf zwei Etagen: Kontakt und Symbole nur einmal; Platzierung auf anderer Etage gewinnt", () => {
+  const h = makeHass([
+    [st("binary_sensor.th_fenster", "on", { device_class: "window" }), { area_id: "treppe" }],
+    [st("light.th", "on"), { area_id: "treppe" }],
+  ]);
+  const r = (id) => ({ id, area_id: "treppe", points: [[0, 0], [3, 0], [3, 3], [0, 3]] });
+  const op = { id: "f", room_id: "th", edge: 0, type: "window", contact: null, cover: null };
+  const b = { floors: [{ id: "eg", rooms: [r("th")], openings: [op], placements: [] }, { id: "og", rooms: [r("th")], openings: [op], placements: [{ entity_id: "light.th", x: 1, z: 1, y: null }] }] };
+  const links = buildingLinks(b, h, entitiesByArea(h));
+  const contacts = [links.get("eg").get("f").contact, links.get("og").get("f").contact].filter(Boolean);
+  assert.deepEqual(contacts, ["binary_sensor.th_fenster"]);
+  const icons = buildingIcons(b, h);
+  const all = [...icons.values()].flat().map((i) => `${i.entity_id}${i.manual ? "(m)" : ""}`).sort();
+  assert.deepEqual(all, ["binary_sensor.th_fenster", "light.th(m)"]);
+  assert.ok(icons.get("og").some((i) => i.entity_id === "light.th" && i.manual));
+});
+
+test("Lampen aus furniture[] (NeonPlan) werden als feste Position übernommen", () => {
+  const h = makeHass([[st("light.stehlampe", "on"), { area_id: "wohnzimmer" }]]);
+  const f = { id: "eg", rooms: [room], openings: [], placements: [], furniture: [{ id: "m1", type: "lamp_floor", x: 5, z: 3, mount_y: null, entity: "light.stehlampe" }] };
+  const icons = buildingIcons({ floors: [f] }, h).get("eg");
+  assert.deepEqual(icons.map((i) => [i.entity_id, i.x, i.z, i.manual]), [["light.stehlampe", 5, 3, true]]);
+});
+
+test("Einheiten: mW ist nicht MW, kJ wird umgerechnet", () => {
+  assert.equal(powerW(st("sensor.p", "500", { unit_of_measurement: "mW" })), 0.5);
+  assert.equal(powerW(st("sensor.p", "2", { unit_of_measurement: "MW" })), 2e6);
+  assert.equal(energyKWh(st("sensor.e", "3600", { unit_of_measurement: "kJ" })), 1);
+  assert.equal(energyKWh(st("sensor.e", "1000", { unit_of_measurement: "mWh" })), 0.001);
+});
+
+test("Fenstergriffe: offen/gekippt zählen als offen", () => {
+  assert.ok(isOpen(st("sensor.griff", "tilted")));
+  assert.ok(isOpen(st("sensor.griff", "geöffnet")));
+  assert.ok(isOpen(st("sensor.griff", "x", { window_state: "open" })));
+  assert.ok(!isOpen(st("sensor.griff", "closed")));
+  assert.ok(!isOpen(st("binary_sensor.k", "off")));
+});
+
+test("Auto-Layout in L-förmigem Raum: alle Punkte im Raum und verschieden", () => {
+  const L = [[0, 0], [6, 0], [6, 2], [2, 2], [2, 6], [0, 6]];
+  const spots = layout(L, 7);
+  assert.equal(spots.length, 7);
+  for (const p of spots) assert.ok(pointInPolygonLocal(p, L), `${p} außerhalb`);
+  assert.equal(new Set(spots.map((p) => p.join())).size, 7);
+});
+
+function pointInPolygonLocal(p, pts) {
+  let inside = false;
+  for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) {
+    const a = pts[i];
+    const b = pts[j];
+    if (a[1] > p[1] !== b[1] > p[1] && p[0] < ((b[0] - a[0]) * (p[1] - a[1])) / (b[1] - a[1]) + a[0]) inside = !inside;
+  }
+  return inside;
+}

@@ -179,3 +179,64 @@ test("Öffnung auf nicht vorhandener Kante wird gemeldet statt platziert", () =>
   assert.equal(openings.length, 0);
   assert.ok(warnings.some((w) => w.includes("x")));
 });
+
+// Regressionstests aus der Prüfung vor 0.1.0
+const interiorCount = (rooms) => computeWalls(floorOf(rooms)).segments.filter((s) => s.kind === "interior").length;
+
+test("fast senkrechte geteilte Kante (10 µm Abweichung) bleibt eine Innenwand", () => {
+  const b = { ...rect("b", 4, 0, 8, 3), points: [[4.00001, 0], [8, 0], [8, 3], [4, 3]] };
+  const { segments } = computeWalls(floorOf([rect("a", 0, 0, 4, 3), b]));
+  assert.equal(segments.filter((s) => s.kind === "interior").length, 1);
+  assertNoOverlaps(segments, "10µm");
+});
+
+test("Abweichung im Millimeterbereich (3 mm, schräg) bleibt eine Innenwand", () => {
+  const b = { ...rect("b", 4, 0, 8, 3), points: [[4, 0], [8, 0], [8, 3], [4.003, 3]] };
+  assert.equal(interiorCount([rect("a", 0, 0, 4, 3), b]), 1);
+  // schräge Wand mit T-Stoß
+  const a = { id: "a", points: [[0, 0], [3, 0], [3, 4.5]] };
+  const bb = { id: "b", points: [[0, 0], [2.333, 3.5], [0, 3.5]] };
+  const c = { id: "c", points: [[2.333, 3.5], [3, 4.5], [0, 4.5], [0, 3.5]] };
+  const { segments } = computeWalls(floorOf([a, bb, c]));
+  assertNoOverlaps(segments, "schräg");
+});
+
+test("Räume 8 mm auseinander: keine Lücke in der Fassade", () => {
+  const { segments } = computeWalls(floorOf([rect("a", 0, 0, 4, 3), rect("b", 4.008, 0, 8, 3)]));
+  assert.equal(segments.filter((s) => s.kind === "interior").length, 1);
+  const top = segments.filter((s) => s.kind === "exterior" && Math.abs(s.a[1]) < 0.02 && Math.abs(s.b[1]) < 0.02);
+  const xs = top.flatMap((s) => [s.a[0], s.b[0]]).sort((p, q) => p - q);
+  // die Außenwände oben schließen lückenlos aneinander an
+  for (let i = 1; i + 1 < xs.length; i += 2) assert.ok(Math.abs(xs[i] - xs[i + 1]) < 1e-9, `Lücke bei ${xs[i]}..${xs[i + 1]}`);
+});
+
+test("kollinearer Zwischenpunkt teilt die Wand nicht; Fenster darüber passt", () => {
+  const a = { id: "a", points: [[0, 0], [4, 0], [8, 0], [8, 3], [0, 3]] };
+  const win = { id: "f", room_id: "a", edge: 0, offset: 3.8, width: 1, type: "window", sill: 1, height: 1 };
+  const { segments, openings, warnings } = computeWalls(floorOf([a], [win]));
+  const top = segments.filter((s) => Math.abs(s.a[1]) < 1e-9 && Math.abs(s.b[1]) < 1e-9);
+  assert.equal(top.length, 1);
+  assert.equal(top[0].length, 8);
+  assert.ok(openings[0].fits, warnings.join("; "));
+  assert.ok(Math.abs(openings[0].s1 - openings[0].s0 - 1) < 1e-9);
+});
+
+test("Wand bleibt geteilt, wo eine andere Wand einmündet", () => {
+  // Innenwand zwischen a und b trifft bei x=4 auf die lange Außenwand von c? Hier: T-Stoß an der Außenwand
+  const { segments } = computeWalls(floorOf([rect("a", 0, 0, 4, 3), rect("b", 4, 0, 8, 3)]));
+  const top = segments.filter((s) => s.kind === "exterior" && Math.abs(s.a[1]) < 1e-9 && Math.abs(s.b[1]) < 1e-9);
+  assert.equal(top.length, 2);
+});
+
+test("Gehrung nur mit der Außenwand desselben Raums", () => {
+  const b = { id: "b", points: [[4, 3], [7, 4], [5, 6]] };
+  for (const rooms of [[b, rect("a", 0, 0, 4, 3)], [rect("a", 0, 0, 4, 3), b]]) {
+    const { segments } = computeWalls(floorOf(rooms));
+    for (const s of segments) {
+      for (const c of [s.outerA, s.outerB].filter(Boolean)) {
+        // kein Gehrungspunkt darf im Inneren von Raum a liegen
+        assert.ok(!(c[0] > 0.01 && c[0] < 3.99 && c[1] > 0.01 && c[1] < 2.99), `${s.id} Gehrung ${c} in Raum a`);
+      }
+    }
+  }
+});

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import copy
 import json
 import logging
@@ -14,7 +15,14 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.storage import Store
 from homeassistant.util import dt as dt_util
 
-from .const import HISTORY_LIMIT, SEED_FILE, STORAGE_KEY_BUILDING, STORAGE_KEY_HISTORY, STORAGE_VERSION
+from .const import (
+    HISTORY_LIMIT,
+    SEED_FILE,
+    STORAGE_KEY_BUILDING,
+    STORAGE_KEY_HISTORY,
+    STORAGE_KEY_INVALID,
+    STORAGE_VERSION,
+)
 from .schema import empty_building, validate_building
 
 _LOGGER = logging.getLogger(__name__)
@@ -35,6 +43,8 @@ class Haus3DData:
         self.revision = 0
         self.history: list[dict[str, Any]] = []
         self._next_history_id = 1
+        # Änderungen nacheinander: Revisionsprüfung und Schreiben dürfen sich nicht überholen
+        self._lock = asyncio.Lock()
 
     async def async_load(self) -> None:
         """Lädt den gespeicherten Stand; beim ersten Start den mitgelieferten Startstand."""
@@ -43,7 +53,13 @@ class Haus3DData:
             try:
                 self.building = validate_building(stored["building"])
             except vol.Invalid as err:
-                _LOGGER.error("Gespeicherter Stand ist ungültig, starte leer: %s", err)
+                # nicht verwerfen: den Rohstand gesondert sichern, bevor das nächste Speichern ihn überschreibt
+                await Store(self.hass, STORAGE_VERSION, STORAGE_KEY_INVALID).async_save(stored)
+                _LOGGER.error(
+                    "Gespeicherter Stand ist ungültig und wurde nach .storage/%s gesichert; starte leer: %s",
+                    STORAGE_KEY_INVALID,
+                    err,
+                )
                 self.building = empty_building()
             self.revision = int(stored.get("revision", 0))
         else:
@@ -64,6 +80,10 @@ class Haus3DData:
 
     async def async_snapshot(self, reason: str) -> dict[str, Any]:
         """Hebt den aktuellen Stand im Verlauf auf (maximal HISTORY_LIMIT Einträge)."""
+        async with self._lock:
+            return await self._async_snapshot(reason)
+
+    async def _async_snapshot(self, reason: str) -> dict[str, Any]:
         item = {
             "id": self._next_history_id,
             "created": dt_util.utcnow().isoformat(),
@@ -79,25 +99,27 @@ class Haus3DData:
 
     async def async_save(self, building: dict[str, Any], expected_revision: int | None) -> int:
         """Speichert ein (bereits validiertes) Gebäude; der alte Stand wandert in den Verlauf."""
-        if expected_revision is not None and expected_revision != self.revision:
-            raise RevisionConflict
-        await self.async_snapshot("save")
-        self.building = building
-        self.revision += 1
-        await self._async_save_building()
-        return self.revision
+        async with self._lock:
+            if expected_revision is not None and expected_revision != self.revision:
+                raise RevisionConflict
+            await self._async_snapshot("save")
+            self.building = building
+            self.revision += 1
+            await self._async_save_building()
+            return self.revision
 
     async def async_restore(self, history_id: int) -> int:
         """Stellt einen Stand aus dem Verlauf wieder her (der aktuelle Stand wird vorher gesichert)."""
-        item = next((h for h in self.history if h["id"] == history_id), None)
-        if item is None:
-            raise KeyError(history_id)
-        building = validate_building(item["building"])
-        await self.async_snapshot("restore")
-        self.building = building
-        self.revision += 1
-        await self._async_save_building()
-        return self.revision
+        async with self._lock:
+            item = next((h for h in self.history if h["id"] == history_id), None)
+            if item is None:
+                raise KeyError(history_id)
+            building = validate_building(item["building"])
+            await self._async_snapshot("restore")
+            self.building = building
+            self.revision += 1
+            await self._async_save_building()
+            return self.revision
 
     def history_summary(self) -> list[dict[str, Any]]:
         """Verlauf ohne die Gebäudedaten, neueste zuerst."""

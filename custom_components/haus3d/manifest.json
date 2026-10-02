@@ -4,10 +4,10 @@
   "codeowners": ["@tollzockt"],
   "config_flow": true,
   "dependencies": ["frontend", "http", "panel_custom", "websocket_api"],
-  "documentation": "https://github.com/tollzockt/haus3d",
+  "documentation": "https://github.com/tollzockt/Haus3d-HomeAssistant",
   "integration_type": "service",
   "iot_class": "local_push",
-  "issue_tracker": "https://github.com/tollzockt/haus3d/issues",
+  "issue_tracker": "https://github.com/tollzockt/Haus3d-HomeAssistant/issues",
   "requirements": [],
   "single_config_entry": true,
   "version": "0.1.0"

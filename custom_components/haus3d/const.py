@@ -8,6 +8,8 @@ VERSION = "0.1.0"
 STORAGE_VERSION = 1
 STORAGE_KEY_BUILDING = f"{DOMAIN}.building"
 STORAGE_KEY_HISTORY = f"{DOMAIN}.history"
+# ungültiger gespeicherter Stand wird hierhin gesichert, statt verloren zu gehen
+STORAGE_KEY_INVALID = f"{DOMAIN}.building_invalid"
 
 # Anzahl der aufgehobenen Stände
 HISTORY_LIMIT = 20

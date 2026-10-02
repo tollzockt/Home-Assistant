@@ -13,6 +13,8 @@
 //     genau einem Segment zugeordnet.
 
 const EPS = 0.005;
+/** Toleranz zum Einrasten von Eckpunkten und für "liegt auf derselben Geraden" (Meter). */
+const SNAP = 0.01;
 
 const sub = (p, q) => [p[0] - q[0], p[1] - q[1]];
 const add = (p, q) => [p[0] + q[0], p[1] + q[1]];
@@ -61,6 +63,48 @@ export function pointInPolygon(p, points) {
   return inside;
 }
 
+function distToSegment(p, a, b) {
+  const d = sub(b, a);
+  const l2 = dot(d, d) || 1;
+  const t = Math.max(0, Math.min(1, dot(sub(p, a), d) / l2));
+  return len(sub(p, add(a, mul(d, t))));
+}
+
+/** Abstand eines Punkts zum Rand eines Polygons. */
+export function distToEdges(p, points) {
+  let m = Infinity;
+  for (let i = 0; i < points.length; i++) m = Math.min(m, distToSegment(p, points[i], points[(i + 1) % points.length]));
+  return m;
+}
+
+/**
+ * Ein Punkt sicher im Inneren (für Beschriftungen): der Schwerpunkt, wenn er gut im Raum liegt,
+ * sonst der Rasterpunkt mit dem größten Abstand zum Rand (auch bei L- oder U-förmigen Räumen).
+ */
+export function labelPoint(points) {
+  const c = centroid(points);
+  const xs = points.map((p) => p[0]);
+  const zs = points.map((p) => p[1]);
+  const [x0, x1, z0, z1] = [Math.min(...xs), Math.max(...xs), Math.min(...zs), Math.max(...zs)];
+  const size = Math.min(x1 - x0, z1 - z0);
+  if (pointInPolygon(c, points) && distToEdges(c, points) >= size * 0.25) return c;
+  let best = pointInPolygon(c, points) ? c : null;
+  let bestD = best ? distToEdges(c, points) : -1;
+  const N = 24;
+  for (let i = 0; i <= N; i++) {
+    for (let j = 0; j <= N; j++) {
+      const p = [x0 + ((x1 - x0) * i) / N, z0 + ((z1 - z0) * j) / N];
+      if (!pointInPolygon(p, points)) continue;
+      const d = distToEdges(p, points);
+      if (d > bestD) {
+        best = p;
+        bestD = d;
+      }
+    }
+  }
+  return best ?? c;
+}
+
 /** Kanonische Richtung einer Geraden (eindeutig bis auf das Vorzeichen). */
 function canonical(u) {
   if (u[0] > 1e-9 || (Math.abs(u[0]) <= 1e-9 && u[1] > 0)) return u;
@@ -78,10 +122,19 @@ export function computeWalls(floor, settings = {}) {
   const int = settings.wall_interior ?? 0.12;
   const warnings = [];
 
+  // 0. Eckpunkte einrasten: Punkte näher als SNAP werden zu einem Punkt (wie im Editor gerundet)
+  const verts = [];
+  const snap = (p) => {
+    for (const v of verts) if (Math.abs(v[0] - p[0]) <= SNAP && Math.abs(v[1] - p[1]) <= SNAP) return v;
+    const v = [p[0], p[1]];
+    verts.push(v);
+    return v;
+  };
+
   // 1. Kanten sammeln
   const edges = [];
   for (const room of floor.rooms ?? []) {
-    const pts = room.points ?? [];
+    const pts = (room.points ?? []).map(snap);
     if (pts.length < 3) continue;
     const area = signedArea(pts);
     if (Math.abs(area) < 1e-6) {
@@ -94,20 +147,20 @@ export function computeWalls(floor, settings = {}) {
       const q = pts[(i + 1) % pts.length];
       const d = sub(q, p);
       const l = len(d);
-      if (l < EPS) continue;
+      if (l < SNAP) continue;
       edges.push({ key: `${room.id}#${i}`, room: room.id, edge: i, p, q, dir: mul(d, 1 / l), length: l, inside });
     }
   }
 
-  // 2. nach Geraden gruppieren
+  // 2. nach Geraden gruppieren: beide Endpunkte höchstens SNAP von der Geraden entfernt
   const lines = [];
+  const onLine = (g, p) => Math.abs(dot(g.n, p) - g.c) <= SNAP;
   for (const e of edges) {
-    const u = canonical(e.dir);
-    const n = leftNormal(u);
-    const c = dot(n, e.p);
-    let line = lines.find((g) => Math.abs(cross(g.u, u)) < 1e-4 && Math.abs(g.c - c) < EPS * 2);
+    let line = lines.find((g) => onLine(g, e.p) && onLine(g, e.q));
     if (!line) {
-      line = { u, n, c, edges: [] };
+      const u = canonical(e.dir);
+      const n = leftNormal(u);
+      line = { u, n, c: dot(n, e.p), edges: [] };
       lines.push(line);
     }
     const sgn = dot(e.dir, line.u) > 0 ? 1 : -1;
@@ -117,6 +170,16 @@ export function computeWalls(floor, settings = {}) {
     line.edges.push({ ...e, sgn, tp, t0: Math.min(tp, tq), t1: Math.max(tp, tq), side: e.inside * sgn });
   }
 
+  // Punkte, an denen eine nicht kollineare Kante beginnt oder endet (dort darf eine Wand nicht durchlaufen)
+  const junctions = (line) => {
+    const ts = [];
+    for (const g of lines) {
+      if (g === line) continue;
+      for (const e of g.edges) for (const p of [e.p, e.q]) if (onLine(line, p)) ts.push(dot(line.u, p));
+    }
+    return ts;
+  };
+
   // 3. Elementarintervalle und Segmente
   const segments = [];
   for (const line of lines) {
@@ -124,13 +187,14 @@ export function computeWalls(floor, settings = {}) {
     for (const e of line.edges) cuts.push(e.t0, e.t1);
     cuts.sort((a, b) => a - b);
     const ts = [];
-    for (const t of cuts) if (!ts.length || t - ts[ts.length - 1] > EPS) ts.push(t);
+    for (const t of cuts) if (!ts.length || t - ts[ts.length - 1] > SNAP) ts.push(t);
+    const joints = junctions(line);
 
     let current = null;
     for (let k = 0; k + 1 < ts.length; k++) {
       const a = ts[k];
       const b = ts[k + 1];
-      const cover = line.edges.filter((e) => e.t0 <= a + EPS && e.t1 >= b - EPS);
+      const cover = line.edges.filter((e) => e.t0 <= a + SNAP && e.t1 >= b - SNAP);
       if (!cover.length) {
         current = null;
         continue;
@@ -144,12 +208,20 @@ export function computeWalls(floor, settings = {}) {
       const interior = left.length > 0 && right.length > 0;
       const roomLeft = left[0]?.room ?? null;
       const roomRight = right[0]?.room ?? null;
-      const signature = cover.map((e) => e.key).sort().join("|");
-      if (current && current.signature === signature && Math.abs(current.tEnd - a) < EPS) {
+      // gleiche Wand (Art und Räume) läuft weiter, wenn an der Stelle keine andere Wand einmündet
+      if (
+        current &&
+        Math.abs(current.tEnd - a) <= SNAP &&
+        current.interior === interior &&
+        current.roomLeft === roomLeft &&
+        current.roomRight === roomRight &&
+        !joints.some((t) => Math.abs(t - a) <= SNAP)
+      ) {
         current.tEnd = b;
+        for (const e of cover) current.cover.add(e);
         continue;
       }
-      current = { line, tStart: a, tEnd: b, interior, roomLeft, roomRight, cover, signature };
+      current = { line, tStart: a, tEnd: b, interior, roomLeft, roomRight, cover: new Set(cover) };
       segments.push(current);
     }
   }
@@ -183,10 +255,12 @@ export function computeWalls(floor, settings = {}) {
       right,
       roomLeft: s.roomLeft,
       roomRight: s.roomRight,
-      // Quellkanten: Abschnitt [t0, t1] der Raumkante (Meter ab points[edge]) und Umrechnung auf s
-      sources: s.cover.map((e) => {
-        const ea = e.sgn * (s.tStart - e.tp);
-        const eb = e.sgn * (s.tEnd - e.tp);
+      // Quellkanten: abgedeckter Abschnitt [t0, t1] der Raumkante (Meter ab points[edge]) und Umrechnung auf s
+      sources: [...s.cover].map((e) => {
+        const lo = Math.max(s.tStart, e.t0);
+        const hi = Math.min(s.tEnd, e.t1);
+        const ea = e.sgn * (lo - e.tp);
+        const eb = e.sgn * (hi - e.tp);
         return { room_id: e.room, edge: e.edge, t0: Math.min(ea, eb), t1: Math.max(ea, eb), tp: e.tp, sgn: e.sgn, tStart: s.tStart };
       }),
       // Ecken der Außenseite (für Gehrung), Verlängerung von Innenwänden an freien Enden
@@ -226,15 +300,15 @@ export function computeWalls(floor, settings = {}) {
     });
   }
 
-  joinCorners(result, int);
+  joinCorners(result, int, floor.rooms ?? []);
   const openings = placeOpenings(floor, result, warnings);
   return { segments: result, openings, warnings };
 }
 
-const near = (p, q) => Math.abs(p[0] - q[0]) <= EPS && Math.abs(p[1] - q[1]) <= EPS;
+const near = (p, q) => Math.abs(p[0] - q[0]) <= SNAP && Math.abs(p[1] - q[1]) <= SNAP;
 
 /** Gehrung der Außenwände und Verlängerung von Innenwänden an Ecken. */
-function joinCorners(segments, interior) {
+function joinCorners(segments, interior, rooms) {
   // Außenseite einer Außenwand: Gerade durch a + nOut * dicke in Richtung u
   const outer = (s) => {
     const sign = s.left > 0 ? 1 : -1;
@@ -253,11 +327,15 @@ function joinCorners(segments, interior) {
       const others = segments.filter((o) => o !== s && (near(o.a, v) || near(o.b, v)));
       const collinear = others.some((o) => Math.abs(cross(o.u, s.u)) < 1e-4);
       if (s.kind === "exterior") {
-        const partner = others.find((o) => o.kind === "exterior" && Math.abs(cross(o.u, s.u)) >= 1e-4);
+        // Gehrung mit der Außenwand desselben Raums; nur ohne sie mit einer anderen
+        const room = s.roomLeft ?? s.roomRight;
+        const candidates = others.filter((o) => o.kind === "exterior" && Math.abs(cross(o.u, s.u)) >= 1e-4);
+        const partner = candidates.find((o) => (o.roomLeft ?? o.roomRight) === room) ?? (candidates.length === 1 ? candidates[0] : null);
         if (partner && !collinear) {
           const c = intersect(outer(s), outer(partner));
-          // nur sinnvolle Gehrungen (nicht weiter als 3 Wanddicken vom Eckpunkt)
-          if (c && len(sub(c, v)) < 3 * Math.max(s.left, s.right) + 1e-6) s[end === "a" ? "outerA" : "outerB"] = c;
+          // nur sinnvolle Gehrungen: nicht weiter als 3 Wanddicken vom Eckpunkt und nicht in einem anderen Raum
+          const intoRoom = rooms.some((r) => r.id !== room && pointInPolygon(c ?? v, r.points ?? []));
+          if (c && !intoRoom && len(sub(c, v)) < 3 * Math.max(s.left, s.right) + 1e-6) s[end === "a" ? "outerA" : "outerB"] = c;
         }
       } else if (!collinear && others.length) {
         s[end === "a" ? "extendA" : "extendB"] = interior / 2;

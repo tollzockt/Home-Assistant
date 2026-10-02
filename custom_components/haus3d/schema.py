@@ -132,11 +132,18 @@ def _unique_ids(building: dict[str, Any]) -> dict[str, Any]:
         rooms = {r["id"]: r for r in floor["rooms"]}
         if len(rooms) != len(floor["rooms"]):
             raise vol.Invalid(f"Raum-IDs auf Etage {floor['id']} sind nicht eindeutig")
+        wall_ids = {w.get("id") for w in floor.get("walls") or [] if isinstance(w, dict)}
         for opening in floor["openings"]:
+            if opening.get("wall"):
+                # Öffnung in einer freistehenden Wand: NeonPlan setzt room_id dann auch auf die Wand-ID
+                # oder lässt sie nach dem Löschen des Raums stehen – maßgeblich ist nur die Wand
+                if opening["wall"] not in wall_ids:
+                    raise vol.Invalid(f"Öffnung {opening['id']}: Wand {opening['wall']} fehlt")
+                continue
             room = rooms.get(opening["room_id"])
             if room is None:
                 raise vol.Invalid(f"Öffnung {opening['id']}: Raum {opening['room_id']} fehlt")
-            if not opening.get("wall") and opening["edge"] >= len(room["points"]):
+            if opening["edge"] >= len(room["points"]):
                 raise vol.Invalid(f"Öffnung {opening['id']}: Kante {opening['edge']} gibt es nicht")
     return building
 

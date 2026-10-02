@@ -30,14 +30,14 @@ PANEL_FILE = "haus3d-panel.js"
 
 # Merker, die einen Reload des Eintrags überleben: statische Pfade und WebSocket-Befehle
 # lassen sich in HA nicht wieder abmelden und dürfen daher nur einmal registriert werden.
-_STATIC_REGISTERED = f"{DOMAIN}_static_registered"
+_STATIC_REGISTERED = f"{DOMAIN}_static_versions"
 _WS_REGISTERED = f"{DOMAIN}_ws_registered"
 
 
 def _frontend_hash() -> str:
     """Kurzer Hash über die Frontend-Dateien, damit der Browser nach Updates neu lädt."""
     digest = hashlib.sha1(VERSION.encode())
-    for path in sorted(FRONTEND_DIR.glob("*.js")):
+    for path in sorted(FRONTEND_DIR.rglob("*.js")):
         digest.update(path.read_bytes())
     return digest.hexdigest()[:10]
 
@@ -52,13 +52,16 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         async_register_commands(hass)
         hass.data[_WS_REGISTERED] = True
 
-    if not hass.data.get(_STATIC_REGISTERED):
-        await hass.http.async_register_static_paths(
-            [StaticPathConfig(STATIC_URL, str(FRONTEND_DIR), cache_headers=False)]
-        )
-        hass.data[_STATIC_REGISTERED] = True
-
+    # Versionierter Pfad: auch die per relativem import geladenen Module (scene.js, walls.js …)
+    # bekommen nach einem Update eine neue URL, der Browser kann alte und neue nicht mischen.
     version = await hass.async_add_executor_job(_frontend_hash)
+    registered: set[str] = hass.data.setdefault(_STATIC_REGISTERED, set())
+    if version not in registered:
+        await hass.http.async_register_static_paths(
+            [StaticPathConfig(f"{STATIC_URL}/{version}", str(FRONTEND_DIR), cache_headers=True)]
+        )
+        registered.add(version)
+
     _async_remove_panel(hass)
     await panel_custom.async_register_panel(
         hass,
@@ -66,7 +69,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         webcomponent_name=PANEL_COMPONENT,
         sidebar_title=PANEL_TITLE,
         sidebar_icon=PANEL_ICON,
-        module_url=f"{STATIC_URL}/{PANEL_FILE}?v={version}",
+        module_url=f"{STATIC_URL}/{version}/{PANEL_FILE}",
         embed_iframe=False,
         require_admin=False,
         config={"version": VERSION},

@@ -1,10 +1,13 @@
 // Zuordnung von Home-Assistant-Entitäten zu Räumen und Öffnungen (ohne Three.js, mit node testbar).
 
-import { centroid, pointInPolygon } from "./walls.js";
+import { labelPoint, pointInPolygon } from "./walls.js";
 
 export const CONTACT_CLASSES = ["window", "door", "opening", "garage_door"];
 const ICON_DOMAINS = ["light", "switch", "fan", "cover", "climate"];
 const TOGGLE_DOMAINS = ["light", "switch", "fan", "cover"];
+// Rollläden vor Fenstern/Glastüren bzw. Tore vor Garagenöffnungen (wie bei NeonPlan)
+const BLIND_CLASSES = [undefined, null, "shutter", "blind", "awning", "shade", "curtain", "window"];
+const GARAGE_CLASSES = ["garage", "gate"];
 
 export const domainOf = (entityId) => entityId.slice(0, entityId.indexOf("."));
 
@@ -49,58 +52,85 @@ export function entitiesByArea(hass) {
 }
 
 /**
- * Symbole einer Etage: je Raum mit area_id alle passenden Entitäten, automatisch im Raum verteilt.
- * Manuelle Positionen aus floor.placements haben Vorrang (auch für Entitäten ohne passenden Raum).
- * @returns {{entity_id: string, kind: string, x: number, z: number, y: number|null, room: string|null, manual: boolean}[]}
+ * Manuelle Positionen aller Etagen: placements[] und – wie bei aktuellen NeonPlan-Exporten –
+ * Lampen aus furniture[] mit verknüpfter Entität. placements haben Vorrang.
+ * @returns {Map<string, {floorId: string, x: number, z: number, y: number|null}>}
  */
-export function floorIcons(floor, hass, byArea = entitiesByArea(hass)) {
-  const placements = new Map((floor.placements ?? []).map((p) => [p.entity_id, p]));
-  const icons = [];
-  const used = new Set();
-  for (const room of floor.rooms ?? []) {
-    if (!room.area_id) continue;
-    const ids = (byArea.get(room.area_id) ?? []).filter((id) => iconKind(hass.states[id]));
-    const auto = ids.filter((id) => !placements.has(id));
-    const spots = layout(room.points, auto.length);
-    auto.forEach((id, i) => {
-      icons.push({ entity_id: id, kind: iconKind(hass.states[id]), x: spots[i][0], z: spots[i][1], y: null, room: room.id, manual: false });
-      used.add(id);
-    });
-    for (const id of ids.filter((x) => placements.has(x))) {
-      const p = placements.get(id);
-      icons.push({ entity_id: id, kind: iconKind(hass.states[id]), x: p.x, z: p.z, y: p.y ?? null, room: room.id, manual: true });
-      used.add(id);
+export function manualPositions(building) {
+  const map = new Map();
+  for (const floor of building.floors ?? []) {
+    for (const m of floor.furniture ?? []) {
+      if (typeof m.type !== "string" || !m.type.startsWith("lamp_")) continue;
+      if (!m.entity || m.entity === "none" || map.has(m.entity)) continue;
+      map.set(m.entity, { floorId: floor.id, x: m.x, z: m.z, y: m.mount_y ?? null });
     }
   }
-  for (const p of placements.values()) {
-    if (used.has(p.entity_id)) continue;
-    const kind = iconKind(hass.states?.[p.entity_id]);
-    if (!kind) continue;
-    const room = (floor.rooms ?? []).find((r) => pointInPolygon([p.x, p.z], r.points));
-    icons.push({ entity_id: p.entity_id, kind, x: p.x, z: p.z, y: p.y ?? null, room: room?.id ?? null, manual: true });
+  for (const floor of building.floors ?? []) {
+    for (const p of floor.placements ?? []) map.set(p.entity_id, { floorId: floor.id, x: p.x, z: p.z, y: p.y ?? null });
   }
-  return icons;
+  return map;
 }
 
-/** Verteilt n Punkte in einem Raster um den Schwerpunkt, innerhalb des Polygons. */
+/**
+ * Symbole aller Etagen. Je Bereich zeigt nur ein Raum (der erste) die Geräte automatisch;
+ * Entitäten mit manueller Position (irgendwo im Gebäude) stehen nur dort.
+ * @returns {Map<string, {entity_id: string, kind: string, x: number, z: number, y: number|null, room: string|null, manual: boolean}[]>}
+ */
+export function buildingIcons(building, hass, byArea = entitiesByArea(hass)) {
+  const manual = manualPositions(building);
+  const result = new Map((building.floors ?? []).map((f) => [f.id, []]));
+  const ownedAreas = new Set();
+  for (const floor of building.floors ?? []) {
+    const icons = result.get(floor.id);
+    for (const room of floor.rooms ?? []) {
+      if (!room.area_id || ownedAreas.has(room.area_id)) continue;
+      ownedAreas.add(room.area_id);
+      const auto = (byArea.get(room.area_id) ?? []).filter((id) => iconKind(hass.states[id]) && !manual.has(id));
+      const spots = layout(room.points, auto.length);
+      auto.forEach((id, i) => icons.push({ entity_id: id, kind: iconKind(hass.states[id]), x: spots[i][0], z: spots[i][1], y: null, room: room.id, manual: false }));
+    }
+  }
+  for (const [entityId, p] of manual) {
+    const kind = iconKind(hass.states?.[entityId]);
+    const icons = result.get(p.floorId);
+    if (!kind || !icons) continue;
+    const floor = building.floors.find((f) => f.id === p.floorId);
+    const room = (floor.rooms ?? []).find((r) => pointInPolygon([p.x, p.z], r.points));
+    icons.push({ entity_id: entityId, kind, x: p.x, z: p.z, y: p.y, room: room?.id ?? null, manual: true });
+  }
+  return result;
+}
+
+/** Symbole einer Etage (siehe buildingIcons). */
+export function floorIcons(floor, hass, byArea = entitiesByArea(hass), building = { floors: [floor] }) {
+  return buildingIcons(building, hass, byArea).get(floor.id) ?? [];
+}
+
+/**
+ * Verteilt n Punkte in einem Raster um einen inneren Punkt des Raums. Nur Punkte im Polygon
+ * werden genommen; reicht das Raster nicht, wird es nach außen erweitert.
+ */
 export function layout(points, n) {
   if (!n) return [];
-  const c = centroid(points);
-  const cols = Math.ceil(Math.sqrt(n));
-  const rows = Math.ceil(n / cols);
+  const c = labelPoint(points);
   const xs = points.map((p) => p[0]);
   const zs = points.map((p) => p[1]);
   const w = Math.max(...xs) - Math.min(...xs);
   const d = Math.max(...zs) - Math.min(...zs);
-  const step = Math.max(0.35, Math.min(0.8, (w * 0.7) / cols, (d * 0.7) / rows));
-  const out = [];
-  for (let i = 0; i < n; i++) {
-    const col = i % cols;
-    const row = Math.floor(i / cols);
-    const inRow = Math.min(cols, n - row * cols);
-    const p = [c[0] + (col - (inRow - 1) / 2) * step, c[1] + (row - (rows - 1) / 2) * step + 0.45];
-    out.push(pointInPolygon(p, points) ? p : [c[0], c[1] + 0.45]);
+  const cols = Math.ceil(Math.sqrt(n));
+  const step = Math.max(0.35, Math.min(0.8, (w * 0.7) / cols, (d * 0.7) / Math.ceil(n / cols)));
+  // Kandidaten nach Abstand zum Mittelpunkt sortiert (Ringe), nur im Raum
+  const candidates = [];
+  const R = Math.ceil(Math.max(w, d) / step) + 1;
+  for (let i = -R; i <= R; i++) {
+    for (let j = -R; j <= R; j++) {
+      const p = [c[0] + i * step, c[1] + j * step];
+      if (pointInPolygon(p, points)) candidates.push({ p, r: Math.hypot(i, j * 1.01) });
+    }
   }
+  candidates.sort((a, b) => a.r - b.r);
+  const out = candidates.slice(0, n).map((x) => x.p);
+  while (out.length < n) out.push(c); // winziger Raum: alle auf den Mittelpunkt
   return out;
 }
 
@@ -145,58 +175,69 @@ const CONTACT_FOR_TYPE = {
 };
 
 /**
- * Kontakt- und Rollladen-Entitäten je Öffnung. Ein gesetztes Feld (contact/cover) gilt, "none" heißt
- * keins, null heißt automatisch: freie Sensoren bzw. Rollläden des Raumbereichs werden der Reihe
- * nach Öffnungen passenden Typs zugeordnet.
- * @returns {Map<string, {contact: string|null, cover: string|null}>}
+ * Kontakt- und Rollladen-Entitäten je Öffnung, über alle Etagen (jede Entität höchstens einmal).
+ * Ein gesetztes Feld (contact/cover) gilt, "none" heißt keins, null heißt automatisch: freie
+ * Sensoren bzw. Rollläden des Raumbereichs werden der Reihe nach Öffnungen passenden Typs zugeordnet.
+ * @returns {Map<string, Map<string, {contact: string|null, cover: string|null}>>} Etage -> Öffnung -> Verknüpfung
  */
-export function openingLinks(floor, hass, byArea) {
-  const links = new Map();
-  const rooms = new Map((floor.rooms ?? []).map((r) => [r.id, r]));
-  const explicit = new Set();
-  for (const o of floor.openings ?? []) {
-    for (const key of ["contact", "cover"]) if (o[key] && o[key] !== "none") explicit.add(o[key]);
-  }
-  const taken = new Set(explicit);
-  const sorted = [...(floor.openings ?? [])].sort((a, b) => a.id.localeCompare(b.id));
-  for (const o of sorted) links.set(o.id, { contact: null, cover: null });
-  for (const o of sorted) {
-    const link = links.get(o.id);
-    const ids = byArea.get(rooms.get(o.room_id)?.area_id) ?? [];
-    if (o.contact === "none") link.contact = null;
-    else if (o.contact) link.contact = o.contact;
-    else {
-      const classes = CONTACT_FOR_TYPE[o.type] ?? [];
-      const free = ids.find(
-        (id) => !taken.has(id) && domainOf(id) === "binary_sensor" && classes.includes(hass.states[id]?.attributes?.device_class),
-      );
-      if (free) {
-        link.contact = free;
-        taken.add(free);
-      }
+export function buildingLinks(building, hass, byArea) {
+  const result = new Map();
+  const taken = new Set();
+  for (const floor of building.floors ?? []) {
+    for (const o of floor.openings ?? []) {
+      for (const key of ["contact", "cover", "contact2", "tilt", "tilt2", "position"]) if (o[key] && o[key] !== "none") taken.add(o[key]);
     }
-    if (o.cover === "none") link.cover = null;
-    else if (o.cover) link.cover = o.cover;
-    else if (o.type !== "door" || o.style === "glass" || o.style === "sliding") {
-      const wantGarage = o.type === "garage";
-      const free = ids.find((id) => {
-        if (taken.has(id) || domainOf(id) !== "cover") return false;
-        return (hass.states[id]?.attributes?.device_class === "garage") === wantGarage;
-      });
-      if (free) {
-        link.cover = free;
-        taken.add(free);
+  }
+  for (const floor of building.floors ?? []) {
+    const links = new Map();
+    result.set(floor.id, links);
+    const rooms = new Map((floor.rooms ?? []).map((r) => [r.id, r]));
+    const sorted = [...(floor.openings ?? [])].sort((a, b) => a.id.localeCompare(b.id));
+    for (const o of sorted) {
+      const link = { contact: null, cover: null };
+      links.set(o.id, link);
+      const ids = byArea.get(rooms.get(o.room_id)?.area_id) ?? [];
+      if (o.contact && o.contact !== "none") link.contact = o.contact;
+      else if (o.contact !== "none") {
+        const classes = CONTACT_FOR_TYPE[o.type] ?? [];
+        const free = ids.find((id) => !taken.has(id) && domainOf(id) === "binary_sensor" && classes.includes(hass.states[id]?.attributes?.device_class));
+        if (free) {
+          link.contact = free;
+          taken.add(free);
+        }
+      }
+      if (o.cover && o.cover !== "none") link.cover = o.cover;
+      else if (o.cover !== "none" && (o.type !== "door" || o.style === "glass" || o.style === "sliding")) {
+        const classes = o.type === "garage" ? GARAGE_CLASSES : BLIND_CLASSES;
+        const free = ids.find((id) => !taken.has(id) && domainOf(id) === "cover" && classes.includes(hass.states[id]?.attributes?.device_class));
+        if (free) {
+          link.cover = free;
+          taken.add(free);
+        }
       }
     }
   }
-  return links;
+  return result;
 }
 
-/** Offen-Zustand eines Kontakts (binary_sensor an = offen; Cover offen/öffnend). */
+/** Verknüpfungen einer Etage (siehe buildingLinks). */
+export function openingLinks(floor, hass, byArea, building = { floors: [floor] }) {
+  return buildingLinks(building, hass, byArea).get(floor.id) ?? new Map();
+}
+
+const OPEN_WORDS = ["on", "open", "opened", "offen", "geöffnet", "tilted", "gekippt"];
+
+/**
+ * Offen-Zustand: binary_sensor an, Cover offen/öffnend, Fenstergriff-Sensoren (Zustand oder
+ * Attribut window_state "open"/"tilted", auch auf Deutsch) zählen als offen.
+ */
 export function isOpen(stateObj) {
   if (!stateObj) return false;
-  if (domainOf(stateObj.entity_id) === "cover") return ["open", "opening"].includes(stateObj.state);
-  return stateObj.state === "on";
+  const domain = domainOf(stateObj.entity_id);
+  if (domain === "cover") return ["open", "opening"].includes(stateObj.state);
+  if (domain === "binary_sensor") return stateObj.state === "on";
+  const value = String(stateObj.attributes?.window_state ?? stateObj.state).toLowerCase();
+  return OPEN_WORDS.includes(value);
 }
 
 /** Anteil, zu dem ein Rollladen geschlossen ist (0 = offen, 1 = ganz zu), oder null ohne Zustand. */
@@ -207,24 +248,21 @@ export function coverClosedFraction(stateObj) {
   return stateObj.state === "closed" ? 1 : 0;
 }
 
-/** Leistung in Watt (rechnet kW/MW um). */
+const POWER_UNITS = { mW: 1e-3, W: 1, kW: 1e3, MW: 1e6, GW: 1e9 };
+const ENERGY_UNITS = { mWh: 1e-6, Wh: 1e-3, kWh: 1, MWh: 1e3, GWh: 1e6, kJ: 1 / 3600, MJ: 1 / 3.6, GJ: 1000 / 3.6 };
+
+/** Leistung in Watt (Einheit wie in HA, Groß-/Kleinschreibung zählt: mW ≠ MW). */
 export function powerW(stateObj) {
   const v = num(stateObj);
   if (v === null) return null;
-  const unit = (stateObj.attributes?.unit_of_measurement ?? "W").toLowerCase();
-  if (unit === "kw") return v * 1000;
-  if (unit === "mw") return v * 1e6;
-  return v;
+  return v * (POWER_UNITS[stateObj.attributes?.unit_of_measurement ?? "W"] ?? 1);
 }
 
-/** Energie in kWh (rechnet Wh/MWh um). */
+/** Energie in kWh. */
 export function energyKWh(stateObj) {
   const v = num(stateObj);
   if (v === null) return null;
-  const unit = (stateObj.attributes?.unit_of_measurement ?? "kWh").toLowerCase();
-  if (unit === "wh") return v / 1000;
-  if (unit === "mwh") return v * 1000;
-  return v;
+  return v * (ENERGY_UNITS[stateObj.attributes?.unit_of_measurement ?? "kWh"] ?? 1);
 }
 
 /** Werte des Balkonkraftwerks aus settings.energy. */
@@ -263,8 +301,8 @@ function hsl(h, s, l) {
 }
 
 /**
- * Kurzer Schlüssel über alle Zustände, die das Modell betreffen. Nur wenn er sich ändert,
- * wird neu gezeichnet (hass ändert sich bei jedem beliebigen Zustandswechsel).
+ * Alle Entitäten, deren Zustand das Modell betrifft. Nur wenn sich einer davon ändert (oder
+ * erscheint/verschwindet), wird neu gezeichnet – hass ändert sich bei jedem Zustandswechsel.
  */
 export function watchedEntities(building, hass, byArea) {
   const ids = new Set();
@@ -283,8 +321,8 @@ export function watchedEntities(building, hass, byArea) {
       }
     }
     for (const o of floor.openings ?? []) for (const key of ["contact", "cover"]) if (o[key] && o[key] !== "none") ids.add(o[key]);
-    for (const p of floor.placements ?? []) ids.add(p.entity_id);
   }
+  for (const id of manualPositions(building).keys()) ids.add(id);
   for (const id of Object.values(building.settings?.energy ?? {})) if (typeof id === "string") ids.add(id);
   return [...ids].sort();
 }
