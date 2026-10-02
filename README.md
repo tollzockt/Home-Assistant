@@ -75,7 +75,22 @@ settings          wall_exterior (0.24), wall_interior (0.12), energy {…}
   Mitte der Öffnung** vom Punkt *i* (wie bei NeonPlan).
 - `contact`/`cover` einer Öffnung: `null` = automatisch aus dem Bereich des Raums, `"none"` = keins,
   sonst die Entitäts-ID.
-- Gartenflächen liegen auf der Höhe ihrer Etage.
+- Gartenflächen liegen auf der Höhe ihrer Etage. **Hang/Böschung:** Eine Gartenfläche kann zusätzlich
+  `heights` haben (Meter über ihrer Etage, ein Wert je Eckpunkt); sie wird dann schräg dargestellt.
+- Gartenflächen mit `area_id` (und optional `name`) bekommen wie Räume eine Beschriftung und die Geräte
+  ihres Bereichs (z. B. Gartenlicht). NeonPlan ignoriert diese Zusatzfelder.
+- Räume, die mit Spalt nebeneinander gezeichnet sind (Innenmaße), bietet der Import an zu schließen:
+  gegenüberliegende Kanten bis 45 cm Abstand kommen auf eine gemeinsame Mittellinie.
+
+### NeonPlan-Export aufbereiten
+
+```bash
+node tools/neonplan_aufbereiten.mjs neonplan-export.json haus3d.json
+```
+
+Löst Garten-Etagen (unter 1 m Höhe, Gartenflächen als Räume gezeichnet) in Gartenflächen der Hausetage
+auf gleicher Höhe auf, schließt Lücken zwischen Räumen und trägt die Energie-Entitäten ein. Danach
+`haus3d.json` im Panel importieren.
 
 ### Energie-Entitäten
 

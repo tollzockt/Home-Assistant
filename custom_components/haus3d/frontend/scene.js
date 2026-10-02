@@ -284,8 +284,15 @@ export class HouseScene {
       entry.openings.set(placed.opening.id, item);
     }
 
-    // Garten
-    for (const area of floor.outdoor ?? []) group.add(this._buildOutdoor(area, elev));
+    // Garten; Gartenflächen mit Bereich bekommen einen Anker für Beschriftung und Geräte
+    for (const area of floor.outdoor ?? []) {
+      group.add(this._buildOutdoor(area, elev));
+      if (!area.area_id) continue;
+      const c = labelPoint(area.points);
+      const hs = Array.isArray(area.heights) ? area.heights : [];
+      const y = hs.length ? hs.reduce((a, b) => a + (Number(b) || 0), 0) / hs.length : 0;
+      this.anchors.push({ key: `room:${floor.id}:${area.id}`, floorId: floor.id, position: new THREE.Vector3(c[0], elev + y + 0.05, c[1]) });
+    }
 
     this.root.add(group);
     this.floors.set(floor.id, entry);
@@ -411,7 +418,15 @@ export class HouseScene {
   _buildOutdoor(area, elev) {
     const look = OUTDOOR[area.type] ?? OUTDOOR.lawn;
     const group = new THREE.Group();
-    const geo = flatOrExtruded(area.points, look.h);
+    const heights = Array.isArray(area.heights) && area.heights.length === area.points.length ? area.heights.map((h) => Number(h) || 0) : null;
+    let geo;
+    if (heights && look.h === 0) {
+      // schräge Fläche (Hang, Böschung): Höhe je Eckpunkt
+      geo = slopedSurface(area.points, heights);
+    } else {
+      geo = flatOrExtruded(area.points, look.h);
+      if (heights) geo.translate(0, heights.reduce((a, b) => a + b, 0) / heights.length, 0);
+    }
     geo.translate(0, elev + look.y, 0);
     const mesh = new THREE.Mesh(geo, this.outdoorMats[area.type] ?? this.outdoorMats.lawn);
     group.add(mesh);
@@ -714,3 +729,28 @@ function footing(floors, floor) {
   return gap > 0 && gap <= 1 ? Math.max(SLAB, gap) : SLAB;
 }
 
+
+/** Fläche mit Höhe je Eckpunkt (relativ), trianguliert; Plan [x, z] -> Welt (x, y, z). */
+function slopedSurface(points, heights) {
+  const contour = points.map(([x, z]) => new THREE.Vector2(x, z));
+  const tris = THREE.ShapeUtils.triangulateShape(contour, []);
+  const pos = [];
+  for (const [a, b, c] of tris) {
+    for (const k of [a, c, b]) pos.push(points[k][0], heights[k], points[k][1]);
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
+  geo.computeVertexNormals();
+  // Normalen nach oben ausrichten (Umlaufsinn des Polygons ist beliebig)
+  const n = geo.getAttribute("normal");
+  let up = 0;
+  for (let i = 0; i < n.count; i++) up += n.getY(i);
+  if (up < 0) {
+    for (let i = 0; i < pos.length; i += 9) {
+      for (let j = 0; j < 3; j++) [pos[i + 3 + j], pos[i + 6 + j]] = [pos[i + 6 + j], pos[i + 3 + j]];
+    }
+    geo.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
+    geo.computeVertexNormals();
+  }
+  return geo;
+}

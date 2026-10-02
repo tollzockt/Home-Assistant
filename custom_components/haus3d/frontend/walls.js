@@ -461,3 +461,96 @@ export function pieceFootprint(seg, s0, s1) {
 export function pointOnSegment(seg, s) {
   return add(seg.a, mul(seg.u, s));
 }
+
+/**
+ * Lücken schließen: Räume, die mit einem Spalt nebeneinander gezeichnet sind (Innenmaße statt
+ * Wandmitten), bekommen ihre gegenüberliegenden Kanten auf eine gemeinsame Mittellinie gelegt.
+ * Kanten, die sich über Spalte gegenseitig gegenüberliegen, bilden Gruppen; jede Gruppe kommt auf
+ * die mittlere Linie. Die Ecken der Räume werden danach neu geschnitten.
+ * @param {object[]} rooms Räume im NeonPlan-Format
+ * @param {number} maxGap größter Spalt in Metern, der geschlossen wird
+ * @returns {{rooms: object[], gaps: number[]}} neue Räume (Kopien) und die geschlossenen Spalte
+ */
+export function closeGaps(rooms, maxGap = 0.45) {
+  const MIN_OVERLAP = 0.2;
+  const MAX_OVERLAP = 0.12;
+  const edges = [];
+  rooms.forEach((room, r) => {
+    const pts = room.points ?? [];
+    if (pts.length < 3) return;
+    const inside = signedArea(pts) > 0 ? 1 : -1;
+    for (let i = 0; i < pts.length; i++) {
+      const p = pts[i];
+      const q = pts[(i + 1) % pts.length];
+      const l = len(sub(q, p));
+      if (l < 0.05) continue;
+      const dir = mul(sub(q, p), 1 / l);
+      const u = canonical(dir);
+      const n = leftNormal(u);
+      // Außenseite des Raums bezogen auf n: Innenraum liegt links von dir
+      const outside = -inside * (dot(dir, u) > 0 ? 1 : -1);
+      const tp = dot(u, p);
+      const tq = dot(u, q);
+      edges.push({ r, i, u, n, c: dot(n, p), outside, t0: Math.min(tp, tq), t1: Math.max(tp, tq) });
+    }
+  });
+  // Paare: parallel, zeigen mit der Außenseite zueinander, Spalt 0..maxGap, ausreichend Überlappung
+  const parent = edges.map((_, k) => k);
+  const find = (k) => (parent[k] === k ? k : (parent[k] = find(parent[k])));
+  const gaps = [];
+  for (let a = 0; a < edges.length; a++) {
+    for (let b = a + 1; b < edges.length; b++) {
+      const e = edges[a];
+      const f = edges[b];
+      if (e.r === f.r || Math.abs(cross(e.u, f.u)) > 0.05) continue;
+      const fc = dot(e.n, mul(f.n, f.c)); // Lage von f auf der Normalen von e
+      const gap = (fc - e.c) * e.outside;
+      // auch bereits anliegende (Spalt 0) und leicht überlappende Kanten gehören in die Gruppe,
+      // damit sie mitwandern, wenn ein Nachbar auf derselben Linie verschoben wird
+      if (gap < -MAX_OVERLAP || gap > maxGap || e.outside !== -f.outside * Math.sign(dot(e.n, f.n))) continue;
+      const overlap = Math.min(e.t1, f.t1) - Math.max(e.t0, f.t0);
+      if (overlap < MIN_OVERLAP) continue;
+      parent[find(a)] = find(b);
+      if (Math.abs(gap) > SNAP) gaps.push(gap);
+    }
+  }
+  // Zielgerade je Gruppe: Mittel aus kleinster und größter Lage (bei zwei Kanten genau die Mitte)
+  const groups = new Map();
+  edges.forEach((e, k) => {
+    const g = find(k);
+    if (!groups.has(g)) groups.set(g, []);
+    groups.get(g).push(e);
+  });
+  const target = new Map(); // "r:i" -> neue Lage c auf e.n
+  for (const members of groups.values()) {
+    if (members.length < 2) continue;
+    const ref = members[0];
+    const cs = members.map((e) => dot(ref.n, mul(e.n, e.c)));
+    const mid = (Math.min(...cs) + Math.max(...cs)) / 2;
+    for (const e of members) target.set(`${e.r}:${e.i}`, mid * Math.sign(dot(ref.n, e.n)));
+  }
+  const out = rooms.map((room, r) => {
+    const pts = room.points ?? [];
+    if (pts.length < 3) return { ...room };
+    const lines = pts.map((p, i) => {
+      const q = pts[(i + 1) % pts.length];
+      const d = sub(q, p);
+      const l = len(d) || 1;
+      const dir = mul(d, 1 / l);
+      const n = leftNormal(canonical(dir));
+      const c = target.get(`${r}:${i}`);
+      const shift = c === undefined ? 0 : c - dot(n, p);
+      return { p: add(p, mul(n, shift)), dir };
+    });
+    const points = pts.map((orig, i) => {
+      const a = lines[(i - 1 + pts.length) % pts.length];
+      const b = lines[i];
+      const den = cross(a.dir, b.dir);
+      if (Math.abs(den) < 1e-6) return b.p; // kollinear: Punkt der eigenen Kante
+      const t = cross(sub(b.p, a.p), b.dir) / den;
+      return add(a.p, mul(a.dir, t));
+    });
+    return { ...room, points: points.map(([x, z]) => [Math.round(x * 1000) / 1000, Math.round(z * 1000) / 1000]) };
+  });
+  return { rooms: out, gaps };
+}
