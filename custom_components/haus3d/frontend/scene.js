@@ -148,24 +148,8 @@ export class HouseScene {
     this.sun.position.set(12, 30, 8);
     this.scene.add(this.hemi, this.sun);
 
-    this.mats = {
-      wall: new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.9 }),
-      glass: new THREE.MeshStandardMaterial({ color: 0x9fd3f0, transparent: true, opacity: 0.35, roughness: 0.05, metalness: 0.1, depthWrite: false, side: THREE.DoubleSide }),
-      glassAlert: new THREE.MeshStandardMaterial({ color: ALERT, transparent: true, opacity: 0.45, depthWrite: false, side: THREE.DoubleSide }),
-      frame: new THREE.MeshStandardMaterial({ color: 0xfafafa, roughness: 0.6 }),
-      frameAlert: new THREE.MeshStandardMaterial({ color: ALERT, emissive: ALERT, emissiveIntensity: 0.5 }),
-      door: new THREE.MeshStandardMaterial({ color: 0x8d6e63, roughness: 0.7 }),
-      frontDoor: new THREE.MeshStandardMaterial({ color: 0x455a64, roughness: 0.6 }),
-      garage: new THREE.MeshStandardMaterial({ color: 0xd5d5d5, roughness: 0.5, metalness: 0.2 }),
-      blind: new THREE.MeshStandardMaterial({ color: 0x7b7b7b, roughness: 0.8 }),
-      glow: new THREE.MeshBasicMaterial({ color: WARM, transparent: true, opacity: 0.16, depthWrite: false, blending: THREE.AdditiveBlending }),
-      water: new THREE.MeshStandardMaterial({ color: 0x2f9fe0, transparent: true, opacity: 0.85, roughness: 0.1, emissive: 0x0b4f7a, emissiveIntensity: 0.4 }),
-      solar: new THREE.MeshStandardMaterial({ map: solarTexture(), roughness: 0.3, metalness: 0.4 }),
-      solarFrame: new THREE.MeshStandardMaterial({ color: 0xb0b6bd, metalness: 0.6, roughness: 0.4 }),
-      flowLine: new THREE.MeshBasicMaterial({ color: 0xffc107, transparent: true, opacity: 0.35 }),
-      flowDot: new THREE.MeshBasicMaterial({ color: 0xffd54f }),
-    };
-    this.outdoorMats = Object.fromEntries(Object.entries(OUTDOOR).map(([k, v]) => [k, new THREE.MeshStandardMaterial({ color: v.color, roughness: 1 })]));
+    this.style = "standard";
+    this._makeMats();
 
     this.root = new THREE.Group();
     this.scene.add(this.root);
@@ -187,10 +171,84 @@ export class HouseScene {
 
   setTheme(dark) {
     this.dark = dark;
-    this.scene.background = new THREE.Color(dark ? 0x1b1f24 : 0xe9eef2);
-    this.hemi.intensity = dark ? 1.1 : 1.6;
-    this.sun.intensity = dark ? 1.1 : 1.6;
+    this._applyBackground();
     this.invalidate();
+  }
+
+  /** Darstellungsstil: "standard" oder "cyber" (Cyberpunk/Neon). Baut Materialien und Szene neu. */
+  setStyle(style) {
+    const next = style === "cyber" ? "cyber" : "standard";
+    if (next === this.style) return;
+    this.style = next;
+    this._disposeMats();
+    this._makeMats();
+    this._applyBackground();
+    if (this.building) this.setBuilding(this.building, { keepCamera: true });
+  }
+
+  _applyBackground() {
+    const cyber = this.style === "cyber";
+    this.scene.background = new THREE.Color(cyber ? 0x07030f : this.dark ? 0x1b1f24 : 0xe9eef2);
+    this.hemi.color.set(cyber ? 0x8f7dff : 0xffffff);
+    this.hemi.groundColor.set(cyber ? 0x1a0630 : 0x8a7f70);
+    this.hemi.intensity = cyber ? 1.3 : this.dark ? 1.1 : 1.6;
+    this.sun.intensity = cyber ? 0.7 : this.dark ? 1.1 : 1.6;
+  }
+
+  _makeMats() {
+    const cyber = this.style === "cyber";
+    const std = (o) => new THREE.MeshStandardMaterial(o);
+    this.mats = cyber
+      ? {
+          wall: std({ vertexColors: true, roughness: 0.6, transparent: true, opacity: 0.62, emissive: 0x0a0320 }),
+          glass: std({ color: 0x00e5ff, emissive: 0x00b8d4, emissiveIntensity: 0.9, transparent: true, opacity: 0.4, depthWrite: false, side: THREE.DoubleSide }),
+          glassAlert: std({ color: ALERT, emissive: 0xff1744, emissiveIntensity: 1, transparent: true, opacity: 0.55, depthWrite: false, side: THREE.DoubleSide }),
+          frame: std({ color: 0x1b0f33, emissive: 0x00e5ff, emissiveIntensity: 0.7 }),
+          frameAlert: std({ color: 0xff1744, emissive: 0xff1744, emissiveIntensity: 1.2 }),
+          door: std({ color: 0x24123f, emissive: 0xff2bd6, emissiveIntensity: 0.35 }),
+          frontDoor: std({ color: 0x24123f, emissive: 0xff2bd6, emissiveIntensity: 0.6 }),
+          garage: std({ color: 0x1b0f33, emissive: 0x7c4dff, emissiveIntensity: 0.45 }),
+          blind: std({ color: 0x2a1450, emissive: 0x7c4dff, emissiveIntensity: 0.3 }),
+          glow: new THREE.MeshBasicMaterial({ color: 0xffb000, transparent: true, opacity: 0.22, depthWrite: false, blending: THREE.AdditiveBlending }),
+          water: std({ color: 0x00e5ff, transparent: true, opacity: 0.8, emissive: 0x00e5ff, emissiveIntensity: 0.8 }),
+          solar: std({ map: solarTexture(), roughness: 0.3, metalness: 0.4, emissive: 0x2962ff, emissiveIntensity: 0.25 }),
+          solarFrame: std({ color: 0x1b0f33, emissive: 0x00e5ff, emissiveIntensity: 0.4 }),
+          flowLine: new THREE.MeshBasicMaterial({ color: 0xffd000, transparent: true, opacity: 0.5 }),
+          flowDot: new THREE.MeshBasicMaterial({ color: 0xfff176 }),
+          edge: new THREE.LineBasicMaterial({ color: 0x00f0ff, transparent: true, opacity: 0.95 }),
+          outline: new THREE.LineBasicMaterial({ color: 0xff2bd6, transparent: true, opacity: 0.9 }),
+          gardenLine: new THREE.LineBasicMaterial({ color: 0x1de9b6, transparent: true, opacity: 0.5 }),
+        }
+      : {
+          wall: std({ vertexColors: true, roughness: 0.9 }),
+          glass: std({ color: 0x9fd3f0, transparent: true, opacity: 0.35, roughness: 0.05, metalness: 0.1, depthWrite: false, side: THREE.DoubleSide }),
+          glassAlert: std({ color: ALERT, transparent: true, opacity: 0.45, depthWrite: false, side: THREE.DoubleSide }),
+          frame: std({ color: 0xfafafa, roughness: 0.6 }),
+          frameAlert: std({ color: ALERT, emissive: ALERT, emissiveIntensity: 0.5 }),
+          door: std({ color: 0x8d6e63, roughness: 0.7 }),
+          frontDoor: std({ color: 0x455a64, roughness: 0.6 }),
+          garage: std({ color: 0xd5d5d5, roughness: 0.5, metalness: 0.2 }),
+          blind: std({ color: 0x7b7b7b, roughness: 0.8 }),
+          glow: new THREE.MeshBasicMaterial({ color: WARM, transparent: true, opacity: 0.16, depthWrite: false, blending: THREE.AdditiveBlending }),
+          water: std({ color: 0x2f9fe0, transparent: true, opacity: 0.85, roughness: 0.1, emissive: 0x0b4f7a, emissiveIntensity: 0.4 }),
+          solar: std({ map: solarTexture(), roughness: 0.3, metalness: 0.4 }),
+          solarFrame: std({ color: 0xb0b6bd, metalness: 0.6, roughness: 0.4 }),
+          flowLine: new THREE.MeshBasicMaterial({ color: 0xffc107, transparent: true, opacity: 0.35 }),
+          flowDot: new THREE.MeshBasicMaterial({ color: 0xffd54f }),
+        };
+    const garden = cyber
+      ? { lawn: 0x062a24, terrace: 0x2a1450, path: 0x1a1030, driveway: 0x140c26, pool: 0x1b0f33, bed: 0x3a0f3a, hedge: 0x0b4f3f, fence: 0x4a148c }
+      : Object.fromEntries(Object.entries(OUTDOOR).map(([k, v]) => [k, v.color]));
+    this.outdoorMats = Object.fromEntries(
+      Object.keys(OUTDOOR).map((k) => [k, std(cyber ? { color: garden[k], emissive: garden[k], emissiveIntensity: 0.35, roughness: 1 } : { color: garden[k], roughness: 1 })]),
+    );
+  }
+
+  _disposeMats() {
+    for (const m of [...Object.values(this.mats ?? {}), ...Object.values(this.outdoorMats ?? {})]) {
+      m.map?.dispose();
+      m.dispose();
+    }
   }
 
   resize() {
@@ -219,6 +277,14 @@ export class HouseScene {
     this.warnings = [];
     for (const floor of building.floors ?? []) this._buildFloor(floor, building.settings ?? {}, footing(building.floors, floor));
     this._buildEnergy(building);
+    if (this.style === "cyber") {
+      const lowest = Math.min(0, ...(building.floors ?? []).map((f) => f.elevation ?? 0));
+      const grid = new THREE.GridHelper(120, 120, 0xff2bd6, 0x2a1450);
+      grid.position.y = lowest - 0.08;
+      grid.material.transparent = true;
+      grid.material.opacity = 0.55;
+      this.root.add(grid);
+    }
     this.setFilter(this.filter, { fit: !keepCamera });
   }
 
@@ -235,7 +301,7 @@ export class HouseScene {
     for (const room of floor.rooms ?? []) {
       const geo = flatOrExtruded(room.points, SLAB);
       geo.translate(0, elev - SLAB, 0);
-      const base = new THREE.Color(FLOOR_COLORS[room.floor_material] ?? FLOOR_COLORS.wood);
+      const base = new THREE.Color(this.style === "cyber" ? 0x0e0820 : FLOOR_COLORS[room.floor_material] ?? FLOOR_COLORS.wood);
       const mat = new THREE.MeshStandardMaterial({ color: base.clone(), roughness: 0.85, emissive: 0x000000 });
       const mesh = new THREE.Mesh(geo, mat);
       group.add(mesh);
@@ -259,11 +325,14 @@ export class HouseScene {
     const height = floor.height ?? 2.5;
     const prisms = new PrismBuilder();
     const dark = this.dark;
-    const colors = {
-      exterior: new THREE.Color(dark ? 0xc9c3b8 : 0xf3efe7),
-      interior: new THREE.Color(dark ? 0xbdb7ac : 0xe7e1d6),
-      cap: new THREE.Color(dark ? 0x5d5a55 : 0x77726b),
-    };
+    const cyber = this.style === "cyber";
+    const colors = cyber
+      ? { exterior: new THREE.Color(0x1d0f3a), interior: new THREE.Color(0x160b2e), cap: new THREE.Color(0x00e5ff) }
+      : {
+          exterior: new THREE.Color(dark ? 0xc9c3b8 : 0xf3efe7),
+          interior: new THREE.Color(dark ? 0xbdb7ac : 0xe7e1d6),
+          cap: new THREE.Color(dark ? 0x5d5a55 : 0x77726b),
+        };
     for (const seg of segments) {
       const h = seg.height ?? height;
       const color = seg.kind === "exterior" ? colors.exterior : colors.interior;
@@ -276,6 +345,11 @@ export class HouseScene {
     }
     const walls = new THREE.Mesh(prisms.geometry(), this.mats.wall);
     group.add(walls);
+    if (cyber) {
+      // Neonkanten an allen Wandkanten, Raumumrisse in Magenta knapp über dem Boden
+      group.add(new THREE.LineSegments(new THREE.EdgesGeometry(walls.geometry, 25), this.mats.edge));
+      for (const room of floor.rooms ?? []) group.add(outline(room.points, elev + 0.015, this.mats.outline));
+    }
     entry.occluders.push(walls);
 
     // Öffnungen
@@ -433,6 +507,10 @@ export class HouseScene {
     geo.translate(0, elev + look.y, 0);
     const mesh = new THREE.Mesh(geo, this.outdoorMats[area.type] ?? this.outdoorMats.lawn);
     group.add(mesh);
+    if (this.mats.gardenLine) {
+      const hs = Array.isArray(area.heights) && area.heights.length === area.points.length ? area.heights : null;
+      group.add(outline(area.points, elev + look.y + look.h + 0.01, this.mats.gardenLine, hs));
+    }
     if (area.type === "pool") {
       // Wasser etwas nach innen versetzt, über dem Rand
       const c = centroid(area.points);
@@ -606,7 +684,7 @@ export class HouseScene {
           else color.setRGB(...s.tempColor(t), THREE.SRGBColorSpace);
         } else {
           color.copy(r.base);
-          if (this.dark) color.multiplyScalar(0.8);
+          if (this.dark && this.style !== "cyber") color.multiplyScalar(0.8);
         }
         r.mesh.material.emissive.copy(lit && !s.tempMode ? WARM : new THREE.Color(0x000000));
         r.mesh.material.emissiveIntensity = lit ? 0.45 : 0;
@@ -756,4 +834,10 @@ function slopedSurface(points, heights) {
     geo.computeVertexNormals();
   }
   return geo;
+}
+
+/** Umriss eines Polygons als Linie (optional mit Höhe je Punkt). */
+function outline(points, y, material, heights = null) {
+  const pts = points.map(([x, z], i) => new THREE.Vector3(x, y + (heights ? Number(heights[i]) || 0 : 0), z));
+  return new THREE.LineLoop(new THREE.BufferGeometry().setFromPoints(pts), material);
 }
