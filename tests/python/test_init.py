@@ -38,7 +38,8 @@ async def test_setup_registers_panel_and_seeds(hass: HomeAssistant, setup_integr
     panel = panels[PANEL_URL_PATH]
     assert panel.sidebar_title == "Haus 3D"
     assert panel.sidebar_icon == "mdi:home-floor-3"
-    assert panel.config["_panel_custom"]["module_url"].startswith("/haus3d_static/haus3d-panel.js?v=")
+    module_url = panel.config["_panel_custom"]["module_url"]
+    assert module_url.startswith("/haus3d_static/") and module_url.endswith("/haus3d-panel.js")
     assert [f["id"] for f in hass.data[DOMAIN].building["floors"]] == [f["id"] for f in SEED["floors"]]
     assert hass.data[DOMAIN].revision == 1
 
@@ -63,9 +64,12 @@ async def test_reload_and_unload(hass: HomeAssistant, setup_integration: MockCon
 
 async def test_static_frontend_served(hass: HomeAssistant, setup_integration, hass_client) -> None:
     client = await hass_client()
-    for path in ("haus3d-panel.js", "walls.js", "vendor/three.module.min.js", "vendor/OrbitControls.js"):
-        resp = await client.get(f"/haus3d_static/{path}")
+    module_url = hass.data[frontend.DATA_PANELS][PANEL_URL_PATH].config["_panel_custom"]["module_url"]
+    base = module_url.rsplit("/", 1)[0]  # versionierter Pfad, gilt auch für die relativen Imports
+    for path in ("haus3d-panel.js", "walls.js", "scene.js", "vendor/three.module.min.js", "vendor/OrbitControls.js"):
+        resp = await client.get(f"{base}/{path}")
         assert resp.status == 200, path
+        assert "max-age" in resp.headers.get("Cache-Control", ""), path
 
 
 async def test_ws_get_and_save(hass: HomeAssistant, setup_integration, hass_ws_client) -> None:
@@ -187,3 +191,67 @@ async def test_stored_state_survives_restart(hass: HomeAssistant, hass_storage) 
     # kein Überschreiben mit dem Startstand, wenn schon etwas gespeichert ist
     assert hass.data[DOMAIN].revision == 7
     assert hass.data[DOMAIN].building["floors"] == []
+
+
+async def test_concurrent_saves_conflict(hass: HomeAssistant, setup_integration, hass_ws_client) -> None:
+    """Zwei gleichzeitige Speichervorgänge mit derselben Revision: einer muss als Konflikt scheitern."""
+    import asyncio
+    from unittest.mock import patch
+
+    from homeassistant.helpers.storage import Store
+
+    original = Store._async_write_data
+
+    async def slow_write(self, *args, **kwargs):
+        await asyncio.sleep(0.01)  # wie das echte Schreiben im Executor: gibt die Schleife frei
+        return await original(self, *args, **kwargs)
+
+    ws1 = await hass_ws_client(hass)
+    ws2 = await hass_ws_client(hass)
+    a = copy.deepcopy(SEED)
+    a["floors"][0]["name"] = "A"
+    b = copy.deepcopy(SEED)
+    b["floors"][0]["name"] = "B"
+    with patch.object(Store, "_async_write_data", slow_write):
+        await ws1.send_json({"id": 1, "type": "haus3d/building/save", "building": a, "revision": 1})
+        await ws2.send_json({"id": 1, "type": "haus3d/building/save", "building": b, "revision": 1})
+        r1 = await ws1.receive_json()
+        r2 = await ws2.receive_json()
+    assert sorted([r1["success"], r2["success"]]) == [False, True]
+    failed = r1 if not r1["success"] else r2
+    assert failed["error"]["code"] == "conflict"
+    assert hass.data[DOMAIN].revision == 2
+
+
+async def test_free_wall_opening_without_room(hass: HomeAssistant, setup_integration, hass_ws_client) -> None:
+    """NeonPlan: Öffnung in freistehender Wand außerhalb aller Räume hat room_id = Wand-ID."""
+    building = copy.deepcopy(SEED)
+    floor = building["floors"][1]
+    floor["walls"] = [{"id": "wall_garden", "a": [-20, -20], "b": [-15, -20]}]
+    floor["openings"].append(
+        {"id": "o_garden", "room_id": "wall_garden", "wall": "wall_garden", "edge": 0, "offset": 2, "width": 1,
+         "type": "door", "sill": 0, "height": 2}
+    )
+    ws = await hass_ws_client(hass)
+    await ws.send_json({"id": 1, "type": "haus3d/building/save", "building": building})
+    msg = await ws.receive_json()
+    assert msg["success"], msg
+    # unbekannte Wand bleibt ein Fehler
+    floor["openings"][-1]["wall"] = "gibt_es_nicht"
+    await ws.send_json({"id": 2, "type": "haus3d/building/save", "building": building})
+    msg = await ws.receive_json()
+    assert msg["error"]["code"] == "invalid_format"
+
+
+async def test_invalid_stored_state_is_backed_up(hass: HomeAssistant, hass_storage) -> None:
+    broken = {"revision": 5, "building": {"version": 1, "floors": [{"id": "eg"}]}}
+    hass_storage["haus3d.building"] = {"version": 1, "minor_version": 1, "key": "haus3d.building", "data": broken}
+    from homeassistant.setup import async_setup_component
+
+    assert await async_setup_component(hass, "http", {})
+    entry = MockConfigEntry(domain=DOMAIN, data={})
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    assert hass.data[DOMAIN].building["floors"] == []
+    assert hass_storage["haus3d.building_invalid"]["data"] == broken

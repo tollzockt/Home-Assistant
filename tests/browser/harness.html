@@ -25,6 +25,12 @@ customElements.define("ha-icon", class extends HTMLElement {
   attributeChangedCallback() { this.textContent = (this.getAttribute("icon") || "").replace("mdi:", "").slice(0, 2); this.style.fontSize = "11px"; }
 });
 const data = await (await fetch("../../custom_components/haus3d/haus-daten.json")).json();
+// Testfälle für Türen: zweiflügelig und Schiebetür, beide offen
+const eg = data.floors.find((f) => f.id === "eg");
+for (const o of eg.openings) {
+  if (o.id === "wz_fenster_west") Object.assign(o, { type: "door", sill: 0, height: 2.1, leaves: 2, style: "glass", contact: "binary_sensor.terrasse_doppel" });
+  if (o.id === "sz_fenster") Object.assign(o, { type: "door", sill: 0, height: 2.1, style: "sliding", contact: "binary_sensor.schiebetuer" });
+}
 const st = (entity_id, state, attributes = {}) => ({ entity_id, state, attributes: { friendly_name: entity_id, ...attributes }, last_updated: "" });
 const states = {};
 const entities = {};
@@ -48,6 +54,8 @@ add(st("cover.garagentor", "open", { device_class: "garage", current_position: 1
 add(st("light.bar", "on"), "bar");
 add(st("light.versteckt", "on"), "bar", { hidden: true });
 add(st("switch.diagnose", "on"), "bar", { entity_category: "diagnostic" });
+add(st("binary_sensor.terrasse_doppel", "on", { device_class: "door" }), "wohnzimmer_x");
+add(st("binary_sensor.schiebetuer", "on", { device_class: "door" }), "schlafzimmer_x");
 add(st("sensor.waschraum_temperatur", "19.5", { device_class: "temperature" }), "waschraum");
 const energy = {
   "sensor.system_anker_solix_sb_solarleistung": st("sensor.system_anker_solix_sb_solarleistung", "412", { unit_of_measurement: "W" }),

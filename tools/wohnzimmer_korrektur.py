@@ -51,7 +51,7 @@ def _opening(room_id: str, oid: str, typ: str, offset: float, width: float, sill
     return data
 
 
-def apply(building: dict, offset_mode: str) -> list[str]:
+def apply(building: dict, offset_mode: str, force: bool = False) -> list[str]:
     """Wendet die Korrektur an und gibt eine Beschreibung der Änderungen zurück."""
     log: list[str] = []
     candidates = [
@@ -75,28 +75,38 @@ def apply(building: dict, offset_mode: str) -> list[str]:
     if len(windows) != 1:
         raise SystemExit(f"Erwartet genau ein altes Fenster auf Kante 0, gefunden: {len(windows)} – bitte prüfen")
     old = windows[0]
-    floor["openings"].remove(old)
-    log.append(f"entfernt: {old['id']} (Mitte {old['offset']}, Breite {old['width']})")
 
+    # erst alles prüfen, dann ändern: ragt eine Öffnung über die Kante, bleibt die Datei unverändert
+    new = []
+    problems = []
     for oid, typ, value, width, sill, height, extra in NEW_OPENINGS:
         centre = value + width / 2 if offset_mode == "rand" else value
         start, end = centre - width / 2, centre + width / 2
-        if start < 0 or end > edge_len:
-            log.append(f"WARNUNG: {oid} ({start:.3f}–{end:.3f} m) liegt nicht ganz auf der Kante (Länge {edge_len:.3f} m)")
-        floor["openings"].append(_opening(room["id"], oid, typ, centre, width, sill, height, extra))
-        log.append(f"neu: {oid} {typ} Mitte {centre:.3f} m ({start:.3f}–{end:.3f} m)")
+        if start < -1e-9 or end > edge_len + 1e-9:
+            problems.append(f"{oid} ({start:.3f}–{end:.3f} m) liegt nicht ganz auf der Kante (Länge {edge_len:.3f} m)")
+        new.append((_opening(room["id"], oid, typ, centre, width, sill, height, extra), start, end))
+    if problems and not force:
+        raise SystemExit("Abbruch, nichts geändert:\n  " + "\n  ".join(problems) + "\n(--force schreibt trotzdem)")
+    log.extend(f"WARNUNG: {p}" for p in problems)
+
+    floor["openings"].remove(old)
+    log.append(f"entfernt: {old['id']} (Mitte {old['offset']}, Breite {old['width']})")
+    for opening, start, end in new:
+        floor["openings"].append(opening)
+        log.append(f"neu: {opening['id']} {opening['type']} Mitte {opening['offset']:.3f} m ({start:.3f}–{end:.3f} m)")
     return log
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--offset", choices=["rand", "mitte"], required=True, help="Bedeutung der Offset-Werte")
+    parser.add_argument("--force", action="store_true", help="auch schreiben, wenn eine Öffnung über die Kante ragt")
     parser.add_argument("datei", type=Path)
     args = parser.parse_args()
 
     raw = json.loads(args.datei.read_text(encoding="utf-8"))
     building = raw.get("building", raw) if isinstance(raw, dict) and "format" in raw else raw
-    for line in apply(building, args.offset):
+    for line in apply(building, args.offset, args.force):
         print(line)
     args.datei.write_text(json.dumps(raw, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     print(f"gespeichert: {args.datei}", file=sys.stderr)

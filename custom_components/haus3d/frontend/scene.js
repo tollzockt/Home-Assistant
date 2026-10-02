@@ -3,7 +3,7 @@
 
 import * as THREE from "./vendor/three.module.min.js";
 import { OrbitControls } from "./vendor/OrbitControls.js";
-import { centroid, computeWalls, pieceFootprint, wallPieces } from "./walls.js";
+import { centroid, computeWalls, labelPoint, pieceFootprint, pointInPolygon, wallPieces } from "./walls.js";
 
 const FLOOR_COLORS = {
   wood: 0xc89f6a,
@@ -126,6 +126,8 @@ export class HouseScene {
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     container.appendChild(this.renderer.domElement);
     this.renderer.domElement.style.display = "block";
+    this.renderer.domElement.style.width = "100%";
+    this.renderer.domElement.style.height = "100%";
     this.renderer.domElement.style.touchAction = "none";
 
     this.scene = new THREE.Scene();
@@ -194,9 +196,14 @@ export class HouseScene {
   resize() {
     const w = this.container.clientWidth || 1;
     const h = this.container.clientHeight || 1;
-    this.renderer.setSize(w, h, false);
+    this.renderer.setSize(w, h);
     this.camera.aspect = w / h;
     this.camera.updateProjectionMatrix();
+    // setSize leert die Zeichenfläche: sofort neu zeichnen, sonst flackert es bis zum nächsten Frame
+    if (this._running) {
+      this.renderer.render(this.scene, this.camera);
+      this._dirty = false;
+    }
     this._cameraMoved();
   }
 
@@ -210,12 +217,12 @@ export class HouseScene {
     this.flow = null;
     this.building = building;
     this.warnings = [];
-    for (const floor of building.floors ?? []) this._buildFloor(floor, building.settings ?? {});
+    for (const floor of building.floors ?? []) this._buildFloor(floor, building.settings ?? {}, footing(building.floors, floor));
     this._buildEnergy(building);
     this.setFilter(this.filter, { fit: !keepCamera });
   }
 
-  _buildFloor(floor, settings) {
+  _buildFloor(floor, settings, base = SLAB) {
     const group = new THREE.Group();
     group.name = `floor:${floor.id}`;
     const elev = floor.elevation ?? 0;
@@ -238,7 +245,7 @@ export class HouseScene {
       glow.renderOrder = 2;
       group.add(glow);
 
-      const c = centroid(room.points);
+      const c = labelPoint(room.points);
       entry.rooms.set(room.id, { room, mesh, glow, base, center: c });
       this.anchors.push({ key: `room:${floor.id}:${room.id}`, floorId: floor.id, position: new THREE.Vector3(c[0], elev + 0.05, c[1]) });
     }
@@ -256,6 +263,9 @@ export class HouseScene {
     };
     for (const seg of segments) {
       const h = seg.height ?? height;
+      const color = seg.kind === "exterior" ? colors.exterior : colors.interior;
+      // Wandfuß unter dem Boden: schließt die Fuge zur Etage darunter (Deckenstärke)
+      prisms.prism(pieceFootprint(seg, 0, seg.length), elev - base, elev, color, colors.cap);
       for (const piece of wallPieces(seg, openings, h)) {
         const foot = pieceFootprint(seg, piece.s0, piece.s1);
         prisms.prism(foot, elev + piece.y0, elev + piece.y1, seg.kind === "exterior" ? colors.exterior : colors.interior, colors.cap);
@@ -269,7 +279,7 @@ export class HouseScene {
     const segById = new Map(segments.map((s) => [s.id, s]));
     for (const placed of openings) {
       const seg = segById.get(placed.segment);
-      const item = this._buildOpening(seg, placed, elev, height);
+      const item = this._buildOpening(seg, placed, elev, seg.height ?? height);
       group.add(item.group);
       entry.openings.set(placed.opening.id, item);
     }
@@ -295,7 +305,7 @@ export class HouseScene {
     // lokale x-Achse entlang der Wand, lokale z-Achse = linke Normale der Wand
     group.rotation.y = Math.atan2(-seg.u[1], seg.u[0]);
 
-    const item = { opening: o, group, kind: o.type, frames: [], panes: [], leaf: null, pivot: null, blind: null, blindHeight: h, garage: null };
+    const item = { opening: o, group, kind: o.type, frames: [], panes: [], solids: [], leaves: [], blind: null, blindHeight: h, garage: null };
     const box = (w, hh, d, mat, x, y, z) => {
       const m = new THREE.Mesh(new THREE.BoxGeometry(w, hh, d), mat);
       m.position.set(x, y, z);
@@ -327,41 +337,54 @@ export class HouseScene {
           item.frames.push(m);
         }
         const hingeSign = (o.hinge === "right" ? 1 : -1) * rs;
-        const leafW = width - 2 * f;
-        const pivot = new THREE.Group();
-        pivot.position.set(hingeSign * (leafW / 2), 0, 0);
-        const leaf = new THREE.Group();
-        leaf.position.set(-hingeSign * (leafW / 2), 0, 0);
         const leafH = h - f;
         const front = exteriorDoor(seg) ? this.mats.frontDoor : this.mats.door;
-        if (style === "glass" || style === "sliding") {
-          const pane = box(leafW - 0.1, leafH - 0.1, 0.012, this.mats.glass, 0, leafH / 2, 0);
-          pane.renderOrder = 3;
-          leaf.add(pane);
-          item.panes.push(pane);
-          for (const m of [box(leafW, 0.05, 0.04, this.mats.frame, 0, 0.025, 0), box(leafW, 0.05, 0.04, this.mats.frame, 0, leafH - 0.025, 0), box(0.05, leafH, 0.04, this.mats.frame, -leafW / 2 + 0.025, leafH / 2, 0), box(0.05, leafH, 0.04, this.mats.frame, leafW / 2 - 0.025, leafH / 2, 0)]) {
-            leaf.add(m);
-            item.frames.push(m);
-          }
-        } else {
-          const solid = box(leafW, leafH, 0.04, front, 0, leafH / 2, 0);
-          solid.userData.base = front;
-          leaf.add(solid);
-          item.leaf = solid;
-          if (style === "front_glass" || style === "front" || style === "sidelight" || style === "sidelights") {
-            const pane = box(Math.min(0.22, leafW * 0.3), leafH * 0.7, 0.05, this.mats.glass, 0, leafH * 0.5, 0);
+        const sliding = style === "sliding";
+        const swingSide = (o.swing === "out" ? -1 : 1) * rs;
+        // zweiflügelig: Flügel an beiden Zargen, Hauptflügel auf der Anschlagseite
+        const sides = o.leaves === 2 ? [hingeSign, -hingeSign] : [hingeSign];
+        const leafW = (width - 2 * f) / sides.length;
+        item.leaves = [];
+        for (const side of sides) {
+          const pivot = new THREE.Group();
+          // Drehpunkt an der Zarge auf dieser Seite
+          pivot.position.set(side * ((width - 2 * f) / 2), 0, 0);
+          const leaf = new THREE.Group();
+          leaf.position.set(-side * (leafW / 2), 0, 0);
+          if (style === "glass" || sliding) {
+            const pane = box(leafW - 0.1, leafH - 0.1, 0.012, this.mats.glass, 0, leafH / 2, 0);
             pane.renderOrder = 3;
             leaf.add(pane);
             item.panes.push(pane);
+            for (const m of [box(leafW, 0.05, 0.04, this.mats.frame, 0, 0.025, 0), box(leafW, 0.05, 0.04, this.mats.frame, 0, leafH - 0.025, 0), box(0.05, leafH, 0.04, this.mats.frame, -leafW / 2 + 0.025, leafH / 2, 0), box(0.05, leafH, 0.04, this.mats.frame, leafW / 2 - 0.025, leafH / 2, 0)]) {
+              leaf.add(m);
+              item.frames.push(m);
+            }
+          } else {
+            const solid = box(leafW, leafH, 0.04, front, 0, leafH / 2, 0);
+            solid.userData.base = front;
+            leaf.add(solid);
+            item.solids.push(solid);
+            if (style === "front_glass" || style === "front" || style === "sidelight" || style === "sidelights") {
+              const pane = box(Math.min(0.22, leafW * 0.3), leafH * 0.7, 0.05, this.mats.glass, 0, leafH * 0.5, 0);
+              pane.renderOrder = 3;
+              leaf.add(pane);
+              item.panes.push(pane);
+            }
+          }
+          pivot.add(leaf);
+          group.add(pivot);
+          const closed = pivot.position.clone();
+          if (sliding) {
+            // Schiebetür: Flügel fährt zur eigenen Seite hinter die Wand, etwas versetzt
+            const open = closed.clone().add(new THREE.Vector3(side * leafW * 0.9, 0, swingSide * 0.06));
+            item.leaves.push({ pivot, closed, open, angle: 0 });
+          } else {
+            // Drehtür: freies Ende schwenkt zur Aufschlagseite (rein = Raumseite)
+            const freeDir = -side;
+            item.leaves.push({ pivot, closed, open: closed, angle: THREE.MathUtils.degToRad(80) * -swingSide * freeDir });
           }
         }
-        pivot.add(leaf);
-        group.add(pivot);
-        item.pivot = pivot;
-        // Öffnungswinkel: freies Ende schwenkt zur Aufschlagseite (rein = Raumseite)
-        const swingSide = (o.swing === "out" ? -1 : 1) * rs;
-        const freeDir = -hingeSign;
-        item.openAngle = THREE.MathUtils.degToRad(80) * -swingSide * freeDir;
       }
     } else if (o.type === "garage") {
       const panel = box(width, h, 0.06, this.mats.garage, 0, 0, 0);
@@ -423,34 +446,43 @@ export class HouseScene {
     const entry = this.floors.get(shed.floor.id);
     const elev = shed.floor.elevation ?? 0;
     const top = elev + (shed.floor.height ?? 2.5);
-    const xs = shed.room.points.map((p) => p[0]);
-    const zs = shed.room.points.map((p) => p[1]);
-    const [x0, x1, z0, z1] = [Math.min(...xs), Math.max(...xs), Math.min(...zs), Math.max(...zs)];
-    const along = x1 - x0 >= z1 - z0; // Module in Reihen entlang der längeren Seite
-    const length = along ? x1 - x0 : z1 - z0;
-    const depth = along ? z1 - z0 : x1 - x0;
     const tilt = THREE.MathUtils.degToRad(20);
     const solar = new THREE.Group();
-    const pw = 1.0;
-    const pd = 1.7;
-    const nx = Math.max(1, Math.floor((length - 0.2) / (pw + 0.05)));
-    const nz = Math.max(1, Math.floor((depth - 0.2) / (pd * Math.cos(tilt) + 0.3)));
     // Dachplatte
     const roof = new THREE.Mesh(flatOrExtruded(shed.room.points, 0.08), this.mats.solarFrame);
     roof.position.y = top;
     solar.add(roof);
+    // Ausrichtung: settings.north = Richtung Nord im Plan, Grad im Uhrzeigersinn von "oben" (-z).
+    // Lokales +z der Modulreihen zeigt nach Norden, die Module neigen sich nach Süden.
+    const north = THREE.MathUtils.degToRad(building.settings?.north ?? 0);
+    const yaw = Math.PI - north;
+    const cos = Math.cos(yaw);
+    const sin = Math.sin(yaw);
+    // Plan -> lokales System der Modulreihen (Drehung um -yaw) und zurück
+    const toLocal = ([x, z]) => [x * cos - z * sin, x * sin + z * cos];
+    const toPlan = ([a, b]) => [a * cos + b * sin, -a * sin + b * cos];
+    const local = shed.room.points.map(toLocal);
+    const as = local.map((p) => p[0]);
+    const bs = local.map((p) => p[1]);
+    const [a0, a1, b0, b1] = [Math.min(...as), Math.max(...as), Math.min(...bs), Math.max(...bs)];
+    const pw = 1.0;
+    const pd = 1.7;
+    const rowDepth = pd * Math.cos(tilt) + 0.3;
+    const nx = Math.max(1, Math.floor((a1 - a0 - 0.2) / (pw + 0.05)));
+    const nz = Math.max(1, Math.floor((b1 - b0 - 0.2) / rowDepth));
     for (let i = 0; i < nx; i++) {
       for (let j = 0; j < nz; j++) {
+        const la = a0 + (i + 0.5) * ((a1 - a0) / nx);
+        const lb = b0 + (j + 0.5) * ((b1 - b0) / nz);
+        const [px, pz] = toPlan([la, lb]);
+        if (!pointInPolygon([px, pz], shed.room.points)) continue;
+        const holder = new THREE.Group();
+        holder.rotation.y = yaw;
+        holder.position.set(px, top + 0.35, pz);
         const panel = new THREE.Mesh(new THREE.BoxGeometry(pw, 0.04, pd), [this.mats.solarFrame, this.mats.solarFrame, this.mats.solar, this.mats.solarFrame, this.mats.solarFrame, this.mats.solarFrame]);
-        const a = -length / 2 + (i + 0.5) * (length / nx);
-        const b = -depth / 2 + (j + 0.5) * (depth / nz);
-        const cx = (x0 + x1) / 2;
-        const cz = (z0 + z1) / 2;
-        panel.rotation.x = along ? -tilt : 0;
-        panel.rotation.z = along ? 0 : tilt;
-        if (!along) panel.rotation.y = Math.PI / 2;
-        panel.position.set(along ? cx + a : cx + b, top + 0.35, along ? cz + b : cz + a);
-        solar.add(panel);
+        panel.rotation.x = -tilt; // Nordkante (+z) oben
+        holder.add(panel);
+        solar.add(holder);
       }
     }
     entry.group.add(solar);
@@ -461,7 +493,7 @@ export class HouseScene {
     if (!pool.length) return;
     const pts = pool.map((r) => centroid(r.points));
     const target = [pts.reduce((s, p) => s + p[0], 0) / pts.length, pts.reduce((s, p) => s + p[1], 0) / pts.length];
-    const sc = centroid(shed.room.points);
+    const sc = labelPoint(shed.room.points);
     const start = new THREE.Vector3(sc[0], top + 0.6, sc[1]);
     const end = new THREE.Vector3(target[0], top + 0.3, target[1]);
     const ctrl = start.clone().lerp(end, 0.5);
@@ -560,15 +592,18 @@ export class HouseScene {
         }
         r.mesh.material.emissive.copy(lit && !s.tempMode ? WARM : new THREE.Color(0x000000));
         r.mesh.material.emissiveIntensity = lit ? 0.45 : 0;
-        r.glow.visible = lit;
+        r.glow.visible = lit && !s.tempMode;
       }
       for (const [openingId, item] of entry.openings) {
         const key = `${floorId}:${openingId}`;
         const open = s.open.has(key);
         for (const m of item.frames) m.material = open ? this.mats.frameAlert : this.mats.frame;
         for (const p of item.panes) p.material = open ? this.mats.glassAlert : this.mats.glass;
-        if (item.leaf) item.leaf.material = open ? this.mats.frameAlert : item.leaf.userData.base;
-        if (item.pivot) item.pivot.rotation.y = open ? item.openAngle : 0;
+        for (const solid of item.solids) solid.material = open ? this.mats.frameAlert : solid.userData.base;
+        for (const leaf of item.leaves) {
+          leaf.pivot.position.copy(open ? leaf.open : leaf.closed);
+          leaf.pivot.rotation.y = open ? leaf.angle : 0;
+        }
         const closed = s.covers.get(key);
         if (item.garage) {
           const frac = closed == null ? (open ? 0.15 : 1) : Math.max(0.08, closed);
@@ -670,3 +705,12 @@ export class HouseScene {
 function exteriorDoor(seg) {
   return seg.kind === "exterior";
 }
+
+/** Wandfuß unter einer Etage: bis zur Oberkante der Etage darunter (höchstens 1 m), mindestens SLAB. */
+function footing(floors, floor) {
+  const below = (floors ?? []).filter((f) => f.elevation < floor.elevation).sort((p, q) => q.elevation - p.elevation)[0];
+  if (!below) return SLAB;
+  const gap = floor.elevation - (below.elevation + (below.height ?? 2.5));
+  return gap > 0 && gap <= 1 ? Math.max(SLAB, gap) : SLAB;
+}
+

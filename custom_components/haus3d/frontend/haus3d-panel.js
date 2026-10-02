@@ -7,10 +7,10 @@ import {
   domainOf,
   energyValues,
   entitiesByArea,
-  floorIcons,
+  buildingIcons,
+  buildingLinks,
   iconKind,
   isOpen,
-  openingLinks,
   roomClimate,
   roomLit,
   temperatureColor,
@@ -20,6 +20,7 @@ import { exportFile, normalize, parseImport } from "./model.js";
 import { HouseScene } from "./scene.js";
 
 const LONG_PRESS_MS = 550;
+const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
 const fmt = (v, digits = 1) => (v == null ? "–" : v.toLocaleString("de-DE", { maximumFractionDigits: digits, minimumFractionDigits: 0 }));
 
 const ICONS = {
@@ -77,8 +78,8 @@ button.icon {
 }
 button.icon:hover, button.icon:focus-visible { background: rgba(127,127,127,.2); outline: none; }
 button.icon.on { background: rgba(255,255,255,.25); }
-.menu { display: none; }
-:host([narrow]) .menu { display: inline-flex; }
+button.icon.menu { display: none; }
+:host([narrow]) button.icon.menu { display: inline-flex; }
 .floors { display: inline-flex; background: rgba(0,0,0,.18); border-radius: 18px; padding: 3px; gap: 2px; overflow-x: auto; max-width: 100%; }
 .floors button {
   border: none; background: none; color: inherit; font: inherit; font-size: 14px; cursor: pointer;
@@ -193,11 +194,13 @@ class Haus3DPanel extends HTMLElement {
     if (!prev || prev.themes?.darkMode !== hass.themes?.darkMode) this._applyTheme();
     if (!prev || prev.user?.is_admin !== hass.user?.is_admin) this._renderToolbar();
     if (!this._building) return;
-    if (!prev || prev.entities !== hass.entities || prev.devices !== hass.devices || this._statesAddedOrRemoved(prev, hass)) {
+    if (!prev || prev.entities !== hass.entities || prev.devices !== hass.devices) {
       this._refreshEntities();
-    } else if (this._watchedChanged()) {
-      this._updateStates();
+      return;
     }
+    const changed = this._watchedChanged();
+    if (changed === "presence") this._refreshEntities();
+    else if (changed) this._updateStates();
   }
 
   get hass() {
@@ -305,7 +308,7 @@ class Haus3DPanel extends HTMLElement {
     this._revision = revision;
     if (!this._building.floors.length) {
       this._showMessage("Noch kein Grundriss vorhanden. Als Admin über ⋮ → Importieren eine JSON-Datei einlesen.");
-    } else {
+    } else if (this._scene) {
       this._els.msg.hidden = true;
     }
     if (this._scene) {
@@ -356,7 +359,7 @@ class Haus3DPanel extends HTMLElement {
     if (!this._els) return;
     const floors = [...(this._building?.floors ?? [])].sort((a, b) => a.elevation - b.elevation);
     const options = [{ id: "all", name: "Alle" }, ...floors.map((f) => ({ id: f.id, name: f.name }))];
-    if (!options.some((o) => o.id === this._filter)) this._filter = "all";
+    if (this._building && !options.some((o) => o.id === this._filter)) this._filter = "all";
     this._els.floors.replaceChildren(
       ...options.map((o) => {
         const b = document.createElement("button");
@@ -383,16 +386,11 @@ class Haus3DPanel extends HTMLElement {
 
   // ------------------------------------------------------------------ Entitäten und Zustände
 
-  _statesAddedOrRemoved(prev, hass) {
-    // neue/entfernte Entitäten ohne Registry-Änderung (selten): an der Anzahl erkennen
-    return Object.keys(prev.states).length !== Object.keys(hass.states).length;
-  }
-
   _refreshEntities() {
     const hass = this._hass;
     if (!hass || !this._building) return;
     this._byArea = entitiesByArea(hass);
-    this._links = new Map(this._building.floors.map((f) => [f.id, openingLinks(f, hass, this._byArea)]));
+    this._links = buildingLinks(this._building, hass, this._byArea);
     this._watched = watchedEntities(this._building, hass, this._byArea);
     for (const links of this._links.values()) for (const l of links.values()) for (const id of [l.contact, l.cover]) if (id) this._watched.push(id);
     this._buildOverlays();
@@ -400,13 +398,16 @@ class Haus3DPanel extends HTMLElement {
     this._updateStates();
   }
 
+  /** false, true (Zustand geändert) oder "presence" (eine beobachtete Entität kam oder ging). */
   _watchedChanged() {
     const states = this._hass.states;
     let changed = false;
     for (let i = 0; i < this._watched.length; i++) {
       const s = states[this._watched[i]];
-      if (s !== this._watchedRefs[i]) {
+      const old = this._watchedRefs[i];
+      if (s !== old) {
         this._watchedRefs[i] = s;
+        if (!s !== !old) return "presence";
         changed = true;
       }
     }
@@ -419,9 +420,11 @@ class Haus3DPanel extends HTMLElement {
     this._overlays.clear();
     this._iconEls = [];
     const hass = this._hass;
+    if (!this._scene) return; // ohne 3D keine Beschriftungen, die Fehlermeldung bleibt sichtbar
+    const allIcons = buildingIcons(this._building, hass, this._byArea);
     for (const floor of this._building.floors) {
       const elev = floor.elevation ?? 0;
-      const icons = floorIcons(floor, hass, this._byArea);
+      const icons = allIcons.get(floor.id) ?? [];
       for (const room of floor.rooms) {
         // Raumkarte über dem Raum: Name, Klima und die automatisch platzierten Geräte als Reihe
         const anchor = this._scene?.anchors.find((a) => a.key === `room:${floor.id}:${room.id}`);
@@ -461,12 +464,16 @@ class Haus3DPanel extends HTMLElement {
           .filter(([key]) => energy[key] && hass.states[energy[key]])
           .map(([key, icon, name]) => `<div class="row" data-key="${key}" data-entity="${energy[key]}"><ha-icon icon="${icon}"></ha-icon><span>${name}</span><b></b></div>`)
           .join("")}`;
-      el.querySelector("h3").addEventListener("click", () => el.classList.toggle("collapsed"));
+      el.querySelector("h3").addEventListener("click", () => {
+        this._energyCollapsed = el.classList.toggle("collapsed");
+      });
       for (const row of el.querySelectorAll(".row")) {
         row.style.cursor = "pointer";
         row.addEventListener("click", () => this._moreInfo(row.dataset.entity));
       }
-      if (window.matchMedia?.("(max-width: 600px)").matches) el.classList.add("collapsed");
+      // eingeklappt bleibt eingeklappt (auch nach Neuaufbau); Standard: auf schmalen Bildschirmen zu
+      const collapsed = this._energyCollapsed ?? !!window.matchMedia?.("(max-width: 600px)").matches;
+      el.classList.toggle("collapsed", collapsed);
       this._els.stage.appendChild(el);
       this._energyEl = el;
     }
@@ -488,6 +495,11 @@ class Haus3DPanel extends HTMLElement {
     let start = null;
     el.addEventListener("pointerdown", (ev) => {
       ev.stopPropagation();
+      // Rechts-/Mittelklick schalten nie (Rechtsklick öffnet über contextmenu den Dialog)
+      if (ev.pointerType === "mouse" && ev.button !== 0) {
+        start = null;
+        return;
+      }
       longPressed = false;
       start = [ev.clientX, ev.clientY];
       clearTimeout(timer);
@@ -505,6 +517,7 @@ class Haus3DPanel extends HTMLElement {
     el.addEventListener("pointerup", (ev) => {
       ev.stopPropagation();
       cancel();
+      if (ev.pointerType === "mouse" && ev.button !== 0) return;
       if (longPressed || !start) return;
       if (Math.hypot(ev.clientX - start[0], ev.clientY - start[1]) > 10) return;
       start = null;
@@ -704,7 +717,7 @@ class Haus3DPanel extends HTMLElement {
       return;
     }
     const rooms = building.floors.reduce((n, f) => n + f.rooms.length, 0);
-    if (!confirm(`Grundriss mit ${building.floors.length} Etagen und ${rooms} Räumen importieren?\nDer aktuelle Stand wird vorher im Verlauf gesichert.`)) return;
+    if (!confirm(`Grundriss mit ${plural(building.floors.length, "Etage", "Etagen")} und ${plural(rooms, "Raum", "Räumen")} importieren?\nDer aktuelle Stand wird vorher im Verlauf gesichert.`)) return;
     try {
       const res = await this._hass.callWS({ type: "haus3d/building/save", building, revision: this._revision });
       this._setBuilding(res.building, res.revision);
@@ -743,7 +756,7 @@ class Haus3DPanel extends HTMLElement {
       row.className = "item";
       const when = new Date(item.created).toLocaleString("de-DE", { dateStyle: "short", timeStyle: "short" });
       row.innerHTML = `<span></span><button>Wiederherstellen</button>`;
-      row.querySelector("span").textContent = `${when} · ${reasons[item.reason] ?? item.reason} · ${item.floors} Etagen`;
+      row.querySelector("span").textContent = `${when} · ${reasons[item.reason] ?? item.reason} · ${plural(item.floors, "Etage", "Etagen")}`;
       row.querySelector("button").addEventListener("click", async (ev) => {
         ev.stopPropagation();
         this._closePopup();
