@@ -64,6 +64,14 @@ const hidpi = await phone.evaluate(() => {
 if (hidpi.canvas.join() !== hidpi.stage.join()) errors.push(`HiDPI: Canvas ${hidpi.canvas} ≠ Bühne ${hidpi.stage}`);
 const menuVisible = await (await shot("desktop-menu", "", { width: 1280, height: 800 })).evaluate(() => getComputedStyle(window.panel.shadowRoot.querySelector(".menu")).display);
 if (menuVisible !== "none") errors.push(`Menüknopf auf breitem Bildschirm sichtbar (${menuVisible})`);
+// Cyberpunk-Stil (Umschalter im Kopf)
+const cyber = await shot("desktop-cyber", "", { width: 1280, height: 800 });
+await cyber.locator("haus3d-panel .style").click();
+await cyber.waitForTimeout(1500);
+await cyber.screenshot({ path: `${out}/desktop-cyber.png` });
+await cyber.locator("haus3d-panel .floors button", { hasText: "EG" }).click();
+await cyber.waitForTimeout(1500);
+await cyber.screenshot({ path: `${out}/desktop-cyber-eg.png` });
 console.log(JSON.stringify({ info, calls, hidpi, errors: errors.filter((e) => !e.includes("404")) }, null, 1));
 await browser.close();
 server.close();

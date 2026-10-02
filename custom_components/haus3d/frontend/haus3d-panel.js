@@ -160,6 +160,20 @@ button.icon.menu { display: none; }
 .popup .item span { margin-right: auto; font-size: 13px; }
 .popup .item button { width: auto; padding: 6px 10px; min-height: 36px; color: var(--primary-color); }
 .popup .scroll { max-height: 50vh; overflow-y: auto; }
+:host([cyber]) { background: #07030f; }
+:host([cyber]) header { background: linear-gradient(90deg, #12052a, #07030f 60%, #1a0630); color: #e0f7ff; border-bottom: 1px solid #ff2bd6; box-shadow: 0 0 12px rgba(255,43,214,.35); }
+:host([cyber]) header .title { font-family: "Orbitron", "Rajdhani", var(--paper-font-body1_-_font-family, sans-serif); letter-spacing: .12em; text-transform: uppercase; text-shadow: 0 0 8px #00e5ff; }
+:host([cyber]) .floors { background: rgba(0,229,255,.08); border: 1px solid rgba(0,229,255,.35); }
+:host([cyber]) .floors button.sel { background: #00e5ff; color: #07030f; box-shadow: 0 0 10px #00e5ff; }
+:host([cyber]) button.icon.on { background: rgba(255,43,214,.3); box-shadow: 0 0 10px #ff2bd6; }
+:host([cyber]) .label { background: rgba(10,4,25,.85); color: #e0f7ff; border: 1px solid #00e5ff; box-shadow: 0 0 8px rgba(0,229,255,.55); text-shadow: 0 0 6px rgba(0,229,255,.8); }
+:host([cyber]) .label .clim { color: #ff8af0; }
+:host([cyber]) .dev { background: #12082a; color: #ff8af0; border: 1px solid #ff2bd6; box-shadow: 0 0 8px rgba(255,43,214,.6); }
+:host([cyber]) .dev.active { background: #ffd000; color: #1a0630; border-color: #fff176; box-shadow: 0 0 14px #ffd000; }
+:host([cyber]) .dev.alert { background: #ff1744; color: #fff; box-shadow: 0 0 14px #ff1744; }
+:host([cyber]) .energy, :host([cyber]) .legend, :host([cyber]) .popup { background: rgba(10,4,25,.92); color: #e0f7ff; border: 1px solid #ff2bd6; box-shadow: 0 0 14px rgba(255,43,214,.45); }
+:host([cyber]) .energy .row span:nth-child(2) { color: #8f7dff; }
+:host([cyber]) .energy .row b { color: #00e5ff; text-shadow: 0 0 6px #00e5ff; }
 @media (max-width: 600px) {
   header .title { display: none; }
   .label { font-size: 11px; padding: 2px 6px; }
@@ -183,6 +197,7 @@ class Haus3DPanel extends HTMLElement {
     try {
       this._filter = localStorage.getItem("haus3d.filter") || "all";
       this._tempMode = localStorage.getItem("haus3d.temp") === "1";
+      this._style = localStorage.getItem("haus3d.style") === "cyber" ? "cyber" : "standard";
     } catch {
       /* ohne Speicher */
     }
@@ -241,6 +256,7 @@ class Haus3DPanel extends HTMLElement {
           <div class="title">Haus 3D</div>
           <div class="floors" role="tablist" aria-label="Etage"></div>
           <button class="icon temp" title="Temperaturansicht"><ha-icon icon="mdi:thermometer"></ha-icon></button>
+          <button class="icon style" title="Stil: Standard / Cyberpunk"><ha-icon icon="mdi:palette-outline"></ha-icon></button>
           <button class="icon fit" title="Ansicht zurücksetzen"><ha-icon icon="mdi:fit-to-screen-outline"></ha-icon></button>
           <button class="icon more" title="Daten" hidden><ha-icon icon="mdi:dots-vertical"></ha-icon></button>
         </header>
@@ -264,6 +280,16 @@ class Haus3DPanel extends HTMLElement {
     };
     $(".menu").addEventListener("click", () => this.dispatchEvent(new Event("hass-toggle-menu", { bubbles: true, composed: true })));
     $(".fit").addEventListener("click", () => this._scene?.fitCamera());
+    $(".style").addEventListener("click", () => {
+      this._style = this._style === "cyber" ? "standard" : "cyber";
+      this._store("haus3d.style", this._style);
+      this.toggleAttribute("cyber", this._style === "cyber");
+      this._scene?.setStyle(this._style);
+      this._lastStatesKey = null;
+      this._updateStates();
+      this._positionOverlays();
+    });
+    this.toggleAttribute("cyber", this._style === "cyber");
     this._els.temp.addEventListener("click", () => {
       this._tempMode = !this._tempMode;
       this._store("haus3d.temp", this._tempMode ? "1" : "0");
@@ -284,6 +310,7 @@ class Haus3DPanel extends HTMLElement {
         dark: !!this._hass?.themes?.darkMode,
         onCameraChange: () => this._positionOverlays(),
       });
+      this._scene.setStyle(this._style);
     } catch (err) {
       this._showMessage(`3D-Darstellung nicht möglich (WebGL fehlt?): ${err.message}`);
     }
