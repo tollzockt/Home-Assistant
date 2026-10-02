@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
 
-import { computeWalls, pieceFootprint, wallPieces } from "../../custom_components/haus3d/frontend/walls.js";
+import { closeGaps, computeWalls, pieceFootprint, signedArea, wallPieces } from "../../custom_components/haus3d/frontend/walls.js";
 
 const DATA = new URL("../../custom_components/haus3d/haus-daten.json", import.meta.url);
 const building = JSON.parse(readFileSync(DATA, "utf8"));
@@ -239,4 +239,26 @@ test("Gehrung nur mit der Außenwand desselben Raums", () => {
       }
     }
   }
+});
+
+test("Lücken schließen: Räume mit Spalt bekommen eine gemeinsame Innenwand", () => {
+  // Innenmaße mit 25 cm Spalt, ein dritter Raum liegt bereits an (Spalt 0)
+  const rooms = [rect("a", 0, 0, 4, 3), rect("b", 4.25, 0, 8, 1.5), rect("c", 4, 1.5, 8, 3)];
+  assert.equal(interiorCount(rooms), 2); // a|c und b|c liegen schon an, a|b hat den Spalt
+  const { rooms: closed, gaps } = closeGaps(rooms);
+  assert.ok(gaps.some((g) => Math.abs(g - 0.25) < 1e-9));
+  const { segments, warnings } = computeWalls(floorOf(closed));
+  assert.deepEqual(warnings, []);
+  assertNoOverlaps(segments, "Lücken");
+  // a|b und a|c sind Innenwände, b|c auch
+  assert.equal(segments.filter((s) => s.kind === "interior").length, 3);
+  // Flächen bleiben plausibel (Spalt wird halbiert verteilt)
+  for (const r of closed) assert.ok(Math.abs(signedArea(r.points)) > 4);
+});
+
+test("Lücken schließen lässt Außenwände und weit entfernte Räume in Ruhe", () => {
+  const rooms = [rect("a", 0, 0, 4, 3), rect("b", 5, 0, 8, 3)]; // 1 m Abstand: Durchgang/Garten
+  const { rooms: closed, gaps } = closeGaps(rooms);
+  assert.deepEqual(gaps, []);
+  assert.deepEqual(closed.map((r) => r.points), rooms.map((r) => r.points));
 });

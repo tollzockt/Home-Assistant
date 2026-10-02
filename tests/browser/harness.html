@@ -27,8 +27,8 @@ customElements.define("ha-icon", class extends HTMLElement {
 });
 const data = await (await fetch("../../custom_components/haus3d/haus-daten.json")).json();
 // Testfälle für Türen: zweiflügelig und Schiebetür, beide offen
-const eg = data.floors.find((f) => f.id === "eg");
-for (const o of eg.openings) {
+const eg = data.floors.find((f) => f.name === "EG");
+for (const o of eg?.openings ?? []) {
   if (o.id === "wz_fenster_west") Object.assign(o, { type: "door", sill: 0, height: 2.1, leaves: 2, style: "glass", contact: "binary_sensor.terrasse_doppel" });
   if (o.id === "sz_fenster") Object.assign(o, { type: "door", sill: 0, height: 2.1, style: "sliding", contact: "binary_sensor.schiebetuer" });
 }

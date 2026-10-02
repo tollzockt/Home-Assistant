@@ -37,6 +37,15 @@ export function iconKind(stateObj) {
 
 export const canToggle = (entityId) => TOGGLE_DOMAINS.includes(domainOf(entityId));
 
+/**
+ * Orte einer Etage, denen Geräte zugeordnet werden: Räume und Gartenflächen mit area_id
+ * (Erweiterung von Haus 3D; NeonPlan ignoriert area_id/name an Gartenflächen).
+ */
+export function placesOf(floor) {
+  const outdoor = (floor.outdoor ?? []).filter((o) => o.area_id).map((o) => ({ ...o, name: o.name ?? o.area_id, outdoor: true }));
+  return [...(floor.rooms ?? []), ...outdoor];
+}
+
 /** Map Bereich -> sichtbare Entitäts-IDs (nur Entitäten mit Zustand). */
 export function entitiesByArea(hass) {
   const map = new Map();
@@ -82,7 +91,7 @@ export function buildingIcons(building, hass, byArea = entitiesByArea(hass)) {
   const ownedAreas = new Set();
   for (const floor of building.floors ?? []) {
     const icons = result.get(floor.id);
-    for (const room of floor.rooms ?? []) {
+    for (const room of placesOf(floor)) {
       if (!room.area_id || ownedAreas.has(room.area_id)) continue;
       ownedAreas.add(room.area_id);
       const auto = (byArea.get(room.area_id) ?? []).filter((id) => iconKind(hass.states[id]) && !manual.has(id));
@@ -95,7 +104,7 @@ export function buildingIcons(building, hass, byArea = entitiesByArea(hass)) {
     const icons = result.get(p.floorId);
     if (!kind || !icons) continue;
     const floor = building.floors.find((f) => f.id === p.floorId);
-    const room = (floor.rooms ?? []).find((r) => pointInPolygon([p.x, p.z], r.points));
+    const room = placesOf(floor).find((r) => pointInPolygon([p.x, p.z], r.points));
     icons.push({ entity_id: entityId, kind, x: p.x, z: p.z, y: p.y, room: room?.id ?? null, manual: true });
   }
   return result;
@@ -307,7 +316,7 @@ function hsl(h, s, l) {
 export function watchedEntities(building, hass, byArea) {
   const ids = new Set();
   for (const floor of building.floors ?? []) {
-    for (const room of floor.rooms ?? []) {
+    for (const room of placesOf(floor)) {
       for (const id of byArea.get(room.area_id) ?? []) {
         const d = domainOf(id);
         if (d === "sensor") {

@@ -110,7 +110,9 @@ async def test_ws_save_accepts_neonplan_export(hass: HomeAssistant, setup_integr
 async def test_ws_save_validates(hass: HomeAssistant, setup_integration, hass_ws_client) -> None:
     ws = await hass_ws_client(hass)
     bad = copy.deepcopy(SEED)
-    bad["floors"][1]["openings"][0]["room_id"] = "gibt_es_nicht"
+    bad["floors"][1]["openings"].append(
+        {"id": "o1", "room_id": "gibt_es_nicht", "edge": 0, "offset": 1, "width": 1, "type": "door", "sill": 0, "height": 2}
+    )
     await ws.send_json({"id": 1, "type": "haus3d/building/save", "building": bad})
     msg = await ws.receive_json()
     assert not msg["success"]

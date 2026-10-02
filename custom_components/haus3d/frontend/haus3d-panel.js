@@ -11,6 +11,7 @@ import {
   buildingLinks,
   iconKind,
   isOpen,
+  placesOf,
   roomClimate,
   roomLit,
   temperatureColor,
@@ -18,6 +19,7 @@ import {
 } from "./devices.js";
 import { exportFile, normalize, parseImport } from "./model.js";
 import { HouseScene } from "./scene.js";
+import { closeGaps } from "./walls.js";
 
 const LONG_PRESS_MS = 550;
 const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
@@ -427,7 +429,7 @@ class Haus3DPanel extends HTMLElement {
     for (const floor of this._building.floors) {
       const elev = floor.elevation ?? 0;
       const icons = allIcons.get(floor.id) ?? [];
-      for (const room of floor.rooms) {
+      for (const room of placesOf(floor)) {
         // Raumkarte über dem Raum: Name, Klima und die automatisch platzierten Geräte als Reihe
         const anchor = this._scene?.anchors.find((a) => a.key === `room:${floor.id}:${room.id}`);
         const el = document.createElement("div");
@@ -437,7 +439,7 @@ class Haus3DPanel extends HTMLElement {
         for (const icon of icons.filter((i) => i.room === room.id && !i.manual)) devs.appendChild(this._iconEl(icon));
         layer.appendChild(el);
         const pos = anchor?.position.clone() ?? new THREE.Vector3(0, elev, 0);
-        pos.y = elev + 1.0;
+        pos.y += 0.95; // knapp 1 m über dem Boden (bei Hängen über der Fläche)
         this._overlays.set(`room:${floor.id}:${room.id}`, { el, label: el.firstElementChild, floorId: floor.id, position: pos, room });
       }
       // Geräte mit manueller Position (placements) stehen frei an ihrer Stelle
@@ -554,9 +556,10 @@ class Haus3DPanel extends HTMLElement {
     const open = new Set();
     const covers = new Map();
     const roomAlerts = new Map();
+    // Kontakte, die irgendeiner Öffnung (auf irgendeiner Etage) zugeordnet sind
+    const linkedContacts = new Set([...this._links.values()].flatMap((m) => [...m.values()].map((l) => l.contact)).filter(Boolean));
     for (const floor of this._building.floors) {
       const links = this._links.get(floor.id);
-      const linkedContacts = new Set([...links.values()].map((l) => l.contact).filter(Boolean));
       for (const o of floor.openings) {
         const l = links.get(o.id);
         if (!l) continue;
@@ -568,7 +571,7 @@ class Haus3DPanel extends HTMLElement {
           if (o.type === "garage" && isOpen(st)) open.add(key);
         }
       }
-      for (const room of floor.rooms) {
+      for (const room of placesOf(floor)) {
         const key = `${floor.id}:${room.id}`;
         if (roomLit(room, hass, this._byArea)) lit.add(key);
         const climate = roomClimate(room, hass, this._byArea);
@@ -717,6 +720,12 @@ class Haus3DPanel extends HTMLElement {
     } catch (err) {
       this._toast(err.message);
       return;
+    }
+    // Räume mit Spalt dazwischen (Innenmaße statt Wandmitten) ergeben doppelte Außenwände: anbieten zu schließen
+    const closed = building.floors.map((f) => closeGaps(f.rooms));
+    const gapCount = closed.reduce((n, c) => n + c.gaps.length, 0);
+    if (gapCount && confirm(`Zwischen den Räumen gibt es ${plural(gapCount, "Lücke", "Lücken")} (bis 45 cm). Schließen, damit daraus Innenwände werden?\n(Wie „Lücken schließen“ in NeonPlan.)`)) {
+      building.floors.forEach((f, i) => (f.rooms = closed[i].rooms));
     }
     const rooms = building.floors.reduce((n, f) => n + f.rooms.length, 0);
     if (!confirm(`Grundriss mit ${plural(building.floors.length, "Etage", "Etagen")} und ${plural(rooms, "Raum", "Räumen")} importieren?\nDer aktuelle Stand wird vorher im Verlauf gesichert.`)) return;
