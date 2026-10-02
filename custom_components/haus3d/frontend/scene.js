@@ -3,6 +3,7 @@
 
 import * as THREE from "./vendor/three.module.min.js";
 import { OrbitControls } from "./vendor/OrbitControls.js";
+import { buildDevice, buildFurniture, furnitureMaterials } from "./furniture.js";
 import { centroid, computeWalls, labelPoint, pieceFootprint, pointInPolygon, wallPieces } from "./walls.js";
 
 const FLOOR_COLORS = {
@@ -149,10 +150,14 @@ export class HouseScene {
     this.scene.add(this.hemi, this.sun);
 
     this.style = "standard";
+    this.layers = {};
+    this.lampBulbs = new Map(); // entity_id -> Leuchtmittel (Möbel-Lampen und 3D-Geräte)
+    this.devicesGroup = new THREE.Group();
+    this.selected = null;
     this._makeMats();
 
     this.root = new THREE.Group();
-    this.scene.add(this.root);
+    this.scene.add(this.root, this.devicesGroup);
     this.floors = new Map(); // floorId -> {group, rooms: Map, openings: Map, floor}
     this.anchors = []; // Overlay-Anker {key, floorId, position: Vector3}
     this.raycaster = new THREE.Raycaster();
@@ -197,6 +202,7 @@ export class HouseScene {
 
   _makeMats() {
     const cyber = this.style === "cyber";
+    this.furnMats = furnitureMaterials(this.style);
     const std = (o) => new THREE.MeshStandardMaterial(o);
     this.mats = cyber
       ? {
@@ -245,7 +251,8 @@ export class HouseScene {
   }
 
   _disposeMats() {
-    for (const m of [...Object.values(this.mats ?? {}), ...Object.values(this.outdoorMats ?? {})]) {
+    for (const m of [...Object.values(this.mats ?? {}), ...Object.values(this.outdoorMats ?? {}), ...Object.values(this.furnMats ?? {})]) {
+      if (!m) continue;
       m.map?.dispose();
       m.dispose();
     }
@@ -275,6 +282,7 @@ export class HouseScene {
     this.flow = null;
     this.building = building;
     this.warnings = [];
+    this.lampBulbs.clear();
     for (const floor of building.floors ?? []) this._buildFloor(floor, building.settings ?? {}, footing(building.floors, floor));
     this._buildEnergy(building);
     if (this.style === "cyber") {
@@ -286,6 +294,135 @@ export class HouseScene {
       this.root.add(grid);
     }
     this.setFilter(this.filter, { fit: !keepCamera });
+    if (this._deviceList) this.setDevices(this._deviceList);
+    this.applyLayers();
+  }
+
+  // ------------------------------------------------------------------ Ebenen, Geräte, Auswahl
+
+  /** Sichtbarkeit je Ebene: walls, openings, floors, furniture, garden, solar, flow, devices. */
+  setLayers(layers) {
+    this.layers = { ...layers };
+    this.applyLayers();
+  }
+
+  applyLayers() {
+    const on = (name) => this.layers[name] !== false;
+    for (const obj of [this.root, this.devicesGroup]) {
+      obj.traverse((o) => {
+        if (o.userData.layer) o.visible = on(o.userData.layer);
+      });
+    }
+    this.devicesGroup.visible = on("devices") && this._deviceList?.length > 0;
+    this._cameraMoved();
+  }
+
+  /**
+   * Geräte als 3D-Objekte. list: [{entity_id, kind, stateObj, floorId, x, y, z}] (y = Höhe über Boden).
+   * Leere Liste = keine 3D-Geräte (Symbol-Modus).
+   */
+  setDevices(list) {
+    this._deviceList = list;
+    for (const child of [...this.devicesGroup.children]) this._dispose(child);
+    this.devicesGroup.clear();
+    for (const [id, arr] of this.lampBulbs) {
+      const kept = arr.filter((b) => !b.userData.device);
+      if (kept.length) this.lampBulbs.set(id, kept);
+      else this.lampBulbs.delete(id);
+    }
+    for (const d of list) {
+      const entry = this.floors.get(d.floorId);
+      if (!entry) continue;
+      const g = buildDevice(d.kind, d.stateObj, this.furnMats);
+      g.position.set(d.x, (entry.floor.elevation ?? 0) + d.y, d.z);
+      g.userData.entity = d.entity_id;
+      g.userData.floorId = d.floorId;
+      g.traverse((o) => (o.userData.entity = d.entity_id));
+      for (const b of g.userData.bulbs) {
+        b.userData.device = true;
+        if (!this.lampBulbs.has(d.entity_id)) this.lampBulbs.set(d.entity_id, []);
+        this.lampBulbs.get(d.entity_id).push(b);
+      }
+      this.devicesGroup.add(g);
+    }
+    this._syncDeviceVisibility();
+    this.applyLayers();
+  }
+
+  _syncDeviceVisibility() {
+    for (const g of this.devicesGroup.children) g.visible = this.isFloorVisible(g.userData.floorId);
+  }
+
+  /** Was liegt unter dem Bildschirmpunkt? {entity_id} für Geräte/Lampen, {floorId, roomId} für Räume. */
+  pick(clientX, clientY) {
+    const rect = this.renderer.domElement.getBoundingClientRect();
+    const ndc = new THREE.Vector2(((clientX - rect.left) / rect.width) * 2 - 1, -((clientY - rect.top) / rect.height) * 2 + 1);
+    this.raycaster.setFromCamera(ndc, this.camera);
+    this.raycaster.far = Infinity;
+    const targets = [];
+    const visible = (o) => {
+      for (let p = o; p; p = p.parent) if (!p.visible) return false;
+      return true;
+    };
+    this.devicesGroup.traverse((o) => o.isMesh && targets.push(o));
+    for (const entry of this.floors.values()) {
+      if (!entry.group.visible) continue;
+      entry.group.traverse((o) => o.isMesh && (o.userData.entity || o.userData.room) && targets.push(o));
+    }
+    for (const hit of this.raycaster.intersectObjects(targets.filter(visible), false)) {
+      if (hit.object.userData.entity) return { entity_id: hit.object.userData.entity };
+      if (hit.object.userData.room) return { ...hit.object.userData.room };
+    }
+    return null;
+  }
+
+  /** Raum hervorheben (oder null); mit focus fährt die Kamera hin. */
+  selectRoom(sel, { focus = true } = {}) {
+    this.selected = sel;
+    for (const [floorId, entry] of this.floors) {
+      for (const [roomId, r] of entry.rooms) r.selected = !!sel && sel.floorId === floorId && sel.roomId === roomId;
+    }
+    if (sel && focus) {
+      const r = this.floors.get(sel.floorId)?.rooms.get(sel.roomId);
+      if (r) {
+        const xs = r.room.points.map((p) => p[0]);
+        const zs = r.room.points.map((p) => p[1]);
+        const size = Math.max(Math.max(...xs) - Math.min(...xs), Math.max(...zs) - Math.min(...zs), 2);
+        const target = new THREE.Vector3(r.center[0], (this.floors.get(sel.floorId).floor.elevation ?? 0) + 0.5, r.center[1]);
+        const dir = this.camera.position.clone().sub(this.controls.target).normalize();
+        if (dir.y < 0.5) dir.setY(0.8).normalize();
+        this._animateCamera(target, target.clone().add(dir.multiplyScalar(size * 1.7 + 3)));
+      }
+    }
+    this._applySelection();
+  }
+
+  _applySelection() {
+    for (const entry of this.floors.values()) {
+      for (const r of entry.rooms.values()) {
+        if (r.selected) {
+          r.mesh.material.emissive.set(this.style === "cyber" ? 0xff2bd6 : 0x2196f3);
+          r.mesh.material.emissiveIntensity = this.style === "cyber" ? 0.6 : 0.35;
+        }
+      }
+    }
+    this.invalidate();
+  }
+
+  _animateCamera(target, position) {
+    const t0 = this.controls.target.clone();
+    const p0 = this.camera.position.clone();
+    const start = performance.now();
+    const step = () => {
+      const k = Math.min(1, (performance.now() - start) / 450);
+      const e = k * k * (3 - 2 * k);
+      this.controls.target.lerpVectors(t0, target, e);
+      this.camera.position.lerpVectors(p0, position, e);
+      this.controls.update();
+      this._cameraMoved();
+      if (k < 1) requestAnimationFrame(step);
+    };
+    requestAnimationFrame(step);
   }
 
   _buildFloor(floor, settings, base = SLAB) {
@@ -295,6 +432,7 @@ export class HouseScene {
     // Garten in eigener Gruppe: bleibt sichtbar, wenn nur eine Etage gezeigt wird (Gelände ums Haus)
     const garden = new THREE.Group();
     garden.name = `garden:${floor.id}`;
+    garden.userData.layer = "garden";
     const entry = { floor, group, garden, rooms: new Map(), openings: new Map(), occluders: [] };
 
     // Böden
@@ -304,6 +442,8 @@ export class HouseScene {
       const base = new THREE.Color(this.style === "cyber" ? 0x0e0820 : FLOOR_COLORS[room.floor_material] ?? FLOOR_COLORS.wood);
       const mat = new THREE.MeshStandardMaterial({ color: base.clone(), roughness: 0.85, emissive: 0x000000 });
       const mesh = new THREE.Mesh(geo, mat);
+      mesh.userData.layer = "floors";
+      mesh.userData.room = { floorId: floor.id, roomId: room.id };
       group.add(mesh);
       entry.occluders.push(mesh);
 
@@ -344,12 +484,33 @@ export class HouseScene {
       }
     }
     const walls = new THREE.Mesh(prisms.geometry(), this.mats.wall);
+    walls.userData.layer = "walls";
     group.add(walls);
     if (cyber) {
       // Neonkanten an allen Wandkanten, Raumumrisse in Magenta knapp über dem Boden
-      group.add(new THREE.LineSegments(new THREE.EdgesGeometry(walls.geometry, 25), this.mats.edge));
-      for (const room of floor.rooms ?? []) group.add(outline(room.points, elev + 0.015, this.mats.outline));
+      const edges = new THREE.LineSegments(new THREE.EdgesGeometry(walls.geometry, 25), this.mats.edge);
+      edges.userData.layer = "walls";
+      group.add(edges);
+      for (const room of floor.rooms ?? []) {
+        const line = outline(room.points, elev + 0.015, this.mats.outline);
+        line.userData.layer = "floors";
+        group.add(line);
+      }
     }
+    // Möbel (NeonPlan furniture[]); Lampen mit Entität leuchten, wenn das Licht an ist
+    const furn = new THREE.Group();
+    furn.userData.layer = "furniture";
+    for (const item of floor.furniture ?? []) {
+      const obj = buildFurniture(item, this.furnMats, elev, floor.height ?? 2.5);
+      const entity = item.entity && item.entity !== "none" ? item.entity : null;
+      if (entity) {
+        obj.traverse((o) => (o.userData.entity = entity));
+        if (!this.lampBulbs.has(entity)) this.lampBulbs.set(entity, []);
+        this.lampBulbs.get(entity).push(...obj.userData.bulbs);
+      }
+      furn.add(obj);
+    }
+    group.add(furn);
     entry.occluders.push(walls);
 
     // Öffnungen
@@ -357,6 +518,7 @@ export class HouseScene {
     for (const placed of openings) {
       const seg = segById.get(placed.segment);
       const item = this._buildOpening(seg, placed, elev, seg.height ?? height);
+      item.group.userData.layer = "openings";
       group.add(item.group);
       entry.openings.set(placed.opening.id, item);
     }
@@ -581,6 +743,7 @@ export class HouseScene {
         solar.add(holder);
       }
     }
+    solar.userData.layer = "solar";
     entry.group.add(solar);
 
     // Energieflusslinie zum Haus (Schwerpunkt der übrigen Räume der Etage, sonst aller Etagen)
@@ -595,14 +758,17 @@ export class HouseScene {
     const ctrl = start.clone().lerp(end, 0.5);
     ctrl.y += Math.max(1.5, start.distanceTo(end) * 0.25);
     const curve = new THREE.QuadraticBezierCurve3(start, ctrl, end);
+    const flowGroup = new THREE.Group();
+    flowGroup.userData.layer = "flow";
+    entry.group.add(flowGroup);
     const line = new THREE.Mesh(new THREE.TubeGeometry(curve, 48, 0.035, 6, false), this.mats.flowLine);
-    entry.group.add(line);
+    flowGroup.add(line);
     const dots = [];
     const dotGeo = new THREE.SphereGeometry(0.11, 12, 8);
     for (let i = 0; i < 10; i++) {
       const dot = new THREE.Mesh(dotGeo, this.mats.flowDot);
       dot.visible = false;
-      entry.group.add(dot);
+      flowGroup.add(dot);
       dots.push(dot);
     }
     this.flow = { floorId: shed.floor.id, curve, line, dots, phase: 0, speed: 0 };
@@ -612,9 +778,8 @@ export class HouseScene {
   _dispose(obj) {
     obj.traverse((o) => {
       if (o.geometry) o.geometry.dispose();
-      if (o.material && !Object.values(this.mats).includes(o.material) && !Object.values(this.outdoorMats).includes(o.material)) {
-        for (const m of [].concat(o.material)) if (!Object.values(this.mats).includes(m)) m.dispose();
-      }
+      const shared = [...Object.values(this.mats), ...Object.values(this.outdoorMats), ...Object.values(this.furnMats ?? {})];
+      for (const m of [].concat(o.material ?? [])) if (!shared.includes(m)) m.dispose();
     });
   }
 
@@ -624,6 +789,7 @@ export class HouseScene {
   setFilter(filter, { fit = false } = {}) {
     this.filter = this.floors.has(filter) ? filter : "all";
     for (const [id, entry] of this.floors) entry.group.visible = this.filter === "all" || this.filter === id;
+    this._syncDeviceVisibility();
     if (fit) this.fitCamera();
     this._cameraMoved();
   }
@@ -711,6 +877,11 @@ export class HouseScene {
         }
       }
     }
+    for (const [entity, bulbs] of this.lampBulbs) {
+      const on = s.onEntities?.has(entity);
+      for (const b of bulbs) b.material = on ? this.furnMats.bulbOn : this.furnMats.bulb;
+    }
+    this._applySelection();
     if (this.flow) {
       const w = s.feedIn ?? 0;
       const active = w > 1;
@@ -792,7 +963,7 @@ export class HouseScene {
     this._resize.disconnect();
     this.controls.dispose();
     for (const child of [...this.root.children]) this._dispose(child);
-    for (const m of [...Object.values(this.mats), ...Object.values(this.outdoorMats)]) m.dispose();
+    this._disposeMats();
     this.renderer.dispose();
     this.renderer.domElement.remove();
   }

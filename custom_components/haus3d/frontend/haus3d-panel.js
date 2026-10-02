@@ -23,6 +23,35 @@ import { closeGaps } from "./walls.js";
 
 const LONG_PRESS_MS = 550;
 const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
+
+/** Ebenen und ihre Namen im Einstellungsfenster. */
+const LAYERS = [
+  ["walls", "Wände"],
+  ["openings", "Fenster & Türen"],
+  ["floors", "Böden"],
+  ["furniture", "Möbel"],
+  ["garden", "Garten"],
+  ["solar", "Solarmodule"],
+  ["flow", "Energiefluss"],
+  ["devices", "Geräte"],
+  ["labels", "Raumnamen"],
+  ["climate", "Temperatur & Feuchte"],
+  ["energy", "Energieanzeige"],
+];
+
+const DEFAULT_SETTINGS = { style: "standard", deviceMode: "icons", layers: Object.fromEntries(LAYERS.map(([k]) => [k, true])) };
+
+function loadSettings(raw, legacyStyle) {
+  let saved = {};
+  try {
+    saved = JSON.parse(raw ?? "{}") ?? {};
+  } catch {
+    saved = {};
+  }
+  const out = { ...DEFAULT_SETTINGS, ...saved, layers: { ...DEFAULT_SETTINGS.layers, ...(saved.layers ?? {}) } };
+  if (!raw && legacyStyle === "cyber") out.style = "cyber";
+  return out;
+}
 const fmt = (v, digits = 1) => (v == null ? "–" : v.toLocaleString("de-DE", { maximumFractionDigits: digits, minimumFractionDigits: 0 }));
 
 const ICONS = {
@@ -65,6 +94,31 @@ const STYLE = `
   -webkit-tap-highlight-color: transparent;
 }
 [hidden] { display: none !important; }
+.hide-labels .label, .hide-devices .devs, .hide-devices .dev.free, .hide-climate .label .clim { display: none !important; }
+.dialog-backdrop { position: absolute; inset: 0; background: rgba(0,0,0,.35); z-index: 10; display: flex; align-items: flex-start; justify-content: flex-end; padding: 8px; }
+.dialog { background: var(--card-background-color, #fff); color: var(--primary-text-color); border-radius: 14px; width: min(360px, 100%); max-height: calc(100% - 16px); overflow: auto; box-shadow: 0 8px 28px rgba(0,0,0,.4); }
+.dialog-head { display: flex; align-items: center; justify-content: space-between; padding: 6px 6px 6px 16px; font-size: 17px; font-weight: 500; border-bottom: 1px solid var(--divider-color, rgba(127,127,127,.2)); }
+.dialog-body { padding: 4px 16px 16px; }
+.dialog h4 { margin: 14px 0 6px; font-size: 13px; font-weight: 500; color: var(--secondary-text-color); text-transform: uppercase; letter-spacing: .04em; }
+.seg { display: flex; background: rgba(127,127,127,.15); border-radius: 10px; padding: 3px; gap: 3px; }
+.seg button { flex: 1; border: none; background: none; color: inherit; font: inherit; padding: 8px; border-radius: 8px; cursor: pointer; min-height: 38px; }
+.seg button.sel { background: var(--primary-color, #03a9f4); color: #fff; }
+.toggles { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 12px; }
+.toggles label { display: flex; align-items: center; gap: 8px; min-height: 36px; cursor: pointer; font-size: 14px; }
+.toggles input { width: 18px; height: 18px; accent-color: var(--primary-color, #03a9f4); }
+.hint { font-size: 12px; color: var(--secondary-text-color); margin: 14px 0 0; }
+.roompanel { position: absolute; left: 12px; bottom: 12px; width: min(320px, calc(100% - 24px)); max-height: 55%; overflow: auto; z-index: 4;
+  background: var(--card-background-color, #fff); color: var(--primary-text-color); border-radius: 14px; box-shadow: 0 4px 18px rgba(0,0,0,.35); }
+.rp-head { display: flex; align-items: center; justify-content: space-between; padding: 4px 4px 0 14px; font-size: 16px; }
+.rp-sub { padding: 0 14px 6px; font-size: 12px; color: var(--secondary-text-color); }
+.rp-row { display: flex; align-items: center; gap: 10px; padding: 6px 14px; min-height: 44px; cursor: pointer; user-select: none; --mdc-icon-size: 20px; }
+.rp-row:hover { background: rgba(127,127,127,.1); }
+.rp-icon { width: 32px; height: 32px; border-radius: 50%; display: flex; align-items: center; justify-content: center; background: rgba(127,127,127,.15); flex: none; }
+.rp-icon.active { background: #ffc107; color: #3b2a00; }
+.rp-icon.alert { background: var(--error-color, #db4437); color: #fff; }
+.rp-name { flex: 1; font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rp-state { font-size: 13px; color: var(--secondary-text-color); white-space: nowrap; }
+.rp-empty { padding: 8px 14px 14px; color: var(--secondary-text-color); font-size: 13px; }
 .wrap { display: flex; flex-direction: column; height: 100%; }
 header {
   display: flex; align-items: center; gap: 8px;
@@ -171,6 +225,9 @@ button.icon.menu { display: none; }
 :host([cyber]) .dev { background: #12082a; color: #ff8af0; border: 1px solid #ff2bd6; box-shadow: 0 0 8px rgba(255,43,214,.6); }
 :host([cyber]) .dev.active { background: #ffd000; color: #1a0630; border-color: #fff176; box-shadow: 0 0 14px #ffd000; }
 :host([cyber]) .dev.alert { background: #ff1744; color: #fff; box-shadow: 0 0 14px #ff1744; }
+:host([cyber]) .dialog, :host([cyber]) .roompanel { background: rgba(10,4,25,.95); color: #e0f7ff; border: 1px solid #00e5ff; box-shadow: 0 0 18px rgba(0,229,255,.4); }
+:host([cyber]) .seg button.sel { background: #ff2bd6; box-shadow: 0 0 10px #ff2bd6; }
+:host([cyber]) .rp-icon.active { background: #ffd000; box-shadow: 0 0 10px #ffd000; }
 :host([cyber]) .energy, :host([cyber]) .legend, :host([cyber]) .popup { background: rgba(10,4,25,.92); color: #e0f7ff; border: 1px solid #ff2bd6; box-shadow: 0 0 14px rgba(255,43,214,.45); }
 :host([cyber]) .energy .row span:nth-child(2) { color: #8f7dff; }
 :host([cyber]) .energy .row b { color: #00e5ff; text-shadow: 0 0 6px #00e5ff; }
@@ -197,7 +254,7 @@ class Haus3DPanel extends HTMLElement {
     try {
       this._filter = localStorage.getItem("haus3d.filter") || "all";
       this._tempMode = localStorage.getItem("haus3d.temp") === "1";
-      this._style = localStorage.getItem("haus3d.style") === "cyber" ? "cyber" : "standard";
+      this._settings = loadSettings(localStorage.getItem("haus3d.settings"), localStorage.getItem("haus3d.style"));
     } catch {
       /* ohne Speicher */
     }
@@ -256,9 +313,9 @@ class Haus3DPanel extends HTMLElement {
           <div class="title">Haus 3D</div>
           <div class="floors" role="tablist" aria-label="Etage"></div>
           <button class="icon temp" title="Temperaturansicht"><ha-icon icon="mdi:thermometer"></ha-icon></button>
-          <button class="icon style" title="Stil: Standard / Cyberpunk"><ha-icon icon="mdi:palette-outline"></ha-icon></button>
           <button class="icon fit" title="Ansicht zurücksetzen"><ha-icon icon="mdi:fit-to-screen-outline"></ha-icon></button>
           <button class="icon more" title="Daten" hidden><ha-icon icon="mdi:dots-vertical"></ha-icon></button>
+          <button class="icon gear" title="Einstellungen"><ha-icon icon="mdi:cog"></ha-icon></button>
         </header>
         <div class="stage">
           <div class="canvas"></div>
@@ -280,16 +337,19 @@ class Haus3DPanel extends HTMLElement {
     };
     $(".menu").addEventListener("click", () => this.dispatchEvent(new Event("hass-toggle-menu", { bubbles: true, composed: true })));
     $(".fit").addEventListener("click", () => this._scene?.fitCamera());
-    $(".style").addEventListener("click", () => {
-      this._style = this._style === "cyber" ? "standard" : "cyber";
-      this._store("haus3d.style", this._style);
-      this.toggleAttribute("cyber", this._style === "cyber");
-      this._scene?.setStyle(this._style);
-      this._lastStatesKey = null;
-      this._updateStates();
-      this._positionOverlays();
+    $(".gear").addEventListener("click", (ev) => {
+      ev.stopPropagation();
+      this._openSettings();
     });
-    this.toggleAttribute("cyber", this._style === "cyber");
+    this.toggleAttribute("cyber", this._settings.style === "cyber");
+    this._applyOverlayLayers();
+    this._bindCanvas();
+    this.addEventListener("keydown", (ev) => {
+      if (ev.key === "Escape") {
+        this._closeDialog();
+        this._selectRoom(null);
+      }
+    });
     this._els.temp.addEventListener("click", () => {
       this._tempMode = !this._tempMode;
       this._store("haus3d.temp", this._tempMode ? "1" : "0");
@@ -310,7 +370,8 @@ class Haus3DPanel extends HTMLElement {
         dark: !!this._hass?.themes?.darkMode,
         onCameraChange: () => this._positionOverlays(),
       });
-      this._scene.setStyle(this._style);
+      this._scene.setStyle(this._settings.style);
+      this._scene.setLayers(this._settings.layers);
     } catch (err) {
       this._showMessage(`3D-Darstellung nicht möglich (WebGL fehlt?): ${err.message}`);
     }
@@ -409,6 +470,7 @@ class Haus3DPanel extends HTMLElement {
 
   _setFilter(id) {
     this._filter = id;
+    if (this._selected && this._selected.floorId !== id) this._selectRoom(null);
     this._store("haus3d.filter", id);
     this._scene?.setFilter(id, { fit: true });
     this._renderToolbar();
@@ -453,6 +515,18 @@ class Haus3DPanel extends HTMLElement {
     const hass = this._hass;
     if (!this._scene) return; // ohne 3D keine Beschriftungen, die Fehlermeldung bleibt sichtbar
     const allIcons = buildingIcons(this._building, hass, this._byArea);
+    // Geräte als 3D-Objekte statt Symbole: gleiche Positionen, Lampen unter der Decke
+    const threeD = this._settings.deviceMode === "3d";
+    const devices3d = [];
+    if (threeD) {
+      for (const floor of this._building.floors) {
+        for (const icon of allIcons.get(floor.id) ?? []) {
+          const y = icon.y ?? (icon.kind === "light" ? (floor.height ?? 2.5) - 0.25 : icon.kind === "climate" ? 0.6 : 1.1);
+          devices3d.push({ entity_id: icon.entity_id, kind: icon.kind, stateObj: hass.states[icon.entity_id], floorId: floor.id, x: icon.x, y, z: icon.z });
+        }
+      }
+    }
+    this._scene.setDevices(devices3d);
     for (const floor of this._building.floors) {
       const elev = floor.elevation ?? 0;
       const icons = allIcons.get(floor.id) ?? [];
@@ -463,14 +537,14 @@ class Haus3DPanel extends HTMLElement {
         el.className = "room";
         el.innerHTML = `<div class="label"></div><div class="devs"></div>`;
         const devs = el.querySelector(".devs");
-        for (const icon of icons.filter((i) => i.room === room.id && !i.manual)) devs.appendChild(this._iconEl(icon));
+        if (!threeD) for (const icon of icons.filter((i) => i.room === room.id && !i.manual)) devs.appendChild(this._iconEl(icon));
         layer.appendChild(el);
         const pos = anchor?.position.clone() ?? new THREE.Vector3(0, elev, 0);
         pos.y += 0.95; // knapp 1 m über dem Boden (bei Hängen über der Fläche)
         this._overlays.set(`room:${floor.id}:${room.id}`, { el, label: el.firstElementChild, floorId: floor.id, position: pos, room });
       }
       // Geräte mit manueller Position (placements) stehen frei an ihrer Stelle
-      for (const icon of icons.filter((i) => i.manual)) {
+      for (const icon of icons.filter((i) => i.manual && !threeD)) {
         const el = this._iconEl(icon);
         el.classList.add("free");
         layer.appendChild(el);
@@ -507,6 +581,7 @@ class Haus3DPanel extends HTMLElement {
       el.classList.toggle("collapsed", collapsed);
       this._els.stage.appendChild(el);
       this._energyEl = el;
+      el.hidden = this._settings.layers.energy === false;
     }
     this._positionOverlays();
   }
@@ -620,7 +695,9 @@ class Haus3DPanel extends HTMLElement {
       }
     }
     const energy = energyValues(this._building.settings, hass);
-    this._scene?.applyStates({ lit, temps, tempMode: this._tempMode, tempColor: temperatureColor, open, covers, feedIn: energy.einspeisung });
+    const onEntities = new Set(this._watched.filter((id) => hass.states[id]?.state === "on"));
+    this._scene?.applyStates({ lit, temps, tempMode: this._tempMode, tempColor: temperatureColor, open, covers, feedIn: energy.einspeisung, onEntities });
+    this._renderRoomPanel();
 
     for (const { el, icon } of this._iconEls) {
       const st = hass.states[icon.entity_id];
@@ -647,6 +724,189 @@ class Haus3DPanel extends HTMLElement {
       }
     }
     this._renderLegend();
+  }
+
+  // ------------------------------------------------------------------ Einstellungen
+
+  _saveSettings() {
+    this._store("haus3d.settings", JSON.stringify(this._settings));
+  }
+
+  _applyOverlayLayers() {
+    const l = this._settings.layers;
+    const ov = this._els?.overlay;
+    if (!ov) return;
+    ov.classList.toggle("hide-labels", l.labels === false);
+    ov.classList.toggle("hide-climate", l.climate === false);
+    ov.classList.toggle("hide-devices", l.devices === false);
+    if (this._energyEl) this._energyEl.hidden = l.energy === false;
+  }
+
+  _openSettings() {
+    this._closePopup();
+    this._closeDialog();
+    const st = this._settings;
+    const el = document.createElement("div");
+    el.className = "dialog-backdrop";
+    el.innerHTML = `
+      <div class="dialog" role="dialog" aria-label="Einstellungen">
+        <div class="dialog-head"><span>Einstellungen</span><button class="icon close" title="Schließen"><ha-icon icon="mdi:close"></ha-icon></button></div>
+        <div class="dialog-body">
+          <h4>Darstellung</h4>
+          <div class="seg" data-key="style">
+            <button data-value="standard">Standard</button><button data-value="cyber">Cyberpunk</button>
+          </div>
+          <h4>Geräte anzeigen als</h4>
+          <div class="seg" data-key="deviceMode">
+            <button data-value="icons">Symbole</button><button data-value="3d">3D-Objekte</button>
+          </div>
+          <h4>Einblenden</h4>
+          <div class="toggles">
+            ${LAYERS.map(([k, name]) => `<label><input type="checkbox" data-layer="${k}"${st.layers[k] !== false ? " checked" : ""}><span>${name}</span></label>`).join("")}
+          </div>
+          <p class="hint">Die Einstellungen gelten für dieses Gerät/diesen Browser.</p>
+        </div>
+      </div>`;
+    const syncSeg = () => {
+      for (const seg of el.querySelectorAll(".seg")) for (const b of seg.querySelectorAll("button")) b.classList.toggle("sel", st[seg.dataset.key] === b.dataset.value);
+    };
+    syncSeg();
+    for (const seg of el.querySelectorAll(".seg")) {
+      seg.addEventListener("click", (ev) => {
+        const b = ev.target.closest("button");
+        if (!b) return;
+        st[seg.dataset.key] = b.dataset.value;
+        syncSeg();
+        this._saveSettings();
+        if (seg.dataset.key === "style") {
+          this.toggleAttribute("cyber", st.style === "cyber");
+          this._scene?.setStyle(st.style);
+          this._scene?.setLayers(st.layers);
+        }
+        this._refreshEntities();
+      });
+    }
+    for (const box of el.querySelectorAll("input[data-layer]")) {
+      box.addEventListener("change", () => {
+        st.layers[box.dataset.layer] = box.checked;
+        this._saveSettings();
+        this._scene?.setLayers(st.layers);
+        this._applyOverlayLayers();
+      });
+    }
+    el.querySelector(".close").addEventListener("click", () => this._closeDialog());
+    el.addEventListener("click", (ev) => {
+      if (ev.target === el) this._closeDialog();
+    });
+    this._els.stage.appendChild(el);
+    this._dialog = el;
+  }
+
+  _closeDialog() {
+    this._dialog?.remove();
+    this._dialog = null;
+  }
+
+  // ------------------------------------------------------------------ Klicks in die 3D-Szene, Raumauswahl
+
+  _bindCanvas() {
+    const target = this._els.canvas;
+    let down = null;
+    let timer = null;
+    target.addEventListener("pointerdown", (ev) => {
+      if (ev.pointerType === "mouse" && ev.button !== 0) return;
+      down = { x: ev.clientX, y: ev.clientY, t: performance.now(), long: false };
+      clearTimeout(timer);
+      timer = setTimeout(() => {
+        if (!down) return;
+        const hit = this._scene?.pick(down.x, down.y);
+        if (hit?.entity_id) {
+          down.long = true;
+          this._moreInfo(hit.entity_id);
+        }
+      }, LONG_PRESS_MS);
+    });
+    target.addEventListener("pointermove", (ev) => {
+      if (down && Math.hypot(ev.clientX - down.x, ev.clientY - down.y) > 8) {
+        clearTimeout(timer);
+        down = null;
+      }
+    });
+    target.addEventListener("pointercancel", () => {
+      clearTimeout(timer);
+      down = null;
+    });
+    target.addEventListener("pointerup", (ev) => {
+      clearTimeout(timer);
+      const d = down;
+      down = null;
+      if (!d || d.long || Math.hypot(ev.clientX - d.x, ev.clientY - d.y) > 8) return;
+      const hit = this._scene?.pick(ev.clientX, ev.clientY);
+      if (hit?.entity_id) this._activate(hit.entity_id);
+      else if (hit?.roomId) {
+        // erst die Etage wählen, dann den Raum: in "Alle" führt ein Klick zur Etage des Raums
+        if (this._filter === "all") this._setFilter(hit.floorId);
+        const same = this._selected && this._selected.floorId === hit.floorId && this._selected.roomId === hit.roomId;
+        this._selectRoom(same ? null : hit);
+      } else this._selectRoom(null);
+    });
+    target.addEventListener("contextmenu", (ev) => {
+      const hit = this._scene?.pick(ev.clientX, ev.clientY);
+      if (hit?.entity_id) {
+        ev.preventDefault();
+        this._moreInfo(hit.entity_id);
+      }
+    });
+  }
+
+  _selectRoom(sel) {
+    this._selected = sel ? { floorId: sel.floorId, roomId: sel.roomId } : null;
+    this._scene?.selectRoom(this._selected);
+    this._renderRoomPanel();
+  }
+
+  /** Raumfenster: Name, Klima und alle Geräte des Bereichs zum Schalten. */
+  _renderRoomPanel() {
+    const sel = this._selected;
+    const floor = sel && this._building?.floors.find((f) => f.id === sel.floorId);
+    const room = floor && placesOf(floor).find((r) => r.id === sel.roomId);
+    if (!room) {
+      this._roomPanel?.remove();
+      this._roomPanel = null;
+      return;
+    }
+    const hass = this._hass;
+    if (!this._roomPanel) {
+      this._roomPanel = document.createElement("div");
+      this._roomPanel.className = "roompanel";
+      this._els.stage.appendChild(this._roomPanel);
+    }
+    const ids = (this._byArea.get(room.area_id) ?? []).filter((id) => iconKind(hass.states[id]) || ["temperature", "humidity"].includes(hass.states[id]?.attributes?.device_class));
+    const climate = roomClimate(room, hass, this._byArea);
+    const parts = [];
+    if (climate.temperature != null) parts.push(`${fmt(climate.temperature)} °C`);
+    if (climate.humidity != null) parts.push(`${fmt(climate.humidity, 0)} %`);
+    const p = this._roomPanel;
+    p.innerHTML = `<div class="rp-head"><b></b><button class="icon close" title="Schließen"><ha-icon icon="mdi:close"></ha-icon></button></div>
+      <div class="rp-sub"></div><div class="rp-list"></div>`;
+    p.querySelector("b").textContent = room.name;
+    p.querySelector(".rp-sub").textContent = [floor.name, ...parts].join(" · ") + (room.area_id ? "" : " · kein Bereich zugeordnet");
+    p.querySelector(".close").addEventListener("click", () => this._selectRoom(null));
+    const list = p.querySelector(".rp-list");
+    if (!ids.length) list.innerHTML = `<div class="rp-empty">Keine Geräte im Bereich.</div>`;
+    for (const id of ids) {
+      const st = hass.states[id];
+      const kind = iconKind(st) ?? "sensor";
+      const row = document.createElement("div");
+      row.className = "rp-row";
+      const active = kind !== "sensor" && isActive(kind, st);
+      row.innerHTML = `<span class="rp-icon${active ? (kind === "contact" ? " alert" : " active") : ""}"><ha-icon></ha-icon></span><span class="rp-name"></span><span class="rp-state"></span>`;
+      row.querySelector("ha-icon").setAttribute("icon", kind === "sensor" ? (st.attributes.device_class === "humidity" ? "mdi:water-percent" : "mdi:thermometer") : iconFor(kind, st));
+      row.querySelector(".rp-name").textContent = st.attributes.friendly_name ?? id;
+      row.querySelector(".rp-state").textContent = hass.formatEntityState ? hass.formatEntityState(st) : st.state;
+      this._bindIcon(row, id);
+      list.appendChild(row);
+    }
   }
 
   _renderLegend() {

@@ -66,12 +66,29 @@ const menuVisible = await (await shot("desktop-menu", "", { width: 1280, height:
 if (menuVisible !== "none") errors.push(`Menüknopf auf breitem Bildschirm sichtbar (${menuVisible})`);
 // Cyberpunk-Stil (Umschalter im Kopf)
 const cyber = await shot("desktop-cyber", "", { width: 1280, height: 800 });
-await cyber.locator("haus3d-panel .style").click();
+await cyber.locator("haus3d-panel .gear").click();
+await cyber.locator("haus3d-panel .seg[data-key=style] button", { hasText: "Cyberpunk" }).click();
+await cyber.locator("haus3d-panel .dialog .close").click();
 await cyber.waitForTimeout(1500);
 await cyber.screenshot({ path: `${out}/desktop-cyber.png` });
 await cyber.locator("haus3d-panel .floors button", { hasText: "EG" }).click();
 await cyber.waitForTimeout(1500);
 await cyber.screenshot({ path: `${out}/desktop-cyber-eg.png` });
-console.log(JSON.stringify({ info, calls, hidpi, errors: errors.filter((e) => !e.includes("404")) }, null, 1));
+// Einstellungen: Geräte als 3D-Objekte, dann Raum anklicken (erst Etage, dann Raum)
+const set = await shot("desktop-3d", "", { width: 1280, height: 800 });
+await set.locator("haus3d-panel .gear").click();
+await set.waitForTimeout(300);
+await set.screenshot({ path: `${out}/einstellungen.png` });
+await set.locator("haus3d-panel .seg[data-key=deviceMode] button", { hasText: "3D-Objekte" }).click();
+await set.locator("haus3d-panel .dialog .close").click();
+await set.locator("haus3d-panel .floors button", { hasText: "EG" }).click();
+await set.waitForTimeout(1200);
+await set.screenshot({ path: `${out}/desktop-3d.png` });
+const box = await set.locator("haus3d-panel canvas").boundingBox();
+await set.mouse.click(box.x + box.width * 0.5, box.y + box.height * 0.55);
+await set.waitForTimeout(1200);
+await set.screenshot({ path: `${out}/raum-gewaehlt.png` });
+const roomPanel = await set.evaluate(() => window.panel.shadowRoot.querySelector(".roompanel")?.innerText ?? null);
+console.log(JSON.stringify({ info, calls, hidpi, roomPanel, errors: errors.filter((e) => !e.includes("404")) }, null, 1));
 await browser.close();
 server.close();
