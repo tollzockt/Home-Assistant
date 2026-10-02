@@ -20,6 +20,7 @@ import {
 import { exportFile, normalize, parseImport } from "./model.js";
 import { HouseScene } from "./scene.js";
 import { closeGaps } from "./walls.js";
+import { EDITOR_STYLE, FloorEditor } from "./editor.js";
 
 const LONG_PRESS_MS = 550;
 const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
@@ -306,7 +307,7 @@ class Haus3DPanel extends HTMLElement {
   _build() {
     this._built = true;
     this.shadowRoot.innerHTML = `
-      <style>${STYLE}</style>
+      <style>${STYLE}${EDITOR_STYLE}</style>
       <div class="wrap">
         <header>
           <button class="icon menu" title="Menü"><ha-icon icon="mdi:menu"></ha-icon></button>
@@ -314,6 +315,7 @@ class Haus3DPanel extends HTMLElement {
           <div class="floors" role="tablist" aria-label="Etage"></div>
           <button class="icon temp" title="Temperaturansicht"><ha-icon icon="mdi:thermometer"></ha-icon></button>
           <button class="icon fit" title="Ansicht zurücksetzen"><ha-icon icon="mdi:fit-to-screen-outline"></ha-icon></button>
+          <button class="icon edit" title="Bearbeiten" hidden><ha-icon icon="mdi:pencil-ruler"></ha-icon></button>
           <button class="icon more" title="Daten" hidden><ha-icon icon="mdi:dots-vertical"></ha-icon></button>
           <button class="icon gear" title="Einstellungen"><ha-icon icon="mdi:cog"></ha-icon></button>
         </header>
@@ -337,6 +339,7 @@ class Haus3DPanel extends HTMLElement {
     };
     $(".menu").addEventListener("click", () => this.dispatchEvent(new Event("hass-toggle-menu", { bubbles: true, composed: true })));
     $(".fit").addEventListener("click", () => this._scene?.fitCamera());
+    $(".edit").addEventListener("click", () => this._openEditor());
     $(".gear").addEventListener("click", (ev) => {
       ev.stopPropagation();
       this._openSettings();
@@ -466,6 +469,7 @@ class Haus3DPanel extends HTMLElement {
     this._els.floors.hidden = floors.length < 2;
     this._els.temp.classList.toggle("on", this._tempMode);
     this._els.more.hidden = !this._hass?.user?.is_admin;
+    this.shadowRoot.querySelector(".edit").hidden = !this._hass?.user?.is_admin || !this._scene;
   }
 
   _setFilter(id) {
@@ -724,6 +728,44 @@ class Haus3DPanel extends HTMLElement {
       }
     }
     this._renderLegend();
+  }
+
+  // ------------------------------------------------------------------ Editor
+
+  _openEditor() {
+    if (this._editor || !this._building) return;
+    this._closePopup();
+    this._closeDialog();
+    this._selectRoom(null);
+    const floorId = this._filter !== "all" ? this._filter : [...this._building.floors].sort((a, b) => a.elevation - b.elevation).find((f) => f.height >= 1)?.id;
+    this._editor = new FloorEditor({
+      container: this._els.stage,
+      building: this._building,
+      hass: this._hass,
+      floorId,
+      onSave: async (building) => {
+        try {
+          const res = await this._hass.callWS({ type: "haus3d/building/save", building, revision: this._revision });
+          this._setBuilding(res.building, res.revision, { keepCamera: true });
+          this._toast("Gespeichert.");
+        } catch (err) {
+          if (err.code === "conflict") throw new Error("Der Stand wurde inzwischen woanders geändert. Bitte Seite neu laden.");
+          throw err;
+        }
+      },
+      onPreview: (building) => {
+        // Vorschau: Arbeitskopie in 3D zeigen; null = gespeicherten Stand wieder zeigen
+        this._scene?.setBuilding(building ? normalize(building) : this._building, { keepCamera: true });
+        this._els.overlay.hidden = !!building;
+        if (!building) this._refreshEntities();
+      },
+      onClose: () => {
+        this._editor?.destroy();
+        this._editor = null;
+        this._els.overlay.hidden = false;
+        this._refreshEntities();
+      },
+    });
   }
 
   // ------------------------------------------------------------------ Einstellungen

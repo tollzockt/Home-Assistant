@@ -31,6 +31,22 @@ dort lassen sich direkt einlesen, und Exporte von Haus 3D kann NeonPlan wieder �
   der letzten 20 Stände wiederherstellen. Vor jedem Speichern wird der alte Stand automatisch gesichert.
 - Läuft **komplett offline**: Three.js und OrbitControls liegen im Paket, kein CDN.
 
+## Editor (für Admins)
+
+Über den Stift in der Kopfzeile öffnet sich ein 2D-Editor für die gewählte Etage:
+
+- **Räume zeichnen**: Rechteck ziehen oder freie Form Punkt für Punkt. Eckpunkte rasten am Raster
+  und an vorhandenen Ecken ein. Ecken ziehen, über „+“ neue Ecken einfügen.
+- **Räume zuordnen**: Name, Home-Assistant-Bereich und Bodenbelag.
+- **Fenster, Türen, Garagentore**: auf eine Wand tippen, entlang der Wand ziehen. Maße, Anschlag,
+  Aufschlagrichtung, Flügel, Aussehen sowie Kontakt und Rollladen (automatisch, keiner oder bestimmt).
+- **Möbel**: 56 Typen (wie NeonPlan) einfügen, ziehen, am orangen Punkt drehen. Lampen-Möbel mit
+  Licht-Entität leuchten im 3D-Modell.
+- **Geräte platzieren**: Lampen, Steckdosen usw. an ihre echte Stelle setzen (`placements[]`).
+- **Gartenflächen** zeichnen, Art und Bereich wählen.
+- Rückgängig/Wiederholen (Strg+Z), Lücken schließen, 3D-Vorschau, Etagen anlegen/löschen.
+  Gespeichert wird erst mit „Speichern“, der alte Stand landet im Verlauf.
+
 ## Installation über HACS
 
 1. In Home Assistant **HACS** öffnen.
