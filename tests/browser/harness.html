@@ -10,7 +10,8 @@
          --secondary-text-color: #727272; --app-header-background-color: #03a9f4; --primary-color: #03a9f4; }
   body.dark { --primary-background-color: #111; --card-background-color: #1c1c1c; --primary-text-color: #e1e1e1;
          --secondary-text-color: #9b9b9b; --app-header-background-color: #101e24; }
-  haus3d-panel { display: block; height: 100vh; }
+  /* wie in HA: der Container gibt keine Höhe vor */
+  .resolver { display: block; }
 </style>
 </head>
 <body>
@@ -80,7 +81,10 @@ await import("../../custom_components/haus3d/frontend/haus3d-panel.js");
 const panel = document.createElement("haus3d-panel");
 panel.hass = hass;
 panel.narrow = params.has("narrow");
-document.body.appendChild(panel);
+const resolver = document.createElement("div");
+resolver.className = "resolver";
+resolver.appendChild(panel);
+document.body.appendChild(resolver);
 window.panel = panel;
 </script>
 </body>

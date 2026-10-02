@@ -54,7 +54,9 @@ function isActive(kind, stateObj) {
 const STYLE = `
 :host {
   display: block;
-  height: 100%;
+  /* HA gibt dem Panel-Container keine Höhe vor: volle Fensterhöhe (dvh: mobile Adressleiste) */
+  height: 100vh;
+  height: 100dvh;
   background: var(--primary-background-color);
   color: var(--primary-text-color);
   font-family: var(--paper-font-body1_-_font-family, Roboto, sans-serif);
