@@ -79,16 +79,6 @@ settings          wall_exterior (0.24), wall_interior (0.12), energy {…}
 
 ### Energie-Entitäten
 
-In `settings.energy` (Startwerte):
-
-| Schlüssel | Entität |
-|---|---|
-| `solar` | `sensor.system_anker_solix_sb_solarleistung` |
-| `einspeisung` | `sensor.aktuell_pv_einspeisung` |
-| `akku_ladestand` | `sensor.system_anker_solix_sb_ladestand` |
-| `akku_leistung` | `sensor.system_anker_solix_sb_akkuleistung` |
-| `ertrag_heute` | `sensor.balkonkraftwerk_shelly_anker_balkonkraftwerk_balkonkraftwerk_ertrag_tag` |
-
 Leistungen in kW und Energien in Wh werden automatisch umgerechnet.
 
 ## Korrektur Wohnzimmer (Werkzeug)
