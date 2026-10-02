@@ -1,0 +1,13 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Haus 3D",
+        "description": "Fügt das Panel „Haus 3D“ zur Seitenleiste hinzu. Es sind keine Einstellungen nötig."
+      }
+    },
+    "abort": {
+      "single_instance_allowed": "Haus 3D ist bereits eingerichtet."
+    }
+  }
+}
