@@ -25,7 +25,8 @@ customElements.define("ha-icon", class extends HTMLElement {
   static observedAttributes = ["icon"];
   attributeChangedCallback() { this.textContent = (this.getAttribute("icon") || "").replace("mdi:", "").slice(0, 2); this.style.fontSize = "11px"; }
 });
-const data = await (await fetch("../../custom_components/haus3d/haus-daten.json")).json();
+// ?data=<pfad> lädt einen anderen Stand (z. B. einen Import) statt des Startstands
+const data = await (await fetch(params.get("data") ?? "../../custom_components/haus3d/haus-daten.json")).json();
 // Testfälle für Türen: zweiflügelig und Schiebetür, beide offen
 const eg = data.floors.find((f) => f.name === "EG");
 for (const o of eg?.openings ?? []) {
