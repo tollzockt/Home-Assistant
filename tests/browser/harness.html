@@ -69,11 +69,19 @@ const energy = {
 for (const s of Object.values(energy)) add(s, "balkonkraftwerk");
 window.calls = [];
 window.events = [];
+const areaNames = { wohnzimmer: "Wohnzimmer", kuche: "Küche", flur: "Flur", badezimmer: "Badezimmer", schlafzimmer: "Schlafzimmer", garage: "Garage", waschraum: "Waschraum", bar: "Bar", balkonkraftwerk: "Balkonkraftwerk", gaste_bad: "Gäste Bad" };
 const hass = {
   states, entities, devices: {},
+  areas: Object.fromEntries(Object.entries(areaNames).map(([area_id, name]) => [area_id, { area_id, name }])),
+  floors: { eg: { floor_id: "eg", name: "EG" }, kg: { floor_id: "kg", name: "KG" } },
   themes: { darkMode: dark },
   user: { is_admin: true },
-  callWS: async (msg) => { window.calls.push(msg); if (msg.type === "haus3d/building/get") return { building: data, revision: 1 }; return {}; },
+  callWS: async (msg) => {
+    window.calls.push(msg);
+    if (msg.type === "haus3d/building/get") return { building: data, revision: 1 };
+    if (msg.type === "haus3d/building/save") return { building: msg.building, revision: (msg.revision ?? 1) + 1 };
+    return {};
+  },
   callService: async (domain, service, d) => { window.calls.push({ domain, service, ...d }); },
 };
 window.hass = hass;

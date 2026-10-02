@@ -89,6 +89,55 @@ await set.mouse.click(box.x + box.width * 0.5, box.y + box.height * 0.55);
 await set.waitForTimeout(1200);
 await set.screenshot({ path: `${out}/raum-gewaehlt.png` });
 const roomPanel = await set.evaluate(() => window.panel.shadowRoot.querySelector(".roompanel")?.innerText ?? null);
-console.log(JSON.stringify({ info, calls, hidpi, roomPanel, errors: errors.filter((e) => !e.includes("404")) }, null, 1));
+// Editor: Raum ziehen, Bereich zuweisen, Fenster setzen, Möbel platzieren, rückgängig, speichern
+const ed = await shot("editor", "", { width: 1280, height: 800 });
+await ed.locator("haus3d-panel .edit").click();
+await ed.waitForTimeout(500);
+await ed.locator("haus3d-panel .floorsel").selectOption("eg");
+await ed.waitForTimeout(300);
+await ed.screenshot({ path: `${out}/editor-start.png` });
+const svg = await ed.locator("haus3d-panel .ed-svg").boundingBox();
+// Plan-Koordinaten -> Bildschirm über die Transformation des Editors
+const toScreen = (x, z) => ed.evaluate(([x, z]) => {
+  const e = window.panel._editor; const r = e.svg.getBoundingClientRect();
+  return [r.left + e.tx + x * e.scale, r.top + e.tz + z * e.scale];
+}, [x, z]);
+await ed.locator("haus3d-panel .ed-bar button[data-tool=rect]").click();
+let [ax, ay] = await toScreen(12, 1); let [bx, by] = await toScreen(15, 4);
+await ed.mouse.move(ax, ay); await ed.mouse.down(); await ed.mouse.move((ax + bx) / 2, (ay + by) / 2, { steps: 4 }); await ed.mouse.move(bx, by, { steps: 4 }); await ed.mouse.up();
+await ed.locator("haus3d-panel .ed-props select[data-room=area_id]").selectOption("gaste_bad");
+await ed.locator("haus3d-panel .ed-bar button[data-tool=window]").click();
+[ax, ay] = await toScreen(13.5, 1.02); await ed.mouse.click(ax, ay);
+await ed.locator("haus3d-panel .ed-props select[data-linkmode=contact]").selectOption("none");
+await ed.locator("haus3d-panel .ed-bar button[data-tool=furniture]").click();
+await ed.locator("haus3d-panel .ed-props button[data-furn=bed]").click();
+[ax, ay] = await toScreen(13.5, 2.5); await ed.mouse.click(ax, ay);
+await ed.locator("haus3d-panel .ed-props input[data-num=rotation]").fill("90");
+await ed.locator("haus3d-panel .ed-props input[data-num=rotation]").press("Tab");
+// ein zusätzliches Möbel und gleich wieder rückgängig
+await ed.locator("haus3d-panel .ed-bar button[data-tool=furniture]").click();
+await ed.locator("haus3d-panel .ed-props button[data-furn=plant]").click();
+[ax, ay] = await toScreen(14.5, 3.5); await ed.mouse.click(ax, ay);
+await ed.locator("haus3d-panel .ed-bar button[data-act=undo]").click();
+await ed.locator("haus3d-panel .ed-bar button[data-tool=select]").click();
+await ed.waitForTimeout(300);
+await ed.screenshot({ path: `${out}/editor-bearbeitet.png` });
+await ed.locator("haus3d-panel .ed-bar button[data-act=preview]").click();
+await ed.waitForTimeout(1200);
+await ed.screenshot({ path: `${out}/editor-vorschau.png` });
+await ed.locator("haus3d-panel .ed-back").click();
+await ed.locator("haus3d-panel .ed-bar button[data-act=save]").click();
+await ed.waitForTimeout(800);
+const saved = await ed.evaluate(() => {
+  const msg = window.calls.filter((c) => c.type === "haus3d/building/save").at(-1);
+  if (!msg) return null;
+  const eg = msg.building.floors.find((f) => f.id === "eg");
+  const room = eg.rooms.at(-1);
+  return { revision: msg.revision, room: { name: room.name, area: room.area_id, points: room.points },
+    window: eg.openings.filter((o) => o.room_id === room.id).map((o) => ({ type: o.type, edge: o.edge, offset: o.offset, contact: o.contact })),
+    furniture: eg.furniture.filter((m) => m.x > 12).map((m) => ({ type: m.type, x: m.x, z: m.z, rotation: m.rotation })),
+    editorOpen: !!window.panel._editor };
+});
+console.log(JSON.stringify({ info, calls, hidpi, roomPanel, saved, errors: errors.filter((e) => !e.includes("404")) }, null, 1));
 await browser.close();
 server.close();

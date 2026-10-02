@@ -439,7 +439,9 @@ export class HouseScene {
     for (const room of floor.rooms ?? []) {
       const geo = flatOrExtruded(room.points, SLAB);
       geo.translate(0, elev - SLAB, 0);
-      const base = new THREE.Color(this.style === "cyber" ? 0x0e0820 : FLOOR_COLORS[room.floor_material] ?? FLOOR_COLORS.wood);
+      // Cyberpunk: Bodenbelag dunkel getönt, aber deckend und klar vom Hintergrund abgesetzt
+      const base = new THREE.Color(FLOOR_COLORS[room.floor_material] ?? FLOOR_COLORS.wood);
+      if (this.style === "cyber") base.lerp(new THREE.Color(0x3a2470), 0.45);
       const mat = new THREE.MeshStandardMaterial({ color: base.clone(), roughness: 0.85, emissive: 0x000000 });
       const mesh = new THREE.Mesh(geo, mat);
       mesh.userData.layer = "floors";
@@ -852,8 +854,10 @@ export class HouseScene {
           color.copy(r.base);
           if (this.dark && this.style !== "cyber") color.multiplyScalar(0.8);
         }
-        r.mesh.material.emissive.copy(lit && !s.tempMode ? WARM : new THREE.Color(0x000000));
-        r.mesh.material.emissiveIntensity = lit ? 0.45 : 0;
+        // Cyberpunk: Boden glimmt leicht in seiner Farbe, damit er sich deutlich vom Hintergrund abhebt
+        const idle = this.style === "cyber" && !s.tempMode ? r.base : new THREE.Color(0x000000);
+        r.mesh.material.emissive.copy(lit && !s.tempMode ? WARM : idle);
+        r.mesh.material.emissiveIntensity = lit ? 0.45 : this.style === "cyber" ? 0.3 : 0;
         r.glow.visible = lit && !s.tempMode;
       }
       for (const [openingId, item] of entry.openings) {
