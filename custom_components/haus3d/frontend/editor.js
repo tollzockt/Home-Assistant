@@ -9,7 +9,9 @@ import {
   cleanFloor,
   floorVertices,
   insertVertex,
+  moveEdge,
   moveRoom,
+  moveVertex,
   nearestEdge,
   newId,
   newOpening,
@@ -26,6 +28,7 @@ import {
 } from "./edit-ops.js";
 import { FURNITURE, FURNITURE_CATEGORIES } from "./furniture.js";
 import { COLOR_SWATCHES, FLOOR_MATERIALS, floorColor, normalize } from "./model.js";
+import { ROOF_TYPES, autoHeights } from "./exterior.js";
 import { HouseScene } from "./scene.js";
 import { furnitureThumb, renderThumbs } from "./thumbs.js";
 import { closeGaps, computeWalls, labelPoint, pieceFootprint, signedArea } from "./walls.js";
@@ -74,7 +77,7 @@ const TOOLS = [
   ["outdoor", "mdi:tree-outline", "Garten"],
 ];
 const HINTS = {
-  select: "Antippen zum Auswählen, Ziehen zum Verschieben (Möbel rasten mit dem Magnet an Wänden ein, Alt = frei). Pfeiltasten schieben (Umschalt = 1 cm), R dreht. Leere Fläche ziehen = Ansicht verschieben.",
+  select: "Antippen zum Auswählen, Ziehen zum Verschieben. Raum gewählt: blaue Wand ziehen verschiebt die Wand (Nachbarräume gehen mit, Alt = nur dieser Raum) (Möbel rasten mit dem Magnet an Wänden ein, Alt = frei). Pfeiltasten schieben (Umschalt = 1 cm), R dreht. Leere Fläche ziehen = Ansicht verschieben.",
   rect: "Ziehen: Rechteck-Raum von Ecke zu Ecke.",
   poly: "Punkte antippen, ersten Punkt erneut antippen (oder Doppelklick) zum Abschließen. Esc bricht ab.",
   window: "Auf eine Wand tippen: Fenster einsetzen.",
@@ -699,6 +702,17 @@ export class FloorEditor {
     // Griffe des gewählten Raums / der Gartenfläche: Eckpunkte und Einfügepunkte
     const poly = this.sel?.kind === "room" ? f.rooms.find((r) => r.id === this.sel.id) : this.sel?.kind === "outdoor" ? (f.outdoor ?? []).find((o) => o.id === this.sel.id) : null;
     if (poly) {
+      // Wände des gewählten Raums: ziehen verschiebt die ganze Wand (Nachbarräume gehen mit)
+      if (this.sel.kind === "room") {
+        poly.points.forEach((p, i) => {
+          const q = poly.points[(i + 1) % poly.points.length];
+          parts.push(`<line data-kind="edge" data-i="${i}" x1="${r3(p[0])}" y1="${r3(p[1])}" x2="${r3(q[0])}" y2="${r3(q[1])}" stroke="#03a9f4" stroke-opacity=".25" stroke-width="${px(12)}" style="cursor:move"/>`);
+        });
+      }
+      // Hang: Höhe je Ecke anzeigen
+      if (this.sel.kind === "outdoor" && Array.isArray(poly.heights)) {
+        poly.points.forEach((p, i) => parts.push(`<text x="${r3(p[0] + px(10))}" y="${r3(p[1] - px(10))}" font-size="${px(11)}" font-weight="600" fill="#e65100">${(Number(poly.heights[i]) || 0).toFixed(2)} m</text>`));
+      }
       poly.points.forEach((p, i) => {
         const q = poly.points[(i + 1) % poly.points.length];
         const mid = [(p[0] + q[0]) / 2, (p[1] + q[1]) / 2];
@@ -868,12 +882,33 @@ export class FloorEditor {
         const b = poly.points[(i + 1) % poly.points.length];
         const mid = this._snap([(a[0] + b[0]) / 2, (a[1] + b[1]) / 2]);
         if (this.sel.kind === "room") this.change((fl) => insertVertex(fl, poly.id, i, mid));
-        else this.change((fl) => ({ ...fl, outdoor: fl.outdoor.map((o) => (o.id === poly.id ? { ...o, points: [...o.points.slice(0, i + 1), mid, ...o.points.slice(i + 1)], heights: undefined } : o)) }));
+        else
+          this.change((fl) => ({
+            ...fl,
+            outdoor: fl.outdoor.map((o) => {
+              if (o.id !== poly.id) return o;
+              const out = { ...o, points: [...o.points.slice(0, i + 1), mid, ...o.points.slice(i + 1)] };
+              // Hang: neue Ecke bekommt die mittlere Höhe ihrer Nachbarn
+              if (Array.isArray(o.heights)) {
+                const hm = r3(((Number(o.heights[i]) || 0) + (Number(o.heights[(i + 1) % o.points.length]) || 0)) / 2);
+                out.heights = [...o.heights.slice(0, i + 1), hm, ...o.heights.slice(i + 1)];
+              }
+              return out;
+            }),
+          }));
         return { mode: "vertex", i: i + 1, merge: true };
       }
       return { mode: "vertex", i, first: true };
     }
     if (kind === "rotate") return { mode: "rotate", id };
+    if (kind === "edge" && this.sel?.kind === "room") {
+      const room = f.rooms.find((r) => r.id === this.sel.id);
+      const i = Number(t.dataset.i);
+      const a = room.points[i];
+      const b = room.points[(i + 1) % room.points.length];
+      const len = Math.hypot(b[0] - a[0], b[1] - a[1]) || 1;
+      return { mode: "edge", id: room.id, i, start: p, n: [-(b[1] - a[1]) / len, (b[0] - a[0]) / len], applied: 0, first: true };
+    }
     if (kind === "device") {
       this.sel = { kind: "device", id };
       this.renderProps();
@@ -934,13 +969,33 @@ export class FloorEditor {
         break;
       case "vertex": {
         const poly = this._selectedPoly();
-        const q = this._snap(p, this.sel.kind === "room" ? poly.id : null);
+        // beim Raum: gemeinsame Ecken der Nachbarräume nicht als Einrastziel, sie wandern mit
+        if (this.sel.kind === "room") {
+          const old = poly.points[drag.i];
+          const vertices = floorVertices(this.floor, poly.id).filter((v) => Math.hypot(v[0] - old[0], v[1] - old[1]) > 0.02);
+          const q = snapPoint(p, { grid: this.b.settings?.grid ?? 0.05, vertices, tol: 10 / this.scale });
+          if (Math.hypot(q[0] - old[0], q[1] - old[1]) < 1e-9) break;
+          this._dragChange(drag, (fl) => moveVertex(fl, poly.id, drag.i, q, { linked: !ev.altKey }));
+          this._lastVertex = drag.i;
+          break;
+        }
+        const q = this._snap(p);
         this._dragChange(drag, (fl) => {
-          const list = this.sel.kind === "room" ? fl.rooms : fl.outdoor;
-          const target = list.find((x) => x.id === poly.id);
-          target.points[drag.i] = q;
-          if (this.sel.kind === "outdoor") delete target.heights;
+          fl.outdoor.find((x) => x.id === poly.id).points[drag.i] = q; // Höhe der Ecke bleibt
         });
+        this._lastVertex = drag.i;
+        break;
+      }
+      case "edge": {
+        // senkrecht zur Wand, aufs Raster gerundet
+        const grid = this.b.settings?.grid ?? 0.05;
+        const raw = (p[0] - drag.start[0]) * drag.n[0] + (p[1] - drag.start[1]) * drag.n[1];
+        const d = r3(Math.round(raw / grid) * grid);
+        const delta = r3(d - drag.applied);
+        if (Math.abs(delta) < 1e-9) break;
+        drag.applied = d;
+        this._dragChange(drag, (fl) => moveEdge(fl, drag.id, drag.i, delta, { linked: !ev.altKey }));
+        this._toast(`Wand verschoben: ${d >= 0 ? "+" : ""}${d.toFixed(2)} m (Alt = nur dieser Raum)`);
         break;
       }
       case "room": {
@@ -1283,14 +1338,41 @@ export class FloorEditor {
         <label>Bodenbelag</label><select data-room="floor_material">${FLOOR_MATERIALS.map(([k, n]) => `<option value="${k}"${k === r.floor_material ? " selected" : ""}>${n}</option>`).join("")}</select>
         ${colorField("floor_color", "Bodenfarbe (statt Belag)", r.floor_color)}
         ${colorField("wall_color", "Wandfarbe innen", r.wall_color)}
+        ${colorField("exterior_color", "Wandfarbe außen (z. B. Holzschuppen)", r.exterior_color)}
+        <label>Eigenes Dach (Schuppen, Carport, Anbau)</label><select data-roof="type">${ROOF_TYPES.map(([k, n]) => `<option value="${k}"${k === (r.roof?.type ?? "none") ? " selected" : ""}>${n}</option>`).join("")}</select>
+        ${r.roof && r.roof.type !== "none" ? `<div class="row2"><div><label>Neigung (°)</label><input type="number" min="5" max="60" step="1" data-roof="pitch" value="${r.roof.pitch ?? 35}"></div><div><label>Überstand (m)</label><input type="number" min="0" max="1.5" step="0.05" data-roof="overhang" value="${r.roof.overhang ?? 0.4}"></div></div>
+          ${colorField("roof_color", "Dachfarbe", r.roof.color)}` : ""}
+        ${r.area_id === "balkonkraftwerk" || /schuppen/i.test(r.name) ? `<label>Solarmodule auf dem Dach (Anzahl)</label><input type="number" min="0" max="12" step="1" data-solar value="${r.solar_panels ?? 4}">` : ""}
         <p class="muted">${Math.abs(signedArea(r.points)).toFixed(2)} m² · ${r.points.length} Ecken. Ecken ziehen, „+“ fügt eine Ecke ein, Entf löscht den Raum.</p>
         ${pad()}
         <div class="btns"><button data-act="delvertex">Letzte gewählte Ecke löschen</button><button data-act="del" class="danger">Raum löschen</button></div>`;
       bindColors((fl, key, v) => {
         const room = fl.rooms.find((x) => x.id === r.id);
+        if (key === "roof_color") {
+          room.roof = { ...(room.roof ?? {}) };
+          if (v) room.roof.color = v;
+          else delete room.roof.color;
+          return;
+        }
         if (v) room[key] = v;
         else delete room[key];
       });
+      el.querySelectorAll("[data-roof]").forEach((inp) =>
+        inp.addEventListener("change", () => {
+          this.change((fl) => {
+            const room = fl.rooms.find((x) => x.id === r.id);
+            const k = inp.dataset.roof;
+            if (k === "type" && inp.value === "none") delete room.roof;
+            else room.roof = { pitch: 25, overhang: 0.3, ...(room.roof ?? {}), [k]: k === "type" ? inp.value : Number(inp.value) };
+          });
+          this.renderProps();
+        }),
+      );
+      el.querySelector("[data-solar]")?.addEventListener("change", (ev) =>
+        this.change((fl) => {
+          fl.rooms.find((x) => x.id === r.id).solar_panels = Math.max(0, Math.round(Number(ev.target.value) || 0));
+        }),
+      );
       bindPad();
       el.querySelectorAll("[data-room]").forEach((inp) =>
         inp.addEventListener("change", () => this.change((fl) => {
@@ -1446,10 +1528,44 @@ export class FloorEditor {
         <label>Bereich (für Gartenlicht, Sensoren)</label><select data-g="area_id">${areaOptions(o.area_id)}</select>
         <label>Geländer / Zaun am Rand (nicht an Hauswänden)</label><select data-g="railing">${RAILINGS.map(([k, n]) => `<option value="${k}"${k === (o.railing ?? "") ? " selected" : ""}>${n}</option>`).join("")}</select>
         <label>Geländerhöhe (m)</label><input data-g="railing_height" type="number" step="0.05" min="0.3" max="2.5" value="${o.railing_height ?? ""}" placeholder="1,0">
-        ${o.heights ? `<p class="muted">Schräge Fläche (Hang). Beim Verschieben einer Ecke wird sie wieder eben.</p>` : ""}
+        <label>Hang: Höhe je Ecke (m über der Etage ${esc(f.name)})</label>
+        ${Array.isArray(o.heights) ? `<div class="row3">${o.points.map((_, i) => `<div><label>Ecke ${i + 1}</label><input type="number" step="0.05" data-h="${i}" value="${Number(o.heights[i]) || 0}"></div>`).join("")}</div>` : `<p class="muted">Eben. „Höhen automatisch“ verbindet die Fläche mit den Gartenflächen anderer Etagen (z. B. Böschung von unten nach oben).</p>`}
+        <div class="btns"><button data-act="autoh">Höhen automatisch</button>${Array.isArray(o.heights) ? `<button data-act="flat">Eben machen</button>` : `<button data-act="hmanual">Höhen von Hand</button>`}</div>
         ${pad()}
         <div class="btns"><button data-act="del" class="danger">Löschen</button></div>`;
       bindPad();
+      el.querySelectorAll("[data-h]").forEach((inp) =>
+        inp.addEventListener("change", () => {
+          this.change((fl) => {
+            const x = fl.outdoor.find((y) => y.id === o.id);
+            const hs = [...(x.heights ?? x.points.map(() => 0))];
+            hs[Number(inp.dataset.h)] = r3(Number(inp.value) || 0);
+            x.heights = hs;
+          });
+        }),
+      );
+      el.querySelector("[data-act=autoh]").addEventListener("click", () => {
+        const hs = autoHeights(this.b, this.floorId, o.id);
+        if (!hs) return this._toast("Keine Gartenfläche einer anderen Etage in der Nähe (bis 50 cm). Ecken an die obere Fläche ziehen oder Höhen von Hand eintragen.");
+        this.change((fl) => {
+          fl.outdoor.find((y) => y.id === o.id).heights = hs;
+        });
+        this._toast(`Hang gesetzt: ${hs.map((h) => h.toFixed(2)).join(" / ")} m`);
+        this.renderProps();
+      });
+      el.querySelector("[data-act=flat]")?.addEventListener("click", () => {
+        this.change((fl) => {
+          delete fl.outdoor.find((y) => y.id === o.id).heights;
+        });
+        this.renderProps();
+      });
+      el.querySelector("[data-act=hmanual]")?.addEventListener("click", () => {
+        this.change((fl) => {
+          const x = fl.outdoor.find((y) => y.id === o.id);
+          x.heights = x.points.map(() => 0);
+        });
+        this.renderProps();
+      });
       el.querySelectorAll("[data-g]").forEach((inp) =>
         inp.addEventListener("change", () => this.change((fl) => {
           const x = fl.outdoor.find((y) => y.id === o.id);

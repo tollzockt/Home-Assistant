@@ -91,3 +91,24 @@ test("L-Haus: Hauptdach plus Flügel bis zum First", async () => {
   // Rechteck: nur ein Teil
   assert.equal(roofParts([rooms[0]]).length, 1);
 });
+
+test("Hang automatisch: Ecken an der oberen Gartenebene bekommen deren Höhe", async () => {
+  const { autoHeights, roomRoofGroups } = await import("../../custom_components/haus3d/frontend/exterior.js");
+  const b = {
+    floors: [
+      { id: "kg", elevation: -2.6, rooms: [], outdoor: [
+        { id: "unten", type: "lawn", points: [[0, 0], [10, 0], [10, 5], [0, 5]] },
+        { id: "hang", type: "lawn", points: [[0, 5], [10, 5], [10, 9], [5, 9.5], [0, 9]] },
+      ] },
+      { id: "eg", elevation: 0, rooms: [], outdoor: [{ id: "oben", type: "lawn", points: [[0, 9], [10, 9], [10, 15], [0, 15]] }] },
+    ],
+  };
+  // (5, 9.5) liegt in der oberen Fläche; (0,5)/(10,5) an der unteren
+  assert.deepEqual(autoHeights(b, "kg", "hang"), [0, 0, 2.6, 2.6, 2.6]);
+  assert.equal(autoHeights(b, "kg", "unten"), null);
+  const floor = { rooms: [{ id: "s", points: rect(0, 0, 3, 2).points, roof: { type: "gable", pitch: 20 } }, { id: "u", points: rect(3, 0, 5, 2).points, roof: { type: "gable" } }, { id: "x", points: rect(9, 9, 10, 10).points }] };
+  const groups = roomRoofGroups(floor);
+  assert.equal(groups.length, 1);
+  assert.deepEqual(groups[0].rooms.map((r) => r.id), ["s", "u"]);
+  assert.equal(groups[0].roof.pitch, 20);
+});

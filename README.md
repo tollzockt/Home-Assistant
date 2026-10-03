@@ -21,7 +21,8 @@ dort lassen sich direkt einlesen, und Exporte von Haus 3D kann NeonPlan wieder �
 - **Balkon und Geländer**: Gartenfläche der Art „Balkon“ wird als Platte auf Höhe der Etage gebaut, mit
   Geländer an allen Kanten, die nicht am Haus liegen (Glas, Stäbe oder Holz, Höhe einstellbar). Auch
   Terrassen und andere Flächen können so ein Geländer oder einen Zaun bekommen.
-- **Garten**: Bäume (Laub-, Nadel-, Obstbaum), Büsche, Blumen, Ziergras, Pflanzkübel, Findling,
+- **Garten**: Bäume (Laub-, Nadel-, Obstbaum), Büsche, Blumen, Ziergras, Pflanzkübel, Whirlpool,
+  Komposter, Findling,
   Steingruppe, Trittstein, Liege, Sonnenschirm, Gartentisch und Grill als Möbel. Gartenflächen auch als
   Kies, Pflaster oder Steingarten. Beete werden automatisch bepflanzt.
 - **Wetter**: Bei Regen, Schauer, Gewitter, Schnee oder Hagel (Zustand einer `weather.*`-Entität) fällt
@@ -61,11 +62,17 @@ Ansicht **2D**, **2D + 3D** (nebeneinander, auf schmalen Geräten untereinander)
 
 - **Räume zeichnen**: Rechteck ziehen oder freie Form Punkt für Punkt. Eckpunkte rasten am Raster
   und an vorhandenen Ecken ein. Ecken ziehen, über „+“ neue Ecken einfügen.
+- **Wände verschieben**: Raum wählen, dann eine blau markierte Wand ziehen. Sie wandert senkrecht (im
+  Rasterschritt), angrenzende Räume ziehen mit, damit keine Lücke entsteht. Gemeinsame Ecken wandern
+  ebenfalls in allen Räumen mit. Alt beim Ziehen = nur dieser Raum.
+- **Eigenes Dach je Raum** (Schuppen, Carport, Anbau): Art, Neigung, Überstand, Dachfarbe; dazu eine
+  **Außenfarbe** der Wände je Raum. Beim Schuppen mit Balkonkraftwerk liegen die Solarmodule auf den
+  Dachflächen (Anzahl einstellbar).
 - **Räume zuordnen**: Name, Home-Assistant-Bereich, Bodenbelag (18 Beläge) oder eigene Bodenfarbe,
   Wandfarbe innen. Außen- und Innenwandfarbe für das ganze Haus stehen bei der Etage (nichts gewählt).
 - **Fenster, Türen, Garagentore**: auf eine Wand tippen, entlang der Wand ziehen. Maße, Anschlag,
   Aufschlagrichtung, Flügel, Aussehen sowie Kontakt und Rollladen (automatisch, keiner oder bestimmt).
-- **Möbelkatalog**: 79 Typen in Kategorien (Wohnen, Essen, Küche, Schlafen, Bad, Büro, Technik, Licht,
+- **Möbelkatalog**: 81 Typen in Kategorien (Wohnen, Essen, Küche, Schlafen, Bad, Büro, Technik, Licht,
   Garten, Bau, eigene Körper) mit 3D-Vorschaubild und Suche. Neu u. a. Netzwerk- und Serverschrank,
   Heizkessel, Warmwasserspeicher, Wärmepumpe, Sicherungskasten.
 - **Eigene Körper**: Quader und Zylinder mit frei wählbaren Maßen, Höhe über Boden, Farbe und Namen.
@@ -80,6 +87,10 @@ Ansicht **2D**, **2D + 3D** (nebeneinander, auf schmalen Geräten untereinander)
   Boden verschieben (mit Magnet), ein Klick auf einen Boden wählt den Raum.
 - **Geräte platzieren**: Lampen, Steckdosen usw. an ihre echte Stelle setzen (`placements[]`).
 - **Gartenflächen** zeichnen (auch Balkon), Art, Bereich und Geländer wählen.
+- **Hang zwischen zwei Gartenebenen** (z. B. Garten am KG unten, Vorgarten am EG oben): Böschung als
+  Gartenfläche der unteren Etage zeichnen, so dass ihre Ecken oben an die Fläche der oberen Etage
+  stoßen, dann **Höhen automatisch**. Ecken oben bekommen den Höhenunterschied, unten 0, dazwischen
+  wird verteilt. Alternativ Höhe je Ecke von Hand. Beim Verschieben von Ecken bleiben die Höhen.
 - **Aufräumen** (Besen): entfernt doppelte Eckpunkte und „Spitzen“ (Kanten, die auf sich selbst
   zurücklaufen), ohne Fenster und Türen zu verschieben, und rückt Möbel, die in Wände ragen, davor.
 - Rückgängig/Wiederholen (Strg+Z), Lücken schließen, Etagen anlegen/löschen.
@@ -93,8 +104,9 @@ Damit HACS sie als Update anbietet, braucht es ein **Release**:
 
 1. Auf GitHub im Repository rechts **Releases → Draft a new release** (bzw. „Create a new release“).
 2. **Choose a tag** → neuen Tag eintippen, genau wie die Version in `manifest.json` mit „v“ davor,
-   z. B. `v0.7.0` → „Create new tag“. Ziel-Zweig: `main`.
-3. Titel z. B. `0.7.0`, kurze Beschreibung, **Publish release**.
+   z. B. `v0.8.0` → „Create new tag“. Ziel-Zweig: `main`.
+3. Titel z. B. `0.8.0`, kurze Beschreibung, bei „Release label“ **None** (nicht Pre-release),
+   **Publish release**.
 4. In Home Assistant: **HACS → Haus 3D** (ggf. ⋮ → „Informationen aktualisieren“) → **Herunterladen**/
    **Aktualisieren** → Home Assistant **neu starten**.
 5. Im Browser die Seite einmal neu laden (Strg+F5 bzw. App neu öffnen).
@@ -131,7 +143,8 @@ Das Format entspricht NeonPlan 3D (`version: 1`):
 ```text
 floors[]          id, name, elevation, height, ha_floor
   rooms[]         id, name, area_id, points [[x, z], …] in Metern, floor_material,
-                  floor_color, wall_color ("#rrggbb", optional)
+                  floor_color, wall_color, exterior_color ("#rrggbb", optional),
+                  roof {type, pitch, overhang, color}, solar_panels (eigenes Dach je Raum)
   openings[]      id, room_id, edge, offset, width, type (window|door|garage), sill, height,
                   hinge, swing, style (passage|glass|front_glass|…), contact, cover
   outdoor[]       id, type (lawn|terrace|path|driveway|pool|bed|hedge|fence|balcony|gravel|paving|
