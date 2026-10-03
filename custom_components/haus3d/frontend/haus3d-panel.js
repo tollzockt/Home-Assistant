@@ -19,6 +19,7 @@ import {
   temperatureColor,
   watchedEntities,
 } from "./devices.js";
+import { ROOF_TYPES, roofSettings, weatherEntity, weatherKind } from "./exterior.js";
 import { exportFile, normalize, parseImport } from "./model.js";
 import { HouseScene } from "./scene.js";
 import { closeGaps } from "./walls.js";
@@ -55,6 +56,8 @@ const LAYERS = [
   ["floors", "Böden"],
   ["furniture", "Möbel"],
   ["garden", "Garten"],
+  ["roof", "Dach (in „Alle“)"],
+  ["weather", "Wetter (Regen, Schnee)"],
   ["solar", "Solarmodule"],
   ["flow", "Energiefluss"],
   ["devices", "Geräte"],
@@ -366,9 +369,20 @@ class Haus3DPanel extends HTMLElement {
       this._refreshEntities();
       return;
     }
+    this._applyWeather();
     const changed = this._watchedChanged();
     if (changed === "presence") this._refreshEntities();
     else if (changed) this._updateStates();
+  }
+
+  /** Regen/Schnee aus der Wetter-Entität (settings.weather, sonst die erste weather.*). */
+  _applyWeather() {
+    const id = weatherEntity(this._hass, this._building?.settings);
+    const st = id ? this._hass.states[id] : null;
+    if (st === this._weatherRef && id === this._weatherId) return;
+    this._weatherRef = st;
+    this._weatherId = id;
+    this._scene?.setWeather(weatherKind(st));
   }
 
   get hass() {
@@ -500,6 +514,8 @@ class Haus3DPanel extends HTMLElement {
       this._scene.setBuilding(this._building, { keepCamera });
       if (this._scene.warnings.length) console.warn("Haus 3D:", this._scene.warnings);
       this._scene.start();
+      this._weatherRef = undefined;
+      this._applyWeather();
     }
     this._renderToolbar();
     this._refreshEntities();
@@ -914,7 +930,7 @@ class Haus3DPanel extends HTMLElement {
             ${LAYERS.map(([k, name]) => `<label><input type="checkbox" data-layer="${k}"${st.layers[k] !== false ? " checked" : ""}><span>${name}</span></label>`).join("")}
           </div>
           <p class="hint">Darstellung und Einblenden gelten für dieses Gerät/diesen Browser.</p>
-          ${this._hass?.user?.is_admin ? `<h4>Energie-Anzeige (für alle)</h4><div class="energy-cfg"></div>` : ""}
+          ${this._hass?.user?.is_admin ? `<h4>Haus & Wetter (für alle)</h4><div class="house-cfg"></div><h4>Energie-Anzeige (für alle)</h4><div class="energy-cfg"></div>` : ""}
         </div>
       </div>`;
     const syncSeg = () => {
@@ -946,8 +962,51 @@ class Haus3DPanel extends HTMLElement {
     });
     const cfg = el.querySelector(".energy-cfg");
     if (cfg) this._renderEnergyConfig(cfg);
+    const house = el.querySelector(".house-cfg");
+    if (house) this._renderHouseConfig(house);
     this._els.stage.appendChild(el);
     this._dialog = el;
+  }
+
+  /** Gemeinsame Einstellungen speichern (ins Gebäude, mit Revision). */
+  async _saveBuildingSettings(patch, message) {
+    const building = structuredClone(this._building);
+    building.settings = { ...(building.settings ?? {}), ...patch };
+    try {
+      const res = await this._hass.callWS({ type: "haus3d/building/save", building, revision: this._revision });
+      this._setBuilding(res.building, res.revision, { keepCamera: true });
+      this._toast(message);
+    } catch (err) {
+      this._toast(`Speichern fehlgeschlagen: ${err.message ?? err.code}`);
+    }
+  }
+
+  /** Dach (Form, Neigung, Überstand, Firstrichtung) und Wetter-Entität. */
+  _renderHouseConfig(box) {
+    const hass = this._hass;
+    const roof = roofSettings(this._building?.settings);
+    const weather = this._building?.settings?.weather ?? "";
+    const weathers = Object.keys(hass.states).filter((id) => id.startsWith("weather.")).sort();
+    box.innerHTML = `
+      <label class="en-row"><span>Dach</span><select data-r="type">${ROOF_TYPES.map(([k, n]) => `<option value="${k}"${k === roof.type ? " selected" : ""}>${n}</option>`).join("")}</select></label>
+      <label class="en-row"><span>Neigung (°)</span><input data-r="pitch" type="number" min="5" max="60" step="1" value="${roof.pitch}"></label>
+      <label class="en-row"><span>Überstand (m)</span><input data-r="overhang" type="number" min="0" max="1.5" step="0.05" value="${roof.overhang}"></label>
+      <label class="en-row"><span>First</span><select data-r="direction">${[["auto", "lange Seite"], ["x", "Ost–West im Plan"], ["z", "Nord–Süd im Plan"]].map(([k, n]) => `<option value="${k}"${k === roof.direction ? " selected" : ""}>${n}</option>`).join("")}</select></label>
+      <label class="en-row"><span>Wetter</span><select data-w>
+        <option value=""${weather === "" ? " selected" : ""}>automatisch${weathers[0] ? ` (${esc(weathers[0])})` : ""}</option>
+        <option value="none"${weather === "none" ? " selected" : ""}>kein Wetter</option>
+        ${weathers.map((id) => `<option value="${esc(id)}"${id === weather ? " selected" : ""}>${esc(hass.states[id].attributes.friendly_name ?? id)}</option>`).join("")}
+      </select></label>
+      <p class="hint">Das Dach erscheint nur in der Ansicht „Alle“. Wählt man eine Etage, schaut man hinein.</p>
+      <div class="btns"><button class="house-save primary">Speichern</button></div>`;
+    box.querySelector(".house-save").addEventListener("click", () => {
+      const next = { ...(this._building?.settings?.roof ?? {}) };
+      for (const inp of box.querySelectorAll("[data-r]")) next[inp.dataset.r] = inp.type === "number" ? Number(inp.value) : inp.value;
+      const w = box.querySelector("[data-w]").value;
+      const r = roofSettings({ roof: next }); // begrenzt Neigung und Überstand
+      const roof = { ...next, type: r.type, pitch: r.pitch, overhang: r.overhang, direction: r.direction };
+      this._saveBuildingSettings({ roof, weather: w || null }, "Dach und Wetter gespeichert.");
+    });
   }
 
   /** Energie-Anzeige einstellen: feste Werte des Balkonkraftwerks und zusätzliche Entitäten. */

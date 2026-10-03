@@ -64,6 +64,18 @@ export const FURNITURE = {
   lamp_uplight: ["Deckenfluter", 0.35, 0.35, 1.8],
   lamp_bollard: ["Pollerleuchte", 0.15, 0.15, 0.7],
   lamp_garden: ["Gartenleuchte", 0.2, 0.2, 0.5],
+  // Garten
+  tree: ["Laubbaum", 3.0, 3.0, 5.0],
+  tree_conifer: ["Nadelbaum", 2.0, 2.0, 6.0],
+  tree_fruit: ["Obstbaum", 2.5, 2.5, 3.5],
+  bush: ["Busch", 1.2, 1.2, 1.1],
+  flowers: ["Blumen", 0.8, 0.8, 0.4],
+  grass: ["Ziergras", 0.7, 0.7, 0.9],
+  planter: ["Pflanzkübel", 0.6, 0.6, 0.9],
+  lounger: ["Gartenliege", 0.7, 1.9, 0.4],
+  parasol: ["Sonnenschirm", 2.5, 2.5, 2.4],
+  garden_table: ["Gartentisch", 1.4, 0.8, 0.74],
+  bbq: ["Grill", 1.0, 0.6, 1.1],
 };
 
 /** Farben je Stil; im Cyberpunk-Stil dunkel mit Neon-Kanten. */
@@ -80,6 +92,12 @@ export function furnitureMaterials(style) {
     white: m(0xf5f5f5),
     ceramic: m(0xffffff, { roughness: 0.2 }),
     green: m(0x3f8f4a),
+    leaf: m(0x4f8f3a),
+    leafDark: m(0x2c6435),
+    bark: m(0x6b4a2f),
+    blossom: [0xe0457b, 0xf2c84b, 0x8e6ae0, 0xffffff].map((c) => m(c)),
+    fruit: m(0xd33f2f),
+    canvas: m(0xf0e6cf),
     glass: new THREE.MeshStandardMaterial({ color: 0x9fd3f0, transparent: true, opacity: 0.3, depthWrite: false }),
     screen: m(0x111111, { emissive: cyber ? 0x2962ff : 0x000000, emissiveIntensity: cyber ? 0.6 : 0 }),
     bulb: new THREE.MeshStandardMaterial({ color: 0xfff3c4, emissive: 0x000000 }),
@@ -309,6 +327,106 @@ function buildModel(type, w, d, h, M) {
     }
     case "led_strip":
       bulbs.push(box(g, M.bulb, w, Math.max(h, 0.01), Math.max(d, 0.01)));
+      break;
+    case "tree":
+    case "tree_fruit": {
+      const r = Math.min(w, d) / 2;
+      cyl(g, M.bark, r * 0.08 + 0.04, h * 0.45, 0, 0, 0, 10);
+      // Krone aus drei Kugeln
+      for (const [dx, dy, dz, k] of [[0, 0.7, 0, 1], [r * 0.35, 0.58, r * 0.2, 0.7], [-r * 0.3, 0.6, -r * 0.25, 0.75]]) {
+        const crown = new THREE.Mesh(new THREE.SphereGeometry(r * k, 14, 10), M.leaf);
+        crown.scale.y = Math.min(1.2, (h * 0.55) / (2 * r));
+        crown.position.set(dx, h * dy, dz);
+        g.add(crown);
+      }
+      if (type === "tree_fruit") {
+        for (let i = 0; i < 9; i++) {
+          const a = (i / 9) * Math.PI * 2;
+          const f = new THREE.Mesh(new THREE.SphereGeometry(0.06, 8, 6), M.fruit);
+          f.position.set(Math.cos(a) * r * 0.85, h * (0.6 + 0.1 * Math.sin(i * 2.3)), Math.sin(a) * r * 0.85);
+          g.add(f);
+        }
+      }
+      break;
+    }
+    case "tree_conifer": {
+      const r = Math.min(w, d) / 2;
+      cyl(g, M.bark, 0.1, h * 0.2, 0, 0, 0, 8);
+      for (const [y0, k] of [[0.15, 1], [0.4, 0.75], [0.62, 0.5]]) {
+        const cone = new THREE.Mesh(new THREE.ConeGeometry(r * k, h * 0.45, 12), M.leafDark);
+        cone.position.y = h * y0 + h * 0.225;
+        g.add(cone);
+      }
+      break;
+    }
+    case "bush": {
+      const r = Math.min(w, d) / 2;
+      for (const [dx, dz, k] of [[0, 0, 1], [r * 0.4, r * 0.3, 0.7], [-r * 0.45, -r * 0.2, 0.65]]) {
+        const b = new THREE.Mesh(new THREE.SphereGeometry(r * k, 12, 8), M.leaf);
+        b.scale.y = h / (2 * r);
+        b.position.set(dx, h * 0.5 * k, dz);
+        g.add(b);
+      }
+      break;
+    }
+    case "flowers": {
+      const leaves = new THREE.Mesh(new THREE.SphereGeometry(Math.min(w, d) / 2, 12, 8), M.leaf);
+      leaves.scale.y = (h * 0.6) / Math.min(w, d);
+      leaves.position.y = h * 0.3;
+      g.add(leaves);
+      for (let i = 0; i < 12; i++) {
+        const a = i * 2.4;
+        const rr = (Math.min(w, d) / 2) * (0.25 + 0.6 * ((i * 7) % 5) / 5);
+        const f = new THREE.Mesh(new THREE.SphereGeometry(0.05, 8, 6), M.blossom[i % M.blossom.length]);
+        f.position.set(Math.cos(a) * rr, h * 0.55 + 0.03 * (i % 3), Math.sin(a) * rr);
+        g.add(f);
+      }
+      break;
+    }
+    case "grass":
+      for (let i = 0; i < 9; i++) {
+        const blade = new THREE.Mesh(new THREE.ConeGeometry(0.06, h, 4), M.leaf);
+        const a = i * 0.7;
+        blade.position.set(Math.cos(a) * w * 0.2, h / 2, Math.sin(a) * d * 0.2);
+        blade.rotation.set(Math.sin(a) * 0.3, 0, Math.cos(a) * 0.3);
+        g.add(blade);
+      }
+      break;
+    case "planter": {
+      cyl(g, M.dark, Math.min(w, d) * 0.4, h * 0.45, 0, 0, 0, 16);
+      const p = new THREE.Mesh(new THREE.SphereGeometry(Math.min(w, d) * 0.45, 12, 8), M.leaf);
+      p.scale.y = (h * 0.6) / Math.min(w, d);
+      p.position.y = h * 0.45 + h * 0.25;
+      g.add(p);
+      break;
+    }
+    case "lounger":
+      legs(g, M.metal, w, d, h * 0.6, 0.03);
+      box(g, M.canvas, w, 0.06, d * 0.7, 0, h * 0.6, d * 0.15);
+      {
+        const back = box(g, M.canvas, w, 0.06, d * 0.32, 0, h * 0.6, -d * 0.33);
+        back.rotation.x = -0.6;
+        back.position.y += d * 0.1;
+      }
+      break;
+    case "parasol": {
+      cyl(g, M.dark, 0.25, 0.08, 0, 0, 0, 16);
+      cyl(g, M.metal, 0.025, h, 0, 0, 0, 8);
+      const top = new THREE.Mesh(new THREE.ConeGeometry(Math.min(w, d) / 2, 0.45, 16, 1, true), M.canvas);
+      top.material = M.canvas;
+      top.position.y = h - 0.2;
+      g.add(top);
+      break;
+    }
+    case "garden_table":
+      legs(g, M.metal, w, d, h - 0.04, 0.035);
+      box(g, M.wood, w, 0.04, d, 0, h - 0.04, 0);
+      break;
+    case "bbq":
+      legs(g, M.metal, w * 0.6, d * 0.8, h * 0.55, 0.03);
+      box(g, M.dark, w * 0.6, h * 0.3, d * 0.8, 0, h * 0.55, 0);
+      box(g, M.metal, w * 0.2, 0.03, d * 0.6, -w * 0.4, h * 0.75, 0);
+      box(g, M.metal, w * 0.2, 0.03, d * 0.6, w * 0.4, h * 0.75, 0);
       break;
     default:
       box(g, M.light, w, h, d);

@@ -42,6 +42,14 @@ const OUTDOOR_TYPES = [
   ["bed", "Beet", "#6b4a2f"],
   ["hedge", "Hecke", "#2f6b2a"],
   ["fence", "Zaun", "#8a6f52"],
+  ["balcony", "Balkon", "#b5ada3"],
+];
+const RAILINGS = [
+  ["", "Standard (Balkon: Glas, sonst keins)"],
+  ["none", "kein Geländer"],
+  ["glass", "Glas"],
+  ["bars", "Stäbe"],
+  ["wood", "Holzzaun"],
 ];
 const STYLES = [
   ["", "automatisch"],
@@ -1110,13 +1118,16 @@ export class FloorEditor {
         <label>Name</label><input data-g="name" value="${esc(o.name ?? "")}">
         <label>Art</label><select data-g="type">${OUTDOOR_TYPES.map(([k, n]) => `<option value="${k}"${k === o.type ? " selected" : ""}>${n}</option>`).join("")}</select>
         <label>Bereich (für Gartenlicht, Sensoren)</label><select data-g="area_id">${areaOptions(o.area_id)}</select>
+        <label>Geländer / Zaun am Rand (nicht an Hauswänden)</label><select data-g="railing">${RAILINGS.map(([k, n]) => `<option value="${k}"${k === (o.railing ?? "") ? " selected" : ""}>${n}</option>`).join("")}</select>
+        <label>Geländerhöhe (m)</label><input data-g="railing_height" type="number" step="0.05" min="0.3" max="2.5" value="${o.railing_height ?? ""}" placeholder="1,0">
         ${o.heights ? `<p class="muted">Schräge Fläche (Hang). Beim Verschieben einer Ecke wird sie wieder eben.</p>` : ""}
         <div class="btns"><button data-act="del" class="danger">Löschen</button></div>`;
       el.querySelectorAll("[data-g]").forEach((inp) =>
         inp.addEventListener("change", () => this.change((fl) => {
           const x = fl.outdoor.find((y) => y.id === o.id);
-          const v = inp.value || null;
-          if (v === null) delete x[inp.dataset.g];
+          let v = inp.value || null;
+          if (v !== null && inp.type === "number") v = Number(v);
+          if (v === null || Number.isNaN(v)) delete x[inp.dataset.g];
           else x[inp.dataset.g] = v;
         })),
       );

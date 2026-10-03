@@ -13,6 +13,18 @@ dort lassen sich direkt einlesen, und Exporte von Haus 3D kann NeonPlan wieder �
   Wände als Volumen mit echten Aussparungen für Fenster und Türen (Brüstung und Sturz als eigene Stücke),
   halbtransparente Glasscheiben, Garagentor, Gartenflächen (Rasen, Terrasse, Weg, Einfahrt, Pool mit
   Wasser, Beet, Hecke, Zaun).
+- **Dach** (Zahnrad → Haus & Wetter): Flach-, Sattel-, Walm- oder Pultdach mit Neigung, Überstand und
+  Firstrichtung. Es sitzt über der obersten Etage, ausgerichtet am Haus, und deckt nur die
+  zusammenhängenden Räume ab (ein abseits stehender Schuppen bleibt frei). Sichtbar nur in der Ansicht
+  „Alle“; wählt man eine Etage, schaut man hinein.
+- **Balkon und Geländer**: Gartenfläche der Art „Balkon“ wird als Platte auf Höhe der Etage gebaut, mit
+  Geländer an allen Kanten, die nicht am Haus liegen (Glas, Stäbe oder Holz, Höhe einstellbar). Auch
+  Terrassen und andere Flächen können so ein Geländer oder einen Zaun bekommen.
+- **Garten**: Bäume (Laub-, Nadel-, Obstbaum), Büsche, Blumen, Ziergras, Pflanzkübel, Liege,
+  Sonnenschirm, Gartentisch und Grill als Möbel. Beete werden automatisch bepflanzt.
+- **Wetter**: Bei Regen, Schauer, Gewitter, Schnee oder Hagel (Zustand einer `weather.*`-Entität) fällt
+  draußen Regen oder Schnee, nicht in den Räumen. Bei Schnee werden Rasen, Wege und Dach weiß, bei
+  Gewitter blitzt es. Die Wetter-Entität ist einstellbar (Standard: die erste vorhandene).
 - **Etagen-Umschalter** (Alle / KG / EG …), Kamera drehen, zoomen und verschieben mit Maus oder Fingern.
   Auf schmalen Bildschirmen gibt es einen Menü-Knopf für die HA-Seitenleiste. Hell/Dunkel folgt HA.
 - **Geräte automatisch im Raum**: Für jeden Raum mit `area_id` erscheinen die Entitäten des Bereichs
@@ -49,10 +61,10 @@ dort lassen sich direkt einlesen, und Exporte von Haus 3D kann NeonPlan wieder �
 - **Räume zuordnen**: Name, Home-Assistant-Bereich und Bodenbelag.
 - **Fenster, Türen, Garagentore**: auf eine Wand tippen, entlang der Wand ziehen. Maße, Anschlag,
   Aufschlagrichtung, Flügel, Aussehen sowie Kontakt und Rollladen (automatisch, keiner oder bestimmt).
-- **Möbel**: 56 Typen (wie NeonPlan) einfügen, ziehen, am orangen Punkt drehen. Lampen-Möbel mit
+- **Möbel**: 68 Typen (die von NeonPlan plus Garten) einfügen, ziehen, am orangen Punkt drehen. Lampen-Möbel mit
   Licht-Entität leuchten im 3D-Modell.
 - **Geräte platzieren**: Lampen, Steckdosen usw. an ihre echte Stelle setzen (`placements[]`).
-- **Gartenflächen** zeichnen, Art und Bereich wählen.
+- **Gartenflächen** zeichnen (auch Balkon), Art, Bereich und Geländer wählen.
 - Rückgängig/Wiederholen (Strg+Z), Lücken schließen, 3D-Vorschau, Etagen anlegen/löschen.
   Gespeichert wird erst mit „Speichern“, der alte Stand landet im Verlauf.
 
@@ -87,10 +99,13 @@ floors[]          id, name, elevation, height, ha_floor
   rooms[]         id, name, area_id, points [[x, z], …] in Metern, floor_material
   openings[]      id, room_id, edge, offset, width, type (window|door|garage), sill, height,
                   hinge, swing, style (passage|glass|front_glass|…), contact, cover
-  outdoor[]       id, type (lawn|terrace|path|driveway|pool|bed|hedge|fence), points
+  outdoor[]       id, type (lawn|terrace|path|driveway|pool|bed|hedge|fence|balcony), points,
+                  railing (glass|bars|wood|none), railing_height
   placements[]    entity_id, x, z, y
   furniture[]     id, type, x, z, rotation, w, d, h
-settings          wall_exterior (0.24), wall_interior (0.12), energy {…, extra: [{entity, name}]}
+settings          wall_exterior (0.24), wall_interior (0.12), energy {…, extra: [{entity, name}]},
+                  roof {type (none|flat|gable|hip|shed), pitch, overhang, direction (auto|x|z),
+                        floor, rooms}, weather (Entität oder "none")
 ```
 
 - Räume werden auf der **Mitte der Innenwände** gezeichnet. Kanten, die zwei Räume teilen, werden zu
@@ -102,6 +117,7 @@ settings          wall_exterior (0.24), wall_interior (0.12), energy {…, extra
   sonst die Entitäts-ID.
 - Gartenflächen liegen auf der Höhe ihrer Etage. **Hang/Böschung:** Eine Gartenfläche kann zusätzlich
   `heights` haben (Meter über ihrer Etage, ein Wert je Eckpunkt); sie wird dann schräg dargestellt.
+- `balcony`, `railing` und `settings.roof` sind Erweiterungen von Haus 3D; NeonPlan kennt sie nicht.
 - Gartenflächen mit `area_id` (und optional `name`) bekommen wie Räume eine Beschriftung und die Geräte
   ihres Bereichs (z. B. Gartenlicht). NeonPlan ignoriert diese Zusatzfelder.
 - Räume, die mit Spalt nebeneinander gezeichnet sind (Innenmaße), bietet der Import an zu schließen:

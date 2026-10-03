@@ -182,6 +182,34 @@ const anim = await e1.evaluate(async () => {
   await new Promise((r) => setTimeout(r, 1200));
   return { mid: +mid.toFixed(3), end: +item.leaves[0].pivot.rotation.y.toFixed(3), target: +item.leaves[0].angle.toFixed(3) };
 });
+// Etappe 2: Dach, Balkon, Pflanzen, Wetter
+for (const p of browser.contexts().flatMap((c) => c.pages())) await p.close(); // Rechenzeit freigeben
+const dach = await shot("dach-regen", "?roof=gable&garden&weather=pouring", { width: 1280, height: 800 });
+const outside = await dach.evaluate(() => {
+  const sc = window.panel._scene;
+  return { roof: sc.roofMeshes.length, roofVisible: sc._roofShown(), weather: sc.weather?.drops.length ?? 0, labelsHidden: [...window.panel.shadowRoot.querySelectorAll(".label")].filter((l) => l.style.display === "none" || l.hidden).length };
+});
+await dach.locator("haus3d-panel .floors button", { hasText: "EG" }).click();
+await dach.waitForTimeout(1200);
+outside.roofInEg = await dach.evaluate(() => window.panel._scene._roofShown());
+await dach.screenshot({ path: `${out}/eg-regen-balkon.png` });
+const schnee = await shot("walmdach-schnee", "?roof=hip&garden&weather=snowy", { width: 1280, height: 800 });
+await schnee.locator("haus3d-panel .gear").click();
+await schnee.waitForTimeout(300);
+await schnee.locator("haus3d-panel .house-cfg select[data-r=type]").selectOption("shed");
+await schnee.locator("haus3d-panel .house-save").click();
+await schnee.waitForTimeout(800);
+outside.savedRoof = await schnee.evaluate(() => window.calls.filter((c) => c.type === "haus3d/building/save").at(-1)?.building.settings.roof.type);
+await schnee.locator("haus3d-panel .dialog .close").click();
+await schnee.waitForTimeout(800);
+await schnee.screenshot({ path: `${out}/pultdach-schnee.png` });
+const cyberDach = await shot("cyber-dach", "?roof=gable&garden&weather=rainy", { width: 1280, height: 800 });
+await cyberDach.locator("haus3d-panel .gear").click();
+await cyberDach.locator("haus3d-panel .seg[data-key=style] button", { hasText: "Cyberpunk" }).click();
+await cyberDach.locator("haus3d-panel .dialog .close").click();
+await cyberDach.waitForTimeout(1200);
+await cyberDach.screenshot({ path: `${out}/cyber-dach.png` });
+console.log(JSON.stringify({ outside }));
 console.log(JSON.stringify({ info, calls, hidpi, roomPanel, saved, moved: { x: Math.round(moved.x), y: Math.round(moved.y) }, hiddenSaved, anim, errors: errors.filter((e) => !e.includes("404")) }, null, 1));
 await browser.close();
 server.close();
