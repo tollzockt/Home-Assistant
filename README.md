@@ -2,7 +2,7 @@
 
 Eine Home-Assistant-Integration, die deinen Hausgrundriss als interaktives 3D-Modell in einem eigenen
 Seitenleisten-Panel zeigt, mit Live-Status von Licht, Fenstern, Türen, Rollläden, Raumklima und
-Balkonkraftwerk.
+Energiefluss.
 
 Das Datenformat ist kompatibel mit [NeonPlan 3D](https://github.com/Mastershort/neonplan3d): Exporte von
 dort lassen sich direkt einlesen, und Exporte von Haus 3D kann NeonPlan wieder öffnen.
@@ -21,12 +21,21 @@ dort lassen sich direkt einlesen, und Exporte von Haus 3D kann NeonPlan wieder �
   - **Tippen/Klick**: Licht, Schalter, Lüfter und Rollladen umschalten (andere öffnen den Dialog).
   - **Lange drücken oder Rechtsklick**: der normale HA-Dialog („Weitere Infos“).
 - **Live-Status**: Räume mit eingeschaltetem Licht leuchten warm, offene Fenster/Türen werden rot
-  markiert (Türblätter schwenken auf), Rollläden hängen je nach Position vor dem Fenster. Raumbeschriftung
-  mit Name, Temperatur und Luftfeuchte (Mittelwert der Sensoren im Bereich).
+  markiert. Türblätter und Fensterflügel schwenken **animiert** auf, Rollläden fahren sichtbar hoch und
+  runter. Raumbeschriftung mit Name, Temperatur und Luftfeuchte (Mittelwert der Sensoren im Bereich).
+- **Raumfenster**: Etage wählen, dann auf einen Raum tippen. Es öffnet sich ein Fenster mit allen Geräten
+  des Raums. Bis zu **3 Raumfenster** gleichzeitig, jedes lässt sich an der Titelleiste verschieben.
+- **Geräte anpassen** (Stift im Raumfenster, nur Admins): einzelne Entitäten ausblenden (Haken weg) oder
+  weitere Entitäten hinzufügen, auch aus anderen Bereichen. Gespeichert im Raum (`hidden_entities`,
+  `panel`).
 - **Temperaturansicht** (Thermometer-Knopf): Böden von blau (18 °C) bis rot (26 °C).
-- **Balkonkraftwerk**: Der Raum mit `area_id: balkonkraftwerk` (z. B. „Schuppen“) bekommt Solarmodule aufs
+- **Energie**: Der Raum mit `area_id: balkonkraftwerk` (z. B. „Schuppen“) bekommt Solarmodule aufs
   Dach. Eine animierte Linie zeigt den Energiefluss zum Haus, ihre Geschwindigkeit folgt der
-  Einspeiseleistung. Eine kleine Karte zeigt die Werte.
+  Einspeiseleistung. Die Karte „Energie“ oben rechts lässt sich einklappen; welche Werte sie zeigt
+  (auch zusätzliche Sensoren mit eigenem Namen), stellt man im Zahnrad-Menü ein.
+- **Einstellungen** (Zahnrad): Stil **Auto** (Tag/Nacht nach `sun.sun`), **Tag**, **Nacht** oder
+  **Cyberpunk**, Geräte als Symbole oder 3D-Objekte, Ebenen (Wände, Möbel, Geräte, Garten …) ein/aus.
+- **Tablet-tauglich**: größere Schaltflächen bei Touch-Bedienung.
 - **Import/Export, Verlauf** (nur für Admins, Menü ⋮): JSON exportieren/importieren, Stand sichern, einen
   der letzten 20 Stände wiederherstellen. Vor jedem Speichern wird der alte Stand automatisch gesichert.
 - Läuft **komplett offline**: Three.js und OrbitControls liegen im Paket, kein CDN.
@@ -80,8 +89,8 @@ floors[]          id, name, elevation, height, ha_floor
                   hinge, swing, style (passage|glass|front_glass|…), contact, cover
   outdoor[]       id, type (lawn|terrace|path|driveway|pool|bed|hedge|fence), points
   placements[]    entity_id, x, z, y
-  furniture[]     wird übernommen, aber (noch) nicht dargestellt
-settings          wall_exterior (0.24), wall_interior (0.12), energy {…}
+  furniture[]     id, type, x, z, rotation, w, d, h
+settings          wall_exterior (0.24), wall_interior (0.12), energy {…, extra: [{entity, name}]}
 ```
 
 - Räume werden auf der **Mitte der Innenwände** gezeichnet. Kanten, die zwei Räume teilen, werden zu
