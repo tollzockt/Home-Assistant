@@ -15,13 +15,15 @@ dort lassen sich direkt einlesen, und Exporte von Haus 3D kann NeonPlan wieder �
   Wasser, Beet, Hecke, Zaun).
 - **Dach** (Zahnrad → Haus & Wetter): Flach-, Sattel-, Walm- oder Pultdach mit Neigung, Überstand und
   Firstrichtung. Es sitzt über der obersten Etage, ausgerichtet am Haus, und deckt nur die
-  zusammenhängenden Räume ab (ein abseits stehender Schuppen bleibt frei). Sichtbar nur in der Ansicht
+  zusammenhängenden Räume ab (ein abseits stehender Schuppen bleibt frei). **L-, T- und U-Häuser**
+  bekommen automatisch ein zusammengesetztes Dach: Hauptdach plus Flügel, die bis zum First laufen. Sichtbar nur in der Ansicht
   „Alle“; wählt man eine Etage, schaut man hinein.
 - **Balkon und Geländer**: Gartenfläche der Art „Balkon“ wird als Platte auf Höhe der Etage gebaut, mit
   Geländer an allen Kanten, die nicht am Haus liegen (Glas, Stäbe oder Holz, Höhe einstellbar). Auch
   Terrassen und andere Flächen können so ein Geländer oder einen Zaun bekommen.
-- **Garten**: Bäume (Laub-, Nadel-, Obstbaum), Büsche, Blumen, Ziergras, Pflanzkübel, Liege,
-  Sonnenschirm, Gartentisch und Grill als Möbel. Beete werden automatisch bepflanzt.
+- **Garten**: Bäume (Laub-, Nadel-, Obstbaum), Büsche, Blumen, Ziergras, Pflanzkübel, Findling,
+  Steingruppe, Trittstein, Liege, Sonnenschirm, Gartentisch und Grill als Möbel. Gartenflächen auch als
+  Kies, Pflaster oder Steingarten. Beete werden automatisch bepflanzt.
 - **Wetter**: Bei Regen, Schauer, Gewitter, Schnee oder Hagel (Zustand einer `weather.*`-Entität) fällt
   draußen Regen oder Schnee, nicht in den Räumen. Bei Schnee werden Rasen, Wege und Dach weiß, bei
   Gewitter blitzt es. Die Wetter-Entität ist einstellbar (Standard: die erste vorhandene).
@@ -54,19 +56,51 @@ dort lassen sich direkt einlesen, und Exporte von Haus 3D kann NeonPlan wieder �
 
 ## Editor (für Admins)
 
-Über den Stift in der Kopfzeile öffnet sich ein 2D-Editor für die gewählte Etage:
+Über den Stift in der Kopfzeile öffnet sich der Editor für die gewählte Etage. Oben rechts wählt man die
+Ansicht **2D**, **2D + 3D** (nebeneinander, auf schmalen Geräten untereinander) oder **3D**.
 
 - **Räume zeichnen**: Rechteck ziehen oder freie Form Punkt für Punkt. Eckpunkte rasten am Raster
   und an vorhandenen Ecken ein. Ecken ziehen, über „+“ neue Ecken einfügen.
-- **Räume zuordnen**: Name, Home-Assistant-Bereich und Bodenbelag.
+- **Räume zuordnen**: Name, Home-Assistant-Bereich, Bodenbelag (18 Beläge) oder eigene Bodenfarbe,
+  Wandfarbe innen. Außen- und Innenwandfarbe für das ganze Haus stehen bei der Etage (nichts gewählt).
 - **Fenster, Türen, Garagentore**: auf eine Wand tippen, entlang der Wand ziehen. Maße, Anschlag,
   Aufschlagrichtung, Flügel, Aussehen sowie Kontakt und Rollladen (automatisch, keiner oder bestimmt).
-- **Möbel**: 68 Typen (die von NeonPlan plus Garten) einfügen, ziehen, am orangen Punkt drehen. Lampen-Möbel mit
-  Licht-Entität leuchten im 3D-Modell.
+- **Möbelkatalog**: 79 Typen in Kategorien (Wohnen, Essen, Küche, Schlafen, Bad, Büro, Technik, Licht,
+  Garten, Bau, eigene Körper) mit 3D-Vorschaubild und Suche. Neu u. a. Netzwerk- und Serverschrank,
+  Heizkessel, Warmwasserspeicher, Wärmepumpe, Sicherungskasten.
+- **Eigene Körper**: Quader und Zylinder mit frei wählbaren Maßen, Höhe über Boden, Farbe und Namen.
+  Jedes Möbelstück kann außerdem eine eigene Farbe bekommen.
+- **Magnet** (Magnet-Knopf, an): Möbel rasten beim Ziehen an Wänden ein, drehen sich mit der
+  Vorderseite zum Raum und lassen sich an der Wand entlang schieben; in Ecken auch seitlich bündig.
+  Alt beim Ziehen = frei.
+- **Feinjustieren**: Pfeiltasten schieben die Auswahl (5 cm, mit Umschalt 1 cm), R dreht um 90°
+  (Umschalt+R: 15°). Für Tablets gibt es im Eigenschaftenfeld ein Steuerkreuz mit Schrittweite,
+  Drehknöpfen und „an die Wand stellen“.
+- **3D-Ansicht im Editor**: zeigt jede Änderung sofort. Möbel lassen sich dort anklicken und auf dem
+  Boden verschieben (mit Magnet), ein Klick auf einen Boden wählt den Raum.
 - **Geräte platzieren**: Lampen, Steckdosen usw. an ihre echte Stelle setzen (`placements[]`).
 - **Gartenflächen** zeichnen (auch Balkon), Art, Bereich und Geländer wählen.
-- Rückgängig/Wiederholen (Strg+Z), Lücken schließen, 3D-Vorschau, Etagen anlegen/löschen.
+- **Aufräumen** (Besen): entfernt doppelte Eckpunkte und „Spitzen“ (Kanten, die auf sich selbst
+  zurücklaufen), ohne Fenster und Türen zu verschieben, und rückt Möbel, die in Wände ragen, davor.
+- Rückgängig/Wiederholen (Strg+Z), Lücken schließen, Etagen anlegen/löschen.
   Gespeichert wird erst mit „Speichern“, der alte Stand landet im Verlauf.
+
+## Update einspielen
+
+Neue Versionen landen auf dem Zweig `main` von
+[tollzockt/Haus3d-HomeAssistant](https://github.com/tollzockt/Haus3d-HomeAssistant).
+Damit HACS sie als Update anbietet, braucht es ein **Release**:
+
+1. Auf GitHub im Repository rechts **Releases → Draft a new release** (bzw. „Create a new release“).
+2. **Choose a tag** → neuen Tag eintippen, genau wie die Version in `manifest.json` mit „v“ davor,
+   z. B. `v0.7.0` → „Create new tag“. Ziel-Zweig: `main`.
+3. Titel z. B. `0.7.0`, kurze Beschreibung, **Publish release**.
+4. In Home Assistant: **HACS → Haus 3D** (ggf. ⋮ → „Informationen aktualisieren“) → **Herunterladen**/
+   **Aktualisieren** → Home Assistant **neu starten**.
+5. Im Browser die Seite einmal neu laden (Strg+F5 bzw. App neu öffnen).
+
+Ohne Release kann man in HACS unter ⋮ → **Erneut herunterladen** auch den Stand von `main` wählen.
+Der Grundriss bleibt bei Updates erhalten (er liegt in `.storage/haus3d.building`).
 
 ## Installation über HACS
 
@@ -96,14 +130,17 @@ Das Format entspricht NeonPlan 3D (`version: 1`):
 
 ```text
 floors[]          id, name, elevation, height, ha_floor
-  rooms[]         id, name, area_id, points [[x, z], …] in Metern, floor_material
+  rooms[]         id, name, area_id, points [[x, z], …] in Metern, floor_material,
+                  floor_color, wall_color ("#rrggbb", optional)
   openings[]      id, room_id, edge, offset, width, type (window|door|garage), sill, height,
                   hinge, swing, style (passage|glass|front_glass|…), contact, cover
-  outdoor[]       id, type (lawn|terrace|path|driveway|pool|bed|hedge|fence|balcony), points,
+  outdoor[]       id, type (lawn|terrace|path|driveway|pool|bed|hedge|fence|balcony|gravel|paving|
+                  rockery), points,
                   railing (glass|bars|wood|none), railing_height
   placements[]    entity_id, x, z, y
-  furniture[]     id, type, x, z, rotation, w, d, h
-settings          wall_exterior (0.24), wall_interior (0.12), energy {…, extra: [{entity, name}]},
+  furniture[]     id, type, x, z, rotation, w, d, h, mount_y, entity, color, name
+settings          wall_exterior (0.24), wall_interior (0.12), wall_colors {exterior, interior},
+                  energy {…, extra: [{entity, name}]},
                   roof {type (none|flat|gable|hip|shed), pitch, overhang, direction (auto|x|z),
                         floor, rooms}, weather (Entität oder "none")
 ```
@@ -117,7 +154,8 @@ settings          wall_exterior (0.24), wall_interior (0.12), energy {…, extra
   sonst die Entitäts-ID.
 - Gartenflächen liegen auf der Höhe ihrer Etage. **Hang/Böschung:** Eine Gartenfläche kann zusätzlich
   `heights` haben (Meter über ihrer Etage, ein Wert je Eckpunkt); sie wird dann schräg dargestellt.
-- `balcony`, `railing` und `settings.roof` sind Erweiterungen von Haus 3D; NeonPlan kennt sie nicht.
+- `balcony`, `gravel`, `paving`, `rockery`, `railing`, Farben, eigene Körper und `settings.roof` sind
+  Erweiterungen von Haus 3D; NeonPlan kennt sie nicht (unbekannte Möbel zeigt es als Kiste).
 - Gartenflächen mit `area_id` (und optional `name`) bekommen wie Räume eine Beschriftung und die Geräte
   ihres Bereichs (z. B. Gartenlicht). NeonPlan ignoriert diese Zusatzfelder.
 - Räume, die mit Spalt nebeneinander gezeichnet sind (Innenmaße), bietet der Import an zu schließen:

@@ -848,6 +848,8 @@ class Haus3DPanel extends HTMLElement {
       building: this._building,
       hass: this._hass,
       floorId,
+      sceneStyle: this._appliedStyle === "cyber" ? "cyber" : this._appliedStyle === "night" ? "night" : "standard",
+      dark: !!this._hass.themes?.darkMode,
       onSave: async (building) => {
         try {
           const res = await this._hass.callWS({ type: "haus3d/building/save", building, revision: this._revision });

@@ -201,3 +201,164 @@ export function openingGeometry(floor, o) {
   const h = o.width / 2;
   return { center: c, u, len, p0: [c[0] - u[0] * h, c[1] - u[1] * h], p1: [c[0] + u[0] * h, c[1] + u[1] * h], room };
 }
+
+/**
+ * Raum-Polygon aufräumen: doppelte Punkte und „Spitzen“ (Kante läuft auf sich selbst zurück) entfernen.
+ * Öffnungen bleiben an ihrer Stelle (Kante und Offset werden neu bestimmt).
+ * @returns {{floor: object, fixed: number}} neue Etage und Anzahl entfernter Punkte
+ */
+export function cleanFloor(floor) {
+  let fixed = 0;
+  let out = floor;
+  for (const room of floor.rooms ?? []) {
+    const pts = cleanPoints(room.points);
+    if (pts.length === room.points.length || pts.length < 3) continue;
+    fixed += room.points.length - pts.length;
+    const centers = new Map();
+    for (const o of out.openings ?? []) {
+      if (o.room_id !== room.id || o.wall) continue;
+      const g = openingGeometry(out, o);
+      if (g) centers.set(o.id, g.center);
+    }
+    const openings = (out.openings ?? []).map((o) => {
+      const c = centers.get(o.id);
+      if (!c) return o;
+      let best = null;
+      for (let i = 0; i < pts.length; i++) {
+        const pr = projectOnSegment(c, pts[i], pts[(i + 1) % pts.length]);
+        if (!best || pr.dist < best.dist) best = { edge: i, offset: r3(pr.t), dist: pr.dist };
+      }
+      return { ...o, edge: best.edge, offset: best.offset };
+    });
+    out = { ...out, rooms: out.rooms.map((r) => (r.id === room.id ? { ...r, points: pts } : r)), openings };
+  }
+  return { floor: out, fixed };
+}
+
+/** Doppelte Punkte und Rückläufer entfernen, bis nichts mehr zu tun ist. */
+export function cleanPoints(points, eps = 0.005) {
+  let pts = points.map((p) => [p[0], p[1]]);
+  for (let changed = true; changed && pts.length > 3; ) {
+    changed = false;
+    for (let i = 0; i < pts.length && pts.length > 3; i++) {
+      const p = pts[(i - 1 + pts.length) % pts.length];
+      const q = pts[i];
+      const n = pts[(i + 1) % pts.length];
+      const l1 = Math.hypot(q[0] - p[0], q[1] - p[1]);
+      const l2 = Math.hypot(n[0] - q[0], n[1] - q[1]);
+      // doppelt, oder Spitze: q liegt auf der Linie und die Richtung kehrt um
+      const back = l1 > eps && l2 > eps && ((q[0] - p[0]) * (n[0] - q[0]) + (q[1] - p[1]) * (n[1] - q[1])) / (l1 * l2) < -0.995;
+      if (l1 <= eps || back) {
+        pts.splice(i, 1);
+        changed = true;
+        i--;
+      }
+    }
+  }
+  return pts;
+}
+
+/**
+ * Wandflächen einer Etage zum Einrasten: je Wandsegment die Seiten, an denen ein Raum liegt.
+ * @param {object[]} segments aus computeWalls
+ * @returns {{p: number[], u: number[], n: number[], t0: number, t1: number}[]} n zeigt von der Wand weg in den Raum
+ */
+export function wallFaces(segments) {
+  const faces = [];
+  for (const s of segments) {
+    for (const side of [1, -1]) {
+      const off = side > 0 ? s.left : -s.right;
+      // nur Seiten zum Raum hin (bei Außenwänden die Innenseite), freie Wände beidseitig
+      const roomSide = side > 0 ? s.roomLeft : s.roomRight;
+      if (!roomSide && s.kind !== "free") continue;
+      const n = [s.n[0] * side, s.n[1] * side];
+      faces.push({ p: [s.a[0] + s.n[0] * off, s.a[1] + s.n[1] * off], u: s.u, n, t0: 0, t1: s.length });
+    }
+  }
+  return faces;
+}
+
+/** Möbeltypen, die nicht an Wänden einrasten (liegen frei im Raum oder hängen an der Decke). */
+const FREE_TYPES = new Set(["rug", "parking", "stairwell", "robot_vacuum", "table", "table_round", "coffee_table", "island", "lamp_ceiling", "lamp_downlight", "lamp_panel", "lamp_pendant", "chair", "stool", "bar_stool", "custom_box", "custom_cylinder"]);
+
+/**
+ * Möbel an der nächsten Wand ausrichten (Rückseite bündig, Vorderseite zum Raum) und, wenn nah,
+ * seitlich an eine zweite Wand (Ecke). Gibt {x, z, rotation} zurück oder null, wenn keine Wand nah ist.
+ */
+export function snapToWall(item, faces, { tol = 0.3 } = {}) {
+  if (FREE_TYPES.has(item.type)) return null;
+  const w = item.w || 0.6;
+  const d = item.d || 0.6;
+  const p = [item.x, item.z];
+  let best = null;
+  for (const f of faces) {
+    const rel = [p[0] - f.p[0], p[1] - f.p[1]];
+    const along = rel[0] * f.u[0] + rel[1] * f.u[1];
+    const dist = rel[0] * f.n[0] + rel[1] * f.n[1];
+    // Möbel muss vor der Wand liegen (nicht dahinter) und entlang der Wand überlappen
+    if (dist < -0.05 || along < f.t0 - w / 2 + 0.1 || along > f.t1 + w / 2 - 0.1) continue;
+    // Abstand der nächsten Möbelseite zur Wand: bei beliebiger Drehung die passende halbe Tiefe
+    const gap = Math.abs(dist - d / 2);
+    if (gap > tol || (best && gap >= best.gap)) continue;
+    best = { f, gap, along };
+  }
+  if (!best) return null;
+  const { f } = best;
+  // Vorderseite (lokal +z, Richtung (-sin r, cos r)) zeigt in den Raum: n
+  const deg = (((Math.atan2(-f.n[0], f.n[1]) * 180) / Math.PI) % 360 + 360) % 360;
+  const rotation = Math.round(deg * 10) / 10;
+  let along = best.along;
+  // Ecke: seitlich an eine quer stehende Wand, wenn nah
+  for (const g of faces) {
+    if (g === f || Math.abs(g.n[0] * f.u[0] + g.n[1] * f.u[1]) < 0.95) continue;
+    const s = g.n[0] * f.u[0] + g.n[1] * f.u[1] > 0 ? 1 : -1; // g zeigt in +u oder -u
+    // Lage der Wandfläche g entlang f
+    const gAlong = (g.p[0] - f.p[0]) * f.u[0] + (g.p[1] - f.p[1]) * f.u[1];
+    const want = gAlong + s * (w / 2);
+    if (Math.abs(want - along) <= tol && s * (along - gAlong) > 0) {
+      // die Querwand muss die Möbelzone erreichen (im Abstand d vor f)
+      const gDist0 = (f.p[0] + f.u[0] * gAlong - g.p[0]) * g.u[0] + (f.p[1] + f.u[1] * gAlong - g.p[1]) * g.u[1];
+      const reach = [gDist0, gDist0 + (f.n[0] * g.u[0] + f.n[1] * g.u[1]) * d];
+      const lo = Math.min(...reach);
+      const hi = Math.max(...reach);
+      if (hi < g.t0 - 0.05 || lo > g.t1 + 0.05) continue;
+      along = want;
+      break;
+    }
+  }
+  const base = [f.p[0] + f.u[0] * along, f.p[1] + f.u[1] * along];
+  return { x: r3(base[0] + f.n[0] * (d / 2)), z: r3(base[1] + f.n[1] * (d / 2)), rotation: rotation >= 360 ? 0 : rotation };
+}
+
+/**
+ * Möbel, das in eine Wand ragt, so weit herausschieben, dass es bündig steht (Drehung bleibt).
+ * @returns {{x: number, z: number}|null} neue Lage oder null, wenn nichts zu tun ist
+ */
+export function pushOutOfWalls(item, faces) {
+  if (["rug", "parking", "stairwell", "led_strip"].includes(item.type) || item.type.startsWith("lamp_")) return null;
+  const a = ((item.rotation || 0) * Math.PI) / 180;
+  const ux = [Math.cos(a), Math.sin(a)]; // lokale Breite
+  const uz = [-Math.sin(a), Math.cos(a)]; // lokale Tiefe
+  const w = (item.w || 0.6) / 2;
+  const d = (item.d || 0.6) / 2;
+  let p = [item.x, item.z];
+  let moved = false;
+  for (let round = 0; round < 3; round++) {
+    let changed = false;
+    for (const f of faces) {
+      const ext = Math.abs(w * (ux[0] * f.n[0] + ux[1] * f.n[1])) + Math.abs(d * (uz[0] * f.n[0] + uz[1] * f.n[1]));
+      const along = Math.abs(w * (ux[0] * f.u[0] + ux[1] * f.u[1])) + Math.abs(d * (uz[0] * f.u[0] + uz[1] * f.u[1]));
+      const rel = [p[0] - f.p[0], p[1] - f.p[1]];
+      const dist = rel[0] * f.n[0] + rel[1] * f.n[1];
+      const t = rel[0] * f.u[0] + rel[1] * f.u[1];
+      // nur Wände, vor denen das Möbel steht (Mitte im Raum) und die es entlang überlappt
+      if (dist <= 0 || dist >= ext - 0.005 || t < f.t0 - along + 0.02 || t > f.t1 + along - 0.02) continue;
+      // Ecken der Wand nicht als Hindernis werten, wenn das Möbel nur knapp darüber hinausragt
+      if (ext - dist > 0.5) continue;
+      p = [p[0] + f.n[0] * (ext - dist), p[1] + f.n[1] * (ext - dist)];
+      changed = moved = true;
+    }
+    if (!changed) break;
+  }
+  return moved ? { x: r3(p[0]), z: r3(p[1]) } : null;
+}

@@ -38,7 +38,7 @@ OPENING_STYLES = [
     "standard",
     "bars",
 ]
-OUTDOOR_TYPES = ["lawn", "terrace", "path", "driveway", "pool", "bed", "hedge", "fence", "balcony"]
+OUTDOOR_TYPES = ["lawn", "terrace", "path", "driveway", "pool", "bed", "hedge", "fence", "balcony", "gravel", "paving", "rockery"]
 ROOF_TYPES = ["none", "flat", "gable", "hip", "shed"]
 
 ROOF_SCHEMA = vol.Schema(

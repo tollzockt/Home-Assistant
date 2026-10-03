@@ -266,6 +266,9 @@ async def test_balcony_roof_and_weather_settings(hass: HomeAssistant, setup_inte
     floor.setdefault("outdoor", []).append(
         {"id": "balkon", "type": "balcony", "points": [[0, -1.5], [3, -1.5], [3, 0], [0, 0]], "railing": "bars"}
     )
+    floor["outdoor"].append({"id": "kies", "type": "gravel", "points": [[20, 0], [22, 0], [22, 2]]})
+    floor["rooms"][0]["wall_color"] = "#9cc0dc"
+    building["settings"]["wall_colors"] = {"exterior": "#f3efe7"}
     building["settings"]["roof"] = {"type": "gable", "pitch": 30, "overhang": 0.5}
     building["settings"]["weather"] = "weather.zuhause"
     ws = await hass_ws_client(hass)
@@ -276,7 +279,9 @@ async def test_balcony_roof_and_weather_settings(hass: HomeAssistant, setup_inte
     assert saved["settings"]["roof"]["type"] == "gable"
     assert saved["settings"]["roof"]["direction"] == "auto"
     assert saved["settings"]["weather"] == "weather.zuhause"
-    assert saved["floors"][-1]["outdoor"][-1]["railing"] == "bars"
+    assert saved["floors"][-1]["outdoor"][-2]["railing"] == "bars"
+    assert saved["floors"][-1]["outdoor"][-1]["type"] == "gravel"
+    assert saved["floors"][-1]["rooms"][0]["wall_color"] == "#9cc0dc"
     building["settings"]["roof"]["type"] = "kuppel"
     await ws.send_json({"id": 2, "type": "haus3d/building/save", "building": building, "revision": msg["result"]["revision"]})
     msg = await ws.receive_json()

@@ -100,3 +100,43 @@ test("Möbel-Drehung wie NeonPlan: bei 30° liegt die Breite entlang (cos, sin)"
   assert.equal(furnitureAt(f, [0.9 * Math.cos(a), 0.9 * Math.sin(a)])?.id, "s");
   assert.equal(furnitureAt(f, [0.9 * Math.cos(a), -0.9 * Math.sin(a)]), null); // gespiegelt: daneben
 });
+
+test("Aufräumen: doppelte Punkte und Spitzen weg, Öffnungen bleiben an ihrer Stelle", async () => {
+  const { cleanFloor, cleanPoints } = await import("../../custom_components/haus3d/frontend/edit-ops.js");
+  assert.deepEqual(cleanPoints([[0, 0], [4, 0], [4, 0], [4, 3], [0, 3]]), [[0, 0], [4, 0], [4, 3], [0, 3]]);
+  // Spitze: läuft von (4,3) nach (6,3) und wieder zurück
+  assert.deepEqual(cleanPoints([[0, 0], [4, 0], [4, 3], [6, 3], [4, 3], [0, 3]]), [[0, 0], [4, 0], [4, 3], [0, 3]]);
+  const f = floorWith([{ id: "a", points: [[0, 0], [2, 0], [2, 0], [4, 0], [4, 3], [0, 3]] }], [
+    { id: "o", room_id: "a", edge: 4, offset: 1, width: 1, type: "window", sill: 1, height: 1 },
+  ]);
+  const before = openingGeometry(f, f.openings[0]).center;
+  const { floor: g, fixed } = cleanFloor(f);
+  assert.equal(fixed, 1);
+  const after = openingGeometry(g, g.openings[0]).center;
+  assert.ok(Math.hypot(before[0] - after[0], before[1] - after[1]) < 1e-9);
+});
+
+test("Möbel rastet an der Wand ein, in der Ecke auch seitlich", async () => {
+  const { snapToWall, wallFaces } = await import("../../custom_components/haus3d/frontend/edit-ops.js");
+  const f = floorWith([rectRoom([0, 0], [4, 3], "a")]);
+  const faces = wallFaces(computeWalls(f, { wall_exterior: 0.24, wall_interior: 0.12 }).segments);
+  // Schrank 0,6 tief, knapp vor der Wand bei z = 3 (Innenseite), Vorderseite soll nach -z zeigen
+  const s = snapToWall({ type: "wardrobe", x: 2, z: 2.6, w: 2, d: 0.6, rotation: 0 }, faces);
+  assert.deepEqual([s.x, s.z, s.rotation], [2, 2.7, 180]);
+  // in der Ecke links unten: Rückseite an z = 0, linke Seite an x = 0
+  const c = snapToWall({ type: "shelf", x: 0.55, z: 0.25, w: 1, d: 0.4, rotation: 0 }, faces);
+  assert.deepEqual([c.x, c.z, c.rotation], [0.5, 0.2, 0]);
+  // weit weg: nichts; Teppiche rasten nie ein
+  assert.equal(snapToWall({ type: "wardrobe", x: 2, z: 1.5, w: 1, d: 0.6 }, faces), null);
+  assert.equal(snapToWall({ type: "rug", x: 2, z: 2.75, w: 1, d: 0.5 }, faces), null);
+});
+
+test("Möbel aus der Wand rücken, Drehung bleibt", async () => {
+  const { pushOutOfWalls, wallFaces } = await import("../../custom_components/haus3d/frontend/edit-ops.js");
+  const f = floorWith([rectRoom([0, 0], [4, 3], "a"), rectRoom([4, 0], [8, 3], "b")]);
+  const faces = wallFaces(computeWalls(f, { wall_exterior: 0.24, wall_interior: 0.12 }).segments);
+  // Bett längs gedreht, ragt 10 cm in die Innenwand bei x = 4 (deren Fläche liegt bei 3,94)
+  const q = pushOutOfWalls({ type: "bed", x: 3.54, z: 1.5, w: 2, d: 1, rotation: 90 }, faces);
+  assert.deepEqual(q, { x: 3.44, z: 1.5 });
+  assert.equal(pushOutOfWalls({ type: "bed", x: 2, z: 1.5, w: 2, d: 1, rotation: 90 }, faces), null);
+});

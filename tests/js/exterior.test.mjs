@@ -70,3 +70,24 @@ test("Dach nur über dem Haus: abseits stehender Schuppen bleibt außen vor", ()
   assert.deepEqual(roofRooms(floor, {}).map((r) => r.id), ["a", "b"]);
   assert.deepEqual(roofRooms(floor, { rooms: ["schuppen"] }).map((r) => r.id), ["schuppen"]);
 });
+
+test("L-Haus: Hauptdach plus Flügel bis zum First", async () => {
+  const { roofParts } = await import("../../custom_components/haus3d/frontend/exterior.js");
+  // Hauptteil 14 × 8 (z 5..13), Flügel 6 × 5 davor (z 0..5)
+  const rooms = [
+    { points: [[0, 5], [14, 5], [14, 13], [0, 13]] },
+    { points: [[0, 0], [6, 0], [6, 5], [0, 5]] },
+    // kleiner Schacht ohne Raum mitten im Hauptteil wird gefüllt
+    { points: [[8, 5], [14, 5], [14, 8], [8, 8]] },
+  ];
+  const parts = roofParts([rooms[1], { points: [[0, 5], [8, 5], [8, 8], [8.4, 8], [8.4, 8.6], [8, 8.6], [8, 13], [0, 13]] }, rooms[2], { points: [[8.4, 8], [14, 8], [14, 13], [8.4, 13], [8.4, 8.6], [8.4, 8]] }], { wall: 0, overhang: 0 });
+  assert.equal(parts.length, 2);
+  const [main, wing] = parts;
+  assert.deepEqual([main.length, main.width], [14, 8]);
+  // Flügel: von z = 0 bis zum First des Hauptdachs bei z = 9
+  assert.deepEqual([wing.length, wing.width], [9, 6]);
+  assert.ok(Math.abs(Math.abs(wing.u[1]) - 1) < 1e-9);
+  assert.equal(wing.open.filter(Boolean).length, 1);
+  // Rechteck: nur ein Teil
+  assert.equal(roofParts([rooms[0]]).length, 1);
+});
