@@ -6,6 +6,7 @@ import { buildingIcons, entitiesByArea, iconKind } from "./devices.js";
 import {
   allIds,
   clampOffset,
+  cleanFloor,
   floorVertices,
   insertVertex,
   moveRoom,
@@ -14,25 +15,22 @@ import {
   newOpening,
   openingGeometry,
   projectOnSegment,
+  pushOutOfWalls,
   rectRoom,
   removeRoom,
   removeVertex,
   snapPoint,
+  snapToWall,
   validPolygon,
+  wallFaces,
 } from "./edit-ops.js";
-import { FURNITURE } from "./furniture.js";
+import { FURNITURE, FURNITURE_CATEGORIES } from "./furniture.js";
+import { COLOR_SWATCHES, FLOOR_MATERIALS, floorColor, normalize } from "./model.js";
+import { HouseScene } from "./scene.js";
+import { furnitureThumb, renderThumbs } from "./thumbs.js";
 import { closeGaps, computeWalls, labelPoint, pieceFootprint, signedArea } from "./walls.js";
 
 const SVGNS = "http://www.w3.org/2000/svg";
-const MATERIALS = [
-  ["wood", "Holz"],
-  ["oak", "Eiche"],
-  ["tiles", "Fliesen"],
-  ["carpet", "Teppich"],
-  ["stone", "Stein"],
-  ["concrete", "Beton"],
-];
-const MAT_COLORS = { wood: "#c89f6a", oak: "#a8743f", tiles: "#d8d3ca", carpet: "#8f9cb0", stone: "#b3aea5", concrete: "#9e9e9e" };
 const OUTDOOR_TYPES = [
   ["lawn", "Rasen", "#6aa84f"],
   ["terrace", "Terrasse", "#c2b39b"],
@@ -43,6 +41,9 @@ const OUTDOOR_TYPES = [
   ["hedge", "Hecke", "#2f6b2a"],
   ["fence", "Zaun", "#8a6f52"],
   ["balcony", "Balkon", "#b5ada3"],
+  ["gravel", "Kies", "#c4beb2"],
+  ["paving", "Pflaster", "#a39a8e"],
+  ["rockery", "Steingarten", "#8a8378"],
 ];
 const RAILINGS = [
   ["", "Standard (Balkon: Glas, sonst keins)"],
@@ -73,13 +74,13 @@ const TOOLS = [
   ["outdoor", "mdi:tree-outline", "Garten"],
 ];
 const HINTS = {
-  select: "Antippen zum Auswählen, Ziehen zum Verschieben. Leere Fläche ziehen = Ansicht verschieben, Mausrad/zwei Finger = Zoom.",
+  select: "Antippen zum Auswählen, Ziehen zum Verschieben (Möbel rasten mit dem Magnet an Wänden ein, Alt = frei). Pfeiltasten schieben (Umschalt = 1 cm), R dreht. Leere Fläche ziehen = Ansicht verschieben.",
   rect: "Ziehen: Rechteck-Raum von Ecke zu Ecke.",
   poly: "Punkte antippen, ersten Punkt erneut antippen (oder Doppelklick) zum Abschließen. Esc bricht ab.",
   window: "Auf eine Wand tippen: Fenster einsetzen.",
   door: "Auf eine Wand tippen: Tür einsetzen.",
   garage: "Auf eine Wand tippen: Garagentor einsetzen.",
-  furniture: "Rechts ein Möbel wählen, dann in den Plan tippen.",
+  furniture: "Rechts ein Möbel wählen (Suche oder Kategorie), dann in den Plan tippen.",
   device: "Rechts ein Gerät wählen, dann an seine Stelle tippen. Ziehen im Auswahl-Modus verschiebt es.",
   outdoor: "Punkte der Gartenfläche antippen, ersten Punkt erneut antippen zum Abschließen.",
 };
@@ -115,10 +116,40 @@ export const EDITOR_STYLE = `
 .ed-props .list button:hover { background: rgba(127,127,127,.12); }
 .ed-props .list button.sel { background: var(--primary-color, #03a9f4); color: #fff; }
 .ed-props .muted { color: var(--secondary-text-color); font-size: 12px; }
+.ed-3d { flex: 1; min-width: 0; position: relative; border-left: 1px solid var(--divider-color, rgba(127,127,127,.25)); touch-action: none; }
+.ed-3d .ed-3d-hint { position: absolute; left: 8px; bottom: 8px; font-size: 11px; padding: 3px 8px; border-radius: 10px; background: rgba(0,0,0,.45); color: #fff; pointer-events: none; }
+.ed[data-view="2d"] .ed-3d { display: none; }
+.ed[data-view="3d"] .ed-svg { display: none; }
+.ed[data-view="3d"] .ed-3d { border-left: none; }
+.ed-bar .seg { display: inline-flex; border: 1px solid var(--divider-color, rgba(127,127,127,.4)); border-radius: 8px; overflow: hidden; }
+.ed-bar .seg button { border-radius: 0; min-height: 32px; padding: 4px 9px; white-space: nowrap; }
+.ed-props .search { margin: 6px 0 4px; }
+.ed-props .cat { margin: 12px 0 4px; font-size: 12px; font-weight: 600; color: var(--secondary-text-color); text-transform: uppercase; letter-spacing: .04em; }
+.ed-props .tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(78px, 1fr)); gap: 6px; }
+.ed-props .tile { display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 4px 2px 6px; border: 1px solid var(--divider-color, rgba(127,127,127,.3)); border-radius: 10px; background: none; color: inherit; font: inherit; font-size: 11px; line-height: 1.15; cursor: pointer; text-align: center; min-height: 92px; }
+.ed-props .tile img, .ed-props .tile .ph { width: 64px; height: 64px; object-fit: contain; }
+.ed-props .tile .ph { border-radius: 8px; background: rgba(127,127,127,.12); }
+.ed-props .tile.sel { border-color: var(--primary-color, #03a9f4); background: rgba(3,169,244,.12); }
+.ed-props .swatches { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
+.ed-props .swatches button { width: 22px; height: 22px; border-radius: 6px; border: 1px solid rgba(127,127,127,.5); padding: 0; cursor: pointer; }
+.ed-props .swatches button.sel { outline: 2px solid var(--primary-color, #03a9f4); outline-offset: 1px; }
+.ed-props .colorrow { display: flex; gap: 6px; align-items: center; }
+.ed-props .colorrow input[type=color] { width: 44px; height: 32px; padding: 2px; }
+.ed-props .colorrow button { border: 1px solid var(--divider-color, rgba(127,127,127,.4)); background: none; color: inherit; font: inherit; font-size: 12px; padding: 6px 8px; border-radius: 8px; cursor: pointer; }
+.ed-props .pad { display: grid; grid-template-columns: repeat(3, 44px) 1fr; grid-template-rows: repeat(2, 40px); gap: 4px; margin-top: 10px; align-items: center; }
+.ed-props .pad button { border: 1px solid var(--divider-color, rgba(127,127,127,.4)); background: none; color: inherit; border-radius: 8px; height: 40px; cursor: pointer; font-size: 18px; --mdc-icon-size: 20px; }
+.ed-props .pad select { grid-column: 4; grid-row: 1; margin-left: 6px; }
+.ed-props .pad .rot { grid-column: 4; grid-row: 2; display: flex; gap: 4px; margin-left: 6px; }
+.ed-props .pad .rot button { flex: 1; }
 .ed-hint { padding: 6px 12px; font-size: 12px; color: var(--secondary-text-color); border-top: 1px solid var(--divider-color, rgba(127,127,127,.25)); background: var(--card-background-color, #fff); }
 .ed text { font-family: inherit; pointer-events: none; }
+@media (max-width: 900px) {
+  .ed[data-view="split"] .ed-main { flex-wrap: wrap; }
+  .ed[data-view="split"] .ed-svg, .ed[data-view="split"] .ed-3d { flex: 1 1 45%; min-height: 0; }
+}
 @media (max-width: 700px) {
   .ed-main { flex-direction: column; }
+  .ed[data-view="split"] .ed-3d { border-left: none; border-top: 1px solid var(--divider-color, rgba(127,127,127,.25)); }
   .ed-props { width: auto; max-height: 42%; border-left: none; border-top: 1px solid var(--divider-color, rgba(127,127,127,.25)); }
   .ed-bar button span { display: none; }
 }
@@ -135,7 +166,7 @@ export class FloorEditor {
    * @param {() => void} o.onClose
    * @param {(b: object|null) => void} o.onPreview Vorschau in 3D (null = Vorschau beenden)
    */
-  constructor({ container, building, hass, floorId, onSave, onClose, onPreview }) {
+  constructor({ container, building, hass, floorId, onSave, onClose, onPreview = () => {}, sceneStyle = "standard", dark = false }) {
     this.b = structuredClone(building);
     this.hass = hass;
     this.floorId = this.b.floors.some((f) => f.id === floorId) ? floorId : this.b.floors[0]?.id;
@@ -151,11 +182,26 @@ export class FloorEditor {
     this.deviceEntity = null;
     this.dirty = false;
     this.view = null;
+    this.sceneStyle = sceneStyle;
+    this.dark = dark;
+    this.magnet = true;
+    this.nudgeStep = 0.05;
+    this.furnSearch = "";
+    this.viewMode = "2d";
+    try {
+      const saved = localStorage.getItem("haus3d.editorView");
+      if (["2d", "split", "3d"].includes(saved)) this.viewMode = saved;
+      else if (window.innerWidth >= 1100) this.viewMode = "split";
+    } catch {
+      /* ohne Speicher: 2D */
+    }
 
     this.root = document.createElement("div");
     this.root.className = "ed";
-    this.root.innerHTML = `<div class="ed-bar"></div><div class="ed-main"><svg class="ed-svg"></svg><div class="ed-props"></div></div><div class="ed-hint"></div>`;
+    this.root.dataset.view = this.viewMode;
+    this.root.innerHTML = `<div class="ed-bar"></div><div class="ed-main"><svg class="ed-svg"></svg><div class="ed-3d"><span class="ed-3d-hint">3D: Möbel ziehen · Leere Fläche ziehen dreht · Rad zoomt</span></div><div class="ed-props"></div></div><div class="ed-hint"></div>`;
     container.appendChild(this.root);
+    this.box3d = this.root.querySelector(".ed-3d");
     this.svg = this.root.querySelector("svg");
     this.props = this.root.querySelector(".ed-props");
     this.hint = this.root.querySelector(".ed-hint");
@@ -170,12 +216,117 @@ export class FloorEditor {
     this.fit();
     this.render();
     this.renderProps();
+    this._sync3d();
   }
 
   destroy() {
     window.removeEventListener("keydown", this._keys);
     this._resizeObs.disconnect();
+    clearTimeout(this._3dTimer);
+    this.scene3d?.dispose();
+    this.scene3d = null;
     this.root.remove();
+  }
+
+  // ------------------------------------------------------------------ 3D-Ansicht im Editor
+
+  setViewMode(mode) {
+    this.viewMode = mode;
+    this.root.dataset.view = mode;
+    try {
+      localStorage.setItem("haus3d.editorView", mode);
+    } catch {
+      /* egal */
+    }
+    this.renderBar();
+    this._fitPending = true;
+    requestAnimationFrame(() => {
+      this.render();
+      this.scene3d?.resize();
+      this._sync3d(true);
+    });
+  }
+
+  /** 3D-Ansicht nachziehen (gebündelt, damit Ziehen flüssig bleibt). */
+  _sync3d(now = false) {
+    if (this.viewMode === "2d") return;
+    clearTimeout(this._3dTimer);
+    const run = () => {
+      if (!this.root.isConnected || this.viewMode === "2d") return;
+      if (!this.scene3d) this._create3d();
+      const first = !this._3dShown;
+      this.scene3d.filter = this.floorId;
+      this.scene3d.setBuilding(normalize(structuredClone(this.b)), { keepCamera: !first || this._3dFloor === this.floorId });
+      if (first || this._3dFloor !== this.floorId) this.scene3d.setFilter(this.floorId, { fit: true });
+      this._3dShown = true;
+      this._3dFloor = this.floorId;
+      this._mark3d();
+    };
+    if (now) run();
+    else this._3dTimer = setTimeout(run, 120);
+  }
+
+  _mark3d() {
+    if (!this.scene3d) return;
+    this.scene3d.markFurniture(this.sel?.kind === "furniture" ? this.sel.id : null);
+    this.scene3d.selectRooms(this.sel?.kind === "room" ? [{ floorId: this.floorId, roomId: this.sel.id }] : [], { focus: false });
+  }
+
+  _create3d() {
+    const sc = new HouseScene(this.box3d, { dark: this.dark });
+    sc.setStyle(this.sceneStyle === "cyber" ? "cyber" : this.sceneStyle === "night" ? "night" : "standard");
+    sc.setLayers({ roof: false, weather: false });
+    sc.start();
+    this.scene3d = sc;
+    // Klick wählt, Ziehen auf einem Möbelstück verschiebt es auf dem Boden, sonst dreht die Kamera
+    const canvas = sc.renderer.domElement;
+    let drag = null;
+    canvas.addEventListener("pointerdown", (ev) => {
+      if (ev.button !== 0) return;
+      const hit = sc.pick(ev.clientX, ev.clientY, { furniture: true });
+      drag = { x: ev.clientX, y: ev.clientY, hit, moved: false };
+      if (hit?.furniture) {
+        const m = (this.floor.furniture ?? []).find((x) => x.id === hit.furniture);
+        if (!m) return;
+        const elev = this.floor.elevation ?? 0;
+        const p = sc.planPoint(ev.clientX, ev.clientY, elev) ?? [m.x, m.z];
+        drag.furn = { mode: "furniture", id: m.id, off: [p[0] - m.x, p[1] - m.z], first: true, faces: this._faces() };
+        sc.controls.enabled = false;
+        canvas.setPointerCapture(ev.pointerId);
+        this.sel = { kind: "furniture", id: m.id };
+        this.renderProps();
+        this.render();
+        this._mark3d();
+      }
+    });
+    canvas.addEventListener("pointermove", (ev) => {
+      if (!drag) return;
+      if (Math.hypot(ev.clientX - drag.x, ev.clientY - drag.y) > 4) drag.moved = true;
+      if (!drag.furn || !drag.moved) return;
+      const p = sc.planPoint(ev.clientX, ev.clientY, this.floor.elevation ?? 0);
+      if (p) this._moveDrag(drag.furn, ev, p);
+    });
+    const up = (ev) => {
+      if (!drag) return;
+      sc.controls.enabled = true;
+      if (!drag.moved && !drag.furn) {
+        // Klick ohne Ziehen: Raum wählen (oder Auswahl aufheben)
+        const hit = drag.hit;
+        this.sel = hit?.roomId && hit.floorId === this.floorId ? { kind: "room", id: hit.roomId } : null;
+        this.renderProps();
+        this.render();
+        this._mark3d();
+      } else if (drag.furn) this.renderProps();
+      drag = null;
+      ev.target.releasePointerCapture?.(ev.pointerId);
+    };
+    canvas.addEventListener("pointerup", up);
+    canvas.addEventListener("pointercancel", up);
+  }
+
+  /** Wandflächen der Etage zum Einrasten. */
+  _faces() {
+    return wallFaces(computeWalls(this.floor, this.b.settings ?? {}).segments);
   }
 
   get floor() {
@@ -201,6 +352,7 @@ export class FloorEditor {
     this.dirty = true;
     this.render();
     this.renderBar();
+    this._sync3d();
   }
 
   undo() {
@@ -224,6 +376,7 @@ export class FloorEditor {
     this.render();
     this.renderBar();
     this.renderProps();
+    this._sync3d();
   }
 
   _onKey(ev) {
@@ -243,7 +396,65 @@ export class FloorEditor {
     } else if ((ev.ctrlKey || ev.metaKey) && ev.key.toLowerCase() === "y") {
       ev.preventDefault();
       this.redo();
+    } else if (this.sel && ev.key.startsWith("Arrow")) {
+      ev.preventDefault();
+      const k = ev.shiftKey ? 0.01 : this.nudgeStep;
+      const d = { ArrowLeft: [-k, 0], ArrowRight: [k, 0], ArrowUp: [0, -k], ArrowDown: [0, k] }[ev.key];
+      this.nudge(d[0], d[1]);
+    } else if (this.sel?.kind === "furniture" && (ev.key === "r" || ev.key === "R")) {
+      ev.preventDefault();
+      this.rotateSel(ev.shiftKey ? -15 : 90);
     }
+  }
+
+  /** Auswahl um (dx, dz) Meter schieben; schnelle Folgen ergeben einen Rückgängig-Schritt. */
+  nudge(dx, dz) {
+    const sel = this.sel;
+    if (!sel) return;
+    const merge = performance.now() - (this._lastNudge ?? 0) < 700 && this._nudgeSel === `${sel.kind}:${sel.id}`;
+    this._lastNudge = performance.now();
+    this._nudgeSel = `${sel.kind}:${sel.id}`;
+    this.change((fl) => {
+      if (sel.kind === "furniture") {
+        const m = fl.furniture.find((x) => x.id === sel.id);
+        m.x = r3(m.x + dx);
+        m.z = r3(m.z + dz);
+      } else if (sel.kind === "room") {
+        fl.rooms = fl.rooms.map((r) => (r.id === sel.id ? moveRoom(r, dx, dz) : r));
+      } else if (sel.kind === "outdoor") {
+        fl.outdoor = fl.outdoor.map((o) => (o.id === sel.id ? { ...o, points: o.points.map(([x, z]) => [r3(x + dx), r3(z + dz)]) } : o));
+      } else if (sel.kind === "device") {
+        const pl = fl.placements.find((x) => x.entity_id === sel.id);
+        if (pl) Object.assign(pl, { x: r3(pl.x + dx), z: r3(pl.z + dz) });
+      } else if (sel.kind === "opening") {
+        // entlang der Wand: Anteil der Bewegung in Kantenrichtung
+        const o = fl.openings.find((x) => x.id === sel.id);
+        const g = openingGeometry(fl, o);
+        if (g) o.offset = clampOffset(o.offset + dx * g.u[0] + dz * g.u[1], o.width, g.len);
+      }
+    }, { merge });
+    this.renderProps();
+  }
+
+  /** Gewähltes Möbelstück drehen (Grad, im Uhrzeigersinn wie NeonPlan). */
+  rotateSel(deg) {
+    if (this.sel?.kind !== "furniture") return;
+    const id = this.sel.id;
+    this.change((fl) => {
+      const m = fl.furniture.find((x) => x.id === id);
+      m.rotation = (((m.rotation || 0) + deg) % 360 + 360) % 360;
+    });
+    this.renderProps();
+  }
+
+  /** Gewähltes Möbelstück an die nächste Wand stellen (größerer Suchradius als beim Ziehen). */
+  snapSelToWall() {
+    const m = this.sel?.kind === "furniture" ? this.floor.furniture.find((x) => x.id === this.sel.id) : null;
+    if (!m) return;
+    const s = snapToWall({ ...m, type: "wardrobe" }, this._faces(), { tol: 1.2 });
+    if (!s) return this._toast("Keine Wand in der Nähe (bis 1,2 m).");
+    this.change((fl) => Object.assign(fl.furniture.find((x) => x.id === m.id), s));
+    this.renderProps();
   }
 
   // ------------------------------------------------------------------ Werkzeugleiste
@@ -259,8 +470,10 @@ export class FloorEditor {
       <button data-act="undo" title="Rückgängig (Strg+Z)"${this.undoStack.length ? "" : " disabled"}><ha-icon icon="mdi:undo"></ha-icon></button>
       <button data-act="redo" title="Wiederholen"${this.redoStack.length ? "" : " disabled"}><ha-icon icon="mdi:redo"></ha-icon></button>
       <button data-act="gaps" title="Lücken zwischen Räumen schließen"><ha-icon icon="mdi:vector-combine"></ha-icon><span>Lücken schließen</span></button>
+      <button data-act="clean" title="Räume aufräumen: doppelte Punkte und Spitzen entfernen"><ha-icon icon="mdi:broom"></ha-icon><span>Aufräumen</span></button>
+      <button data-act="magnet" class="${this.magnet ? "sel" : ""}" title="Magnet: Möbel rasten an Wänden ein (Alt beim Ziehen = frei)"><ha-icon icon="mdi:magnet"></ha-icon></button>
       <span class="grow"></span>
-      <button data-act="preview" title="3D-Vorschau"><ha-icon icon="mdi:cube-outline"></ha-icon><span>3D-Vorschau</span></button>
+      <span class="seg" title="Ansicht">${[["2d", "2D"], ["split", "2D + 3D"], ["3d", "3D"]].map(([k, n]) => `<button data-view="${k}" class="${this.viewMode === k ? "sel" : ""}">${n}</button>`).join("")}</span>
       <button data-act="cancel"><ha-icon icon="mdi:close"></ha-icon><span>Abbrechen</span></button>
       <button data-act="save" class="primary"><ha-icon icon="mdi:content-save"></ha-icon><span>Speichern</span></button>`;
     bar.querySelector(".floorsel").addEventListener("change", (ev) => {
@@ -270,6 +483,7 @@ export class FloorEditor {
       this.fit();
       this.render();
       this.renderProps();
+      this._sync3d(true);
     });
     this.hint.textContent = HINTS[this.tool];
   }
@@ -277,6 +491,10 @@ export class FloorEditor {
   async _onBar(ev) {
     const b = ev.target.closest("button");
     if (!b || b.disabled) return;
+    if (b.dataset.view) {
+      this.setViewMode(b.dataset.view);
+      return;
+    }
     if (b.dataset.tool) {
       this.tool = b.dataset.tool;
       this.draft = null;
@@ -296,13 +514,27 @@ export class FloorEditor {
         this.change((f) => ({ ...f, rooms }));
         this._toast(`${gaps.length} Lücken geschlossen.`);
       }
-    } else if (act === "preview") {
-      this.onPreview(this.b);
-      this.root.hidden = true;
-      this._previewBack();
+    } else if (act === "clean") {
+      const { floor, fixed } = cleanFloor(this.floor);
+      // danach Möbel, die in Wände ragen, bündig davor stellen
+      const faces = wallFaces(computeWalls(floor, this.b.settings ?? {}).segments);
+      let pushed = 0;
+      const furniture = (floor.furniture ?? []).map((m) => {
+        const q = pushOutOfWalls(m, faces);
+        if (!q) return m;
+        pushed++;
+        return { ...m, ...q };
+      });
+      if (!fixed && !pushed) this._toast("Nichts aufzuräumen: keine doppelten Punkte, Spitzen oder Möbel in Wänden.");
+      else {
+        this.change(() => ({ ...floor, furniture }));
+        this._toast(`${fixed} überflüssige Eckpunkte entfernt, ${pushed} Möbel aus Wänden gerückt.`);
+      }
+    } else if (act === "magnet") {
+      this.magnet = !this.magnet;
+      this._toast(this.magnet ? "Magnet an: Möbel rasten an Wänden ein." : "Magnet aus: Möbel frei verschieben.");
     } else if (act === "cancel") {
       if (this.dirty && !confirm("Änderungen verwerfen?")) return;
-      this.onPreview(null);
       this.onClose();
     } else if (act === "save") {
       b.disabled = true;
@@ -316,20 +548,6 @@ export class FloorEditor {
       }
     }
     this.renderBar();
-  }
-
-  /** Während der 3D-Vorschau: schwebender Knopf zurück zum Editor. */
-  _previewBack() {
-    const btn = document.createElement("button");
-    btn.className = "ed-back";
-    btn.textContent = "← Zurück zum Editor";
-    btn.style.cssText = "position:absolute;left:50%;top:12px;transform:translateX(-50%);z-index:9;padding:10px 16px;border-radius:20px;border:none;background:var(--primary-color,#03a9f4);color:#fff;font:inherit;cursor:pointer;box-shadow:0 2px 8px rgba(0,0,0,.35)";
-    btn.addEventListener("click", () => {
-      btn.remove();
-      this.root.hidden = false;
-      this.render();
-    });
-    this.root.parentElement.appendChild(btn);
   }
 
   _toast(text) {
@@ -405,7 +623,7 @@ export class FloorEditor {
     // Räume
     for (const r of f.rooms) {
       const sel = this.sel?.kind === "room" && this.sel.id === r.id;
-      parts.push(`<polygon data-kind="room" data-id="${esc(r.id)}" points="${r.points.map(P).join(" ")}" fill="${MAT_COLORS[r.floor_material] ?? MAT_COLORS.wood}" fill-opacity="${sel ? 0.75 : 0.5}" stroke="${sel ? "#03a9f4" : "currentColor"}" stroke-opacity="${sel ? 1 : 0.5}" stroke-width="${px(sel ? 3 : 1)}"/>`);
+      parts.push(`<polygon data-kind="room" data-id="${esc(r.id)}" points="${r.points.map(P).join(" ")}" fill="${floorColor(r)}" fill-opacity="${sel ? 0.75 : 0.5}" stroke="${sel ? "#03a9f4" : "currentColor"}" stroke-opacity="${sel ? 1 : 0.5}" stroke-width="${px(sel ? 3 : 1)}"/>`);
     }
     // Wände (berechnet)
     const { segments, openings } = computeWalls(f, this.b.settings ?? {});
@@ -435,10 +653,15 @@ export class FloorEditor {
       const sel = this.sel?.kind === "furniture" && this.sel.id === m.id;
       const fw = m.w || FURNITURE[m.type]?.[1] || 0.6;
       const fd = m.d || FURNITURE[m.type]?.[2] || 0.6;
-      const name = FURNITURE[m.type]?.[0] ?? m.type;
+      const name = m.name || (FURNITURE[m.type]?.[0] ?? m.type);
+      const fill = sel ? "#03a9f4" : /^#[0-9a-f]{6}$/i.test(m.color ?? "") ? m.color : "#795548";
+      const round = m.type === "custom_cylinder" || m.type === "water_tank" || m.type.startsWith("tree") || m.type === "bush" || m.type === "flowers";
+      const shape = round
+        ? `<ellipse rx="${fw / 2}" ry="${fd / 2}" fill="${fill}" fill-opacity="${sel ? 0.45 : 0.35}" stroke="${sel ? "#03a9f4" : "#5d4037"}" stroke-width="${px(sel ? 2.5 : 1)}"/>`
+        : `<rect x="${-fw / 2}" y="${-fd / 2}" width="${fw}" height="${fd}" fill="${fill}" fill-opacity="${sel ? 0.45 : 0.3}" stroke="${sel ? "#03a9f4" : "#5d4037"}" stroke-width="${px(sel ? 2.5 : 1)}"/>`;
       parts.push(
         `<g data-kind="furniture" data-id="${esc(m.id)}" transform="translate(${r3(m.x)} ${r3(m.z)}) rotate(${m.rotation || 0})">` +
-          `<rect x="${-fw / 2}" y="${-fd / 2}" width="${fw}" height="${fd}" fill="${sel ? "#03a9f4" : "#795548"}" fill-opacity="${sel ? 0.45 : 0.3}" stroke="${sel ? "#03a9f4" : "#5d4037"}" stroke-width="${px(sel ? 2.5 : 1)}"/>` +
+          shape +
           `<line x1="${-fw / 2}" y1="${fd / 2}" x2="${fw / 2}" y2="${fd / 2}" stroke="#5d4037" stroke-width="${px(3)}"/>` +
           (s * Math.min(fw, fd) > 26 ? `<text x="0" y="${px(4)}" text-anchor="middle" font-size="${px(10)}" fill="currentColor">${esc(name)}</text>` : "") +
           `</g>`,
@@ -758,10 +981,16 @@ export class FloorEditor {
       }
       case "furniture": {
         const q = snapPoint([p[0] - drag.off[0], p[1] - drag.off[1]], { grid: this.b.settings?.grid ?? 0.05 });
+        const cur = f.furniture.find((x) => x.id === drag.id);
+        // Magnet: an der nächsten Wand ausrichten und entlang schieben (Alt = frei)
+        let target = { x: q[0], z: q[1] };
+        if (this.magnet && !ev.altKey && cur) {
+          drag.faces ??= this._faces();
+          const s = snapToWall({ ...cur, x: q[0], z: q[1] }, drag.faces, { tol: Math.max(0.15, 14 / this.scale) });
+          if (s) target = s;
+        }
         this._dragChange(drag, (fl) => {
-          const m = fl.furniture.find((x) => x.id === drag.id);
-          m.x = q[0];
-          m.z = q[1];
+          Object.assign(fl.furniture.find((x) => x.id === drag.id), target);
         });
         break;
       }
@@ -868,6 +1097,7 @@ export class FloorEditor {
   // ------------------------------------------------------------------ Eigenschaften
 
   renderProps() {
+    this._mark3d();
     const el = this.props;
     const f = this.floor;
     const sel = this.sel;
@@ -882,17 +1112,74 @@ export class FloorEditor {
         .map((e) => `<option value="${esc(e)}">${esc(hass.states[e].attributes.friendly_name ?? "")}</option>`)
         .join("")}</datalist>`;
     const num = (key, label, value, step = 0.05) => `<div><label>${label}</label><input type="number" step="${step}" data-num="${key}" value="${value ?? ""}"></div>`;
+    // Farbfeld: Vorschläge, eigene Farbe, zurück auf Standard
+    const colorField = (key, label, value) => {
+      const v = /^#[0-9a-f]{6}$/i.test(value ?? "") ? value.toLowerCase() : "";
+      return `<label>${label}</label><div class="colorrow"><input type="color" data-color="${key}" value="${v || "#cccccc"}"><button data-color-reset="${key}">Standard</button><span class="muted">${v ? esc(v) : "Standard"}</span></div>
+        <div class="swatches">${COLOR_SWATCHES.map((c) => `<button data-swatch="${key}" data-c="${c}" style="background:${c}" class="${c === v ? "sel" : ""}" title="${c}"></button>`).join("")}</div>`;
+    };
+    const bindColors = (apply) => {
+      const set = (key, v) => {
+        this.change((fl) => apply(fl, key, v));
+        this.renderProps();
+      };
+      el.querySelectorAll("[data-color]").forEach((inp) => inp.addEventListener("change", () => set(inp.dataset.color, inp.value)));
+      el.querySelectorAll("[data-color-reset]").forEach((b) => b.addEventListener("click", () => set(b.dataset.colorReset, null)));
+      el.querySelectorAll("[data-swatch]").forEach((b) => b.addEventListener("click", () => set(b.dataset.swatch, b.dataset.c)));
+    };
+    // Steuerkreuz (Tablet): schieben, Schrittweite, drehen
+    const pad = (rotate = false) => `<div class="pad">
+        <span></span><button data-nudge="0,-1" title="hoch">▲</button><span></span>
+        <select data-step title="Schrittweite">${[[0.01, "1 cm"], [0.05, "5 cm"], [0.1, "10 cm"], [0.5, "50 cm"]].map(([v, n]) => `<option value="${v}"${v === this.nudgeStep ? " selected" : ""}>${n}</option>`).join("")}</select>
+        <button data-nudge="-1,0" title="links">◀</button><button data-nudge="0,1" title="runter">▼</button><button data-nudge="1,0" title="rechts">▶</button>
+        ${rotate ? `<span class="rot"><button data-rot="-15" title="15° zurück">⟲</button><button data-rot="90" title="90° drehen">⟳</button><button data-act="wall" title="An die nächste Wand stellen"><ha-icon icon="mdi:wall"></ha-icon></button></span>` : ""}
+      </div>`;
+    const bindPad = () => {
+      el.querySelectorAll("[data-nudge]").forEach((b) =>
+        b.addEventListener("click", () => {
+          const [x, z] = b.dataset.nudge.split(",").map(Number);
+          this.nudge(x * this.nudgeStep, z * this.nudgeStep);
+        }),
+      );
+      el.querySelector("[data-step]")?.addEventListener("change", (ev) => (this.nudgeStep = Number(ev.target.value)));
+      el.querySelectorAll("[data-rot]").forEach((b) => b.addEventListener("click", () => this.rotateSel(Number(b.dataset.rot))));
+      el.querySelector("[data-act=wall]")?.addEventListener("click", () => this.snapSelToWall());
+    };
 
     if (this.tool === "furniture") {
-      el.innerHTML = `<h3>Möbel einfügen</h3><p class="muted">Möbel wählen, dann in den Plan tippen.</p><div class="list">${Object.entries(FURNITURE)
-        .map(([k, v]) => `<button data-furn="${k}" class="${k === this.furnType ? "sel" : ""}">${esc(v[0])}</button>`)
-        .join("")}</div>`;
-      el.querySelector(".list").addEventListener("click", (ev) => {
+      el.innerHTML = `<h3>Möbel einfügen</h3><p class="muted">Möbel wählen, dann in den Plan tippen.</p>
+        <input class="search" type="search" placeholder="Suchen …" value="${esc(this.furnSearch)}"><div class="cats"></div>`;
+      const cats = el.querySelector(".cats");
+      const style = this.sceneStyle === "cyber" ? "cyber" : "standard";
+      const draw = () => {
+        const q = this.furnSearch.trim().toLowerCase();
+        cats.innerHTML = FURNITURE_CATEGORIES.map(([cat, types]) => {
+          const list = types.filter((t) => !q || FURNITURE[t][0].toLowerCase().includes(q) || cat.toLowerCase().includes(q));
+          if (!list.length) return "";
+          return `<div class="cat">${esc(cat)}</div><div class="tiles">${list
+            .map((t) => {
+              const img = furnitureThumb(t, style);
+              return `<button class="tile${t === this.furnType ? " sel" : ""}" data-furn="${t}" title="${esc(FURNITURE[t][0])}">${img ? `<img alt="" src="${img}">` : `<span class="ph" data-thumb="${t}"></span>`}<span>${esc(FURNITURE[t][0])}</span></button>`;
+            })
+            .join("")}</div>`;
+        }).join("") || `<p class="muted">Nichts gefunden.</p>`;
+      };
+      draw();
+      el.querySelector(".search").addEventListener("input", (ev) => {
+        this.furnSearch = ev.target.value;
+        draw();
+      });
+      cats.addEventListener("click", (ev) => {
         const b = ev.target.closest("[data-furn]");
         if (!b) return;
         this.furnType = b.dataset.furn;
-        this.renderProps();
+        cats.querySelectorAll(".tile").forEach((t) => t.classList.toggle("sel", t === b));
       });
+      // Vorschaubilder nach und nach einsetzen
+      renderThumbs((type, url) => {
+        const ph = cats.querySelector(`[data-thumb="${type}"]`);
+        if (ph) ph.outerHTML = `<img alt="" src="${url}">`;
+      }, style);
       return;
     }
     if (this.tool === "device") {
@@ -921,8 +1208,16 @@ export class FloorEditor {
         <div class="row2">${num("elevation", "Höhe über Boden (m)", f.elevation)}${num("height", "Raumhöhe (m)", f.height)}</div>
         ${haFloors.length ? `<label>Etage in Home Assistant</label><select data-floor="ha_floor"><option value="">–</option>${haFloors.map((x) => `<option value="${esc(x.floor_id)}"${x.floor_id === f.ha_floor ? " selected" : ""}>${esc(x.name)}</option>`).join("")}</select>` : ""}
         <div class="row2">${num("wall_exterior", "Außenwand (m)", this.b.settings.wall_exterior ?? 0.24, 0.01)}${num("wall_interior", "Innenwand (m)", this.b.settings.wall_interior ?? 0.12, 0.01)}</div>
+        ${colorField("exterior", "Außenwände (Farbe außen)", this.b.settings.wall_colors?.exterior)}
+        ${colorField("interior", "Innenwände (Standard für alle Räume)", this.b.settings.wall_colors?.interior)}
         <p class="muted">${f.rooms.length} Räume · ${f.openings.length} Fenster/Türen · ${(f.furniture ?? []).length} Möbel</p>
         <div class="btns"><button data-act="addfloor">+ Etage</button><button data-act="delfloor" class="danger">Etage löschen</button></div>`;
+      bindColors((fl, key, v) => {
+        const wc = { ...(this.b.settings.wall_colors ?? {}) };
+        if (v) wc[key] = v;
+        else delete wc[key];
+        this.b.settings.wall_colors = wc;
+      });
       el.querySelectorAll("[data-floor]").forEach((inp) =>
         inp.addEventListener("change", () => this.change((fl) => {
           fl[inp.dataset.floor] = inp.value || (inp.dataset.floor === "ha_floor" ? null : fl[inp.dataset.floor]);
@@ -985,9 +1280,18 @@ export class FloorEditor {
       el.innerHTML = `<h3>Raum</h3>
         <label>Name</label><input data-room="name" value="${esc(r.name)}">
         <label>Bereich in Home Assistant</label><select data-room="area_id">${areaOptions(r.area_id)}</select>
-        <label>Bodenbelag</label><select data-room="floor_material">${MATERIALS.map(([k, n]) => `<option value="${k}"${k === r.floor_material ? " selected" : ""}>${n}</option>`).join("")}</select>
+        <label>Bodenbelag</label><select data-room="floor_material">${FLOOR_MATERIALS.map(([k, n]) => `<option value="${k}"${k === r.floor_material ? " selected" : ""}>${n}</option>`).join("")}</select>
+        ${colorField("floor_color", "Bodenfarbe (statt Belag)", r.floor_color)}
+        ${colorField("wall_color", "Wandfarbe innen", r.wall_color)}
         <p class="muted">${Math.abs(signedArea(r.points)).toFixed(2)} m² · ${r.points.length} Ecken. Ecken ziehen, „+“ fügt eine Ecke ein, Entf löscht den Raum.</p>
+        ${pad()}
         <div class="btns"><button data-act="delvertex">Letzte gewählte Ecke löschen</button><button data-act="del" class="danger">Raum löschen</button></div>`;
+      bindColors((fl, key, v) => {
+        const room = fl.rooms.find((x) => x.id === r.id);
+        if (v) room[key] = v;
+        else delete room[key];
+      });
+      bindPad();
       el.querySelectorAll("[data-room]").forEach((inp) =>
         inp.addEventListener("change", () => this.change((fl) => {
           const room = fl.rooms.find((x) => x.id === r.id);
@@ -1025,8 +1329,10 @@ export class FloorEditor {
           <div><label>Flügel</label><select data-o="leaves"><option value="1"${o.leaves !== 2 ? " selected" : ""}>1</option><option value="2"${o.leaves === 2 ? " selected" : ""}>2</option></select></div></div>` : ""}
         ${linkField("contact", "Kontakt (offen/zu)", ["binary_sensor", "sensor"], (s) => ["window", "door", "opening", "garage_door", undefined].includes(s.attributes.device_class))}
         ${linkField("cover", o.type === "garage" ? "Tor-Antrieb" : "Rollladen", ["cover"])}
-        <p class="muted">Im Plan entlang der Wand ziehen zum Verschieben.</p>
+        <p class="muted">Im Plan entlang der Wand ziehen oder mit den Pfeilen schieben.</p>
+        ${pad()}
         <div class="btns"><button data-act="del" class="danger">Löschen</button></div>`;
+      bindPad();
       el.querySelectorAll("[data-o]").forEach((inp) =>
         inp.addEventListener("change", () => {
           this.change((fl) => {
@@ -1064,12 +1370,16 @@ export class FloorEditor {
       const m = (f.furniture ?? []).find((x) => x.id === sel.id);
       if (!m) return this._clearSel();
       const lamp = m.type.startsWith("lamp_") || m.type === "led_strip";
-      el.innerHTML = `<h3>${esc(FURNITURE[m.type]?.[0] ?? m.type)}</h3>
-        <label>Typ</label><select data-m="type">${Object.entries(FURNITURE).map(([k, v]) => `<option value="${k}"${k === m.type ? " selected" : ""}>${esc(v[0])}</option>`).join("")}</select>
-        <div class="row3">${num("w", "Breite", m.w)}${num("d", "Tiefe", m.d)}${num("h", "Höhe", m.h)}</div>
+      const custom = m.type.startsWith("custom_");
+      el.innerHTML = `<h3>${esc(m.name || (FURNITURE[m.type]?.[0] ?? m.type))}</h3>
+        <label>Typ</label><select data-m="type">${FURNITURE_CATEGORIES.map(([cat, types]) => `<optgroup label="${esc(cat)}">${types.map((k) => `<option value="${k}"${k === m.type ? " selected" : ""}>${esc(FURNITURE[k][0])}</option>`).join("")}</optgroup>`).join("")}</select>
+        <label>Name ${custom ? "" : "(optional)"}</label><input data-m="name" value="${esc(m.name ?? "")}" placeholder="${esc(FURNITURE[m.type]?.[0] ?? "")}">
+        <div class="row3">${num("w", custom && m.type === "custom_cylinder" ? "Ø Breite" : "Breite", m.w)}${num("d", custom && m.type === "custom_cylinder" ? "Ø Tiefe" : "Tiefe", m.d)}${num("h", "Höhe", m.h)}</div>
         <div class="row2">${num("rotation", "Drehung (°)", m.rotation, 15)}${num("mount_y", "Höhe über Boden", m.mount_y ?? "", 0.05)}</div>
+        ${colorField("color", custom ? "Farbe" : "Farbe (statt Standard)", m.color)}
+        ${pad(true)}
         <label>${lamp ? "Licht (Entität)" : "Verknüpfte Entität (optional)"}</label><input data-m="entity" list="dl_furn" value="${esc(m.entity && m.entity !== "none" ? m.entity : "")}" placeholder="${lamp ? "light.…" : "z. B. media_player.…"}">${entityList("dl_furn", lamp ? ["light", "switch"] : ["light", "switch", "media_player", "fan", "climate", "vacuum", "sensor"])}
-        <p class="muted">Ziehen verschiebt, der orange Punkt dreht (Umschalt = frei).</p>
+        <p class="muted">Ziehen verschiebt (Magnet: rastet an Wänden ein), der orange Punkt dreht (Umschalt = frei). Pfeiltasten schieben, R dreht.</p>
         <div class="btns"><button data-act="dup">Duplizieren</button><button data-act="del" class="danger">Löschen</button></div>`;
       el.querySelector("[data-m=type]").addEventListener("change", (ev) =>
         this.change((fl) => {
@@ -1084,6 +1394,20 @@ export class FloorEditor {
           fl.furniture.find((y) => y.id === m.id).entity = ev.target.value.trim() || null;
         }),
       );
+      el.querySelector("[data-m=name]").addEventListener("change", (ev) => {
+        this.change((fl) => {
+          const x = fl.furniture.find((y) => y.id === m.id);
+          if (ev.target.value.trim()) x.name = ev.target.value.trim();
+          else delete x.name;
+        });
+        this.renderProps();
+      });
+      bindColors((fl, key, v) => {
+        const x = fl.furniture.find((y) => y.id === m.id);
+        if (v) x.color = v;
+        else delete x.color;
+      });
+      bindPad();
       bindNums((fl, k, v) => {
         fl.furniture.find((y) => y.id === m.id)[k] = k === "mount_y" ? v : v ?? 0;
       });
@@ -1103,7 +1427,9 @@ export class FloorEditor {
       const pl = f.placements.find((x) => x.entity_id === sel.id);
       el.innerHTML = `<h3>${esc(st?.attributes.friendly_name ?? sel.id)}</h3><p class="muted">${esc(sel.id)}</p>
         ${pl ? `<div class="row3">${num("x", "x", pl.x)}${num("z", "z", pl.z)}${num("y", "Höhe", pl.y ?? "")}</div><p class="muted">Höhe leer = Standard (Lampen unter der Decke).</p>` : `<p class="muted">Automatisch im Raum verteilt. Ziehen legt die Position fest.</p>`}
+        ${pl ? pad() : ""}
         <div class="btns">${pl ? `<button data-act="del">Automatisch platzieren</button>` : ""}</div>`;
+      bindPad();
       bindNums((fl, k, v) => {
         const x = fl.placements.find((y) => y.entity_id === sel.id);
         x[k] = k === "y" ? v : v ?? x[k];
@@ -1121,7 +1447,9 @@ export class FloorEditor {
         <label>Geländer / Zaun am Rand (nicht an Hauswänden)</label><select data-g="railing">${RAILINGS.map(([k, n]) => `<option value="${k}"${k === (o.railing ?? "") ? " selected" : ""}>${n}</option>`).join("")}</select>
         <label>Geländerhöhe (m)</label><input data-g="railing_height" type="number" step="0.05" min="0.3" max="2.5" value="${o.railing_height ?? ""}" placeholder="1,0">
         ${o.heights ? `<p class="muted">Schräge Fläche (Hang). Beim Verschieben einer Ecke wird sie wieder eben.</p>` : ""}
+        ${pad()}
         <div class="btns"><button data-act="del" class="danger">Löschen</button></div>`;
+      bindPad();
       el.querySelectorAll("[data-g]").forEach((inp) =>
         inp.addEventListener("change", () => this.change((fl) => {
           const x = fl.outdoor.find((y) => y.id === o.id);

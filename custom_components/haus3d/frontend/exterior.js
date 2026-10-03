@@ -82,6 +82,137 @@ export function roofFrame(rooms, { wall = 0.24, overhang = 0.4, direction = "aut
     : { center, u: b, v: [-a[0], -a[1]], length: r3(lenB), width: r3(lenA) };
 }
 
+/**
+ * Dachteile für beliebige rechtwinklige Grundrisse (L, T, U): Grundriss am Haus ausgerichtet in
+ * Rechtecke zerlegen. Der größte Teil ist das Hauptdach; Flügel laufen bis zum First des Teils,
+ * an dem sie hängen (so entsteht ein L- oder T-Satteldach).
+ * @returns {{center:number[], u:number[], v:number[], length:number, width:number, open:[boolean, boolean]}[]}
+ *   open[0]/open[1]: Ende bei -length/2 bzw. +length/2 steckt im Nachbardach (kein Giebel nötig).
+ */
+export function roofParts(rooms, { wall = 0.24, overhang = 0.4, direction = "auto", maxParts = 4 } = {}) {
+  const all = rooms.flatMap((r) => r.points ?? []);
+  if (all.length < 3) return [];
+  const ang = mainDirection(rooms);
+  const A = [Math.cos(ang), Math.sin(ang)];
+  const B = [-A[1], A[0]];
+  const loc = (p) => [p[0] * A[0] + p[1] * A[1], p[0] * B[0] + p[1] * B[1]];
+  const polys = rooms.map((r) => r.points.map(loc));
+  // Kanten sammeln, nahe Werte (< 0,4 m) zusammenfassen: kleine Nischen und Versätze verschwinden
+  const merge = (vals) => {
+    const out = [];
+    for (const v of vals.sort((x, y) => x - y)) if (!out.length || v - out[out.length - 1] > 0.4) out.push(v);
+    return out;
+  };
+  const xs = merge(polys.flat().map((p) => p[0]));
+  const ys = merge(polys.flat().map((p) => p[1]));
+  const n = xs.length - 1;
+  const m = ys.length - 1;
+  if (n < 1 || m < 1) return [];
+  const inside = [];
+  for (let i = 0; i < n; i++) {
+    inside.push([]);
+    for (let j = 0; j < m; j++) {
+      const c = [(xs[i] + xs[i + 1]) / 2, (ys[j] + ys[j + 1]) / 2];
+      inside[i].push(polys.some((p) => pointInPolygon(c, p)));
+    }
+  }
+  // schmale Streifen zwischen zwei Räumen (Spalt, Schacht) gehören zum Haus
+  const thin = inside.map((row, i) =>
+    row.map((v, j) =>
+      v ||
+      (xs[i + 1] - xs[i] < 0.6 && i > 0 && i < n - 1 && inside[i - 1][j] && inside[i + 1][j]) ||
+      (ys[j + 1] - ys[j] < 0.6 && j > 0 && j < m - 1 && inside[i][j - 1] && inside[i][j + 1]),
+    ),
+  );
+  for (let i = 0; i < n; i++) for (let j = 0; j < m; j++) inside[i][j] = thin[i][j];
+  // Löcher (z. B. Schacht zwischen zwei Räumen) füllen: alles, was nicht von außen erreichbar ist
+  const outside = inside.map((row) => row.map(() => false));
+  const stack = [];
+  for (let i = 0; i < n; i++) for (const j of [0, m - 1]) stack.push([i, j]);
+  for (let j = 0; j < m; j++) for (const i of [0, n - 1]) stack.push([i, j]);
+  while (stack.length) {
+    const [i, j] = stack.pop();
+    if (i < 0 || j < 0 || i >= n || j >= m || outside[i][j] || inside[i][j]) continue;
+    outside[i][j] = true;
+    stack.push([i + 1, j], [i - 1, j], [i, j + 1], [i, j - 1]);
+  }
+  const cell = inside.map((row, i) => row.map((v, j) => v || !outside[i][j]));
+  const area = (i0, i1, j0, j1) => (xs[i1] - xs[i0]) * (ys[j1] - ys[j0]);
+  const full = (i0, i1, j0, j1, test) => {
+    for (let i = i0; i < i1; i++) for (let j = j0; j < j1; j++) if (!test(i, j)) return false;
+    return true;
+  };
+  // größtes Rechteck aus Zellen, die test erfüllen
+  const largest = (test) => {
+    let best = null;
+    for (let i0 = 0; i0 < n; i0++)
+      for (let i1 = i0 + 1; i1 <= n; i1++)
+        for (let j0 = 0; j0 < m; j0++)
+          for (let j1 = j0 + 1; j1 <= m; j1++) {
+            if (!full(i0, i1, j0, j1, test)) break;
+            const a = area(i0, i1, j0, j1);
+            if (!best || a > best.a + 1e-9) best = { i0, i1, j0, j1, a };
+          }
+    return best;
+  };
+  const covered = cell.map((row) => row.map(() => false));
+  const cover = (r) => {
+    for (let i = r.i0; i < r.i1; i++) for (let j = r.j0; j < r.j1; j++) covered[i][j] = true;
+  };
+  const total = cell.flat().reduce((s, v, k) => s + (v ? area(Math.floor(k / m), Math.floor(k / m) + 1, k % m, (k % m) + 1) : 0), 0);
+  const main = largest((i, j) => cell[i][j]);
+  if (!main) return [];
+  cover(main);
+  // Rechteck in lokalen Koordinaten [a0, a1] × [b0, b1], ridge: "a" oder "b"
+  const lenA = xs[main.i1] - xs[main.i0];
+  const lenB = ys[main.j1] - ys[main.j0];
+  let mainRidge = lenA >= lenB ? "a" : "b";
+  if (direction === "x") mainRidge = Math.abs(A[0]) >= Math.abs(B[0]) ? "a" : "b";
+  else if (direction === "z") mainRidge = Math.abs(A[1]) >= Math.abs(B[1]) ? "a" : "b";
+  const parts = [{ a0: xs[main.i0], a1: xs[main.i1], b0: ys[main.j0], b1: ys[main.j1], ridge: mainRidge, open: [false, false], ext: {} }];
+  while (parts.length < maxParts) {
+    const rest = cell.flat().reduce((s, v, k) => s + (v && !covered[Math.floor(k / m)][k % m] ? area(Math.floor(k / m), Math.floor(k / m) + 1, k % m, (k % m) + 1) : 0), 0);
+    if (rest < Math.max(4, total * 0.05)) break;
+    const stub = largest((i, j) => cell[i][j] && !covered[i][j]);
+    if (!stub || stub.a < 3) break;
+    cover(stub);
+    const part = { a0: xs[stub.i0], a1: xs[stub.i1], b0: ys[stub.j0], b1: ys[stub.j1], open: [false, false], ext: {} };
+    // Anschluss an ein vorhandenes Teil suchen, dessen First quer zur Anschlussrichtung läuft
+    const eps = 0.01;
+    for (const q of parts) {
+      const overlapA = Math.min(part.a1, q.a1) - Math.max(part.a0, q.a0) > 0.3;
+      const overlapB = Math.min(part.b1, q.b1) - Math.max(part.b0, q.b0) > 0.3;
+      if (overlapA && q.ridge === "a" && Math.abs(part.b1 - q.b0) < eps) {
+        part.b1 = (q.b0 + q.b1) / 2; part.ridge = "b"; part.open = [false, true]; part.ext.b1 = true; break;
+      }
+      if (overlapA && q.ridge === "a" && Math.abs(part.b0 - q.b1) < eps) {
+        part.b0 = (q.b0 + q.b1) / 2; part.ridge = "b"; part.open = [true, false]; part.ext.b0 = true; break;
+      }
+      if (overlapB && q.ridge === "b" && Math.abs(part.a1 - q.a0) < eps) {
+        part.a1 = (q.a0 + q.a1) / 2; part.ridge = "a"; part.open = [false, true]; part.ext.a1 = true; break;
+      }
+      if (overlapB && q.ridge === "b" && Math.abs(part.a0 - q.a1) < eps) {
+        part.a0 = (q.a0 + q.a1) / 2; part.ridge = "a"; part.open = [true, false]; part.ext.a0 = true; break;
+      }
+    }
+    part.ridge ??= part.a1 - part.a0 >= part.b1 - part.b0 ? "a" : "b";
+    parts.push(part);
+  }
+  const grow = wall + overhang;
+  return parts.map((q) => {
+    const a0 = q.a0 - (q.ext.a0 ? 0 : grow);
+    const a1 = q.a1 + (q.ext.a1 ? 0 : grow);
+    const b0 = q.b0 - (q.ext.b0 ? 0 : grow);
+    const b1 = q.b1 + (q.ext.b1 ? 0 : grow);
+    const ca = (a0 + a1) / 2;
+    const cb = (b0 + b1) / 2;
+    const center = [r3(ca * A[0] + cb * B[0]), r3(ca * A[1] + cb * B[1])];
+    return q.ridge === "a"
+      ? { center, u: A, v: B, length: r3(a1 - a0), width: r3(b1 - b0), open: q.open }
+      : { center, u: B, v: [-A[0], -A[1]], length: r3(b1 - b0), width: r3(a1 - a0), open: q.open };
+  });
+}
+
 /** Oberste Etage mit Räumen (oder die in roof.floor genannte). */
 export function roofFloor(building, roof) {
   const floors = (building.floors ?? []).filter((f) => (f.rooms ?? []).length);

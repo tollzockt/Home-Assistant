@@ -43,3 +43,39 @@ export function normalize(building) {
 export function exportFile(building) {
   return { format: EXPORT_FORMAT, version: 1, exported_at: new Date().toISOString(), building };
 }
+
+/** Bodenbeläge: Schlüssel, Name, Farbe. Die ersten sechs gibt es auch in NeonPlan. */
+export const FLOOR_MATERIALS = [
+  ["wood", "Holz", "#c89f6a"],
+  ["oak", "Eiche", "#a8743f"],
+  ["tiles", "Fliesen hell", "#d8d3ca"],
+  ["carpet", "Teppich blau-grau", "#8f9cb0"],
+  ["stone", "Stein", "#b3aea5"],
+  ["concrete", "Beton", "#9e9e9e"],
+  ["laminate_light", "Laminat hell", "#dcc8a6"],
+  ["walnut", "Nussbaum", "#6e4a30"],
+  ["parquet_grey", "Parkett grau", "#9a9086"],
+  ["vinyl_grey", "Vinyl grau", "#a9a6a0"],
+  ["tiles_dark", "Fliesen anthrazit", "#4b4e53"],
+  ["tiles_white", "Fliesen weiß", "#efeeea"],
+  ["marble", "Marmor", "#e8e4dc"],
+  ["terracotta", "Terrakotta", "#b5653f"],
+  ["slate", "Schiefer", "#5a5f66"],
+  ["carpet_beige", "Teppich beige", "#c9b79a"],
+  ["carpet_red", "Teppich rot", "#9c3b3b"],
+  ["epoxy", "Epoxid", "#7d8b99"],
+];
+
+/** Farbvorschläge für Wände und Böden (eigene Farbe zusätzlich frei wählbar). */
+export const COLOR_SWATCHES = [
+  "#f3efe7", "#ffffff", "#e7e1d6", "#d9d4cc", "#b8b2a7", "#8c8a86", "#4f5257", "#2b2d31",
+  "#f2e2c4", "#e9c99a", "#c98f5a", "#8a5a3c", "#f4d6d0", "#d98c7a", "#a8423a", "#6b2b2b",
+  "#e3eed8", "#a9c99a", "#5f8f5a", "#2f5a3f", "#dbe8f2", "#9cc0dc", "#4f7fa8", "#25466b",
+  "#ece3f2", "#b9a3d0", "#7c5fa3", "#fff3b0", "#f2c84b", "#e08a2e",
+];
+
+/** Farbe eines Bodens: eigene Farbe vor Bodenbelag. */
+export function floorColor(room) {
+  if (/^#[0-9a-f]{6}$/i.test(room?.floor_color ?? "")) return room.floor_color;
+  return (FLOOR_MATERIALS.find((m) => m[0] === room?.floor_material) ?? FLOOR_MATERIALS[0])[2];
+}

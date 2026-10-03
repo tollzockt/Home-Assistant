@@ -122,10 +122,10 @@ await ed.locator("haus3d-panel .ed-bar button[data-act=undo]").click();
 await ed.locator("haus3d-panel .ed-bar button[data-tool=select]").click();
 await ed.waitForTimeout(300);
 await ed.screenshot({ path: `${out}/editor-bearbeitet.png` });
-await ed.locator("haus3d-panel .ed-bar button[data-act=preview]").click();
+await ed.locator("haus3d-panel .ed-bar button[data-view='3d']").click();
 await ed.waitForTimeout(1200);
 await ed.screenshot({ path: `${out}/editor-vorschau.png` });
-await ed.locator("haus3d-panel .ed-back").click();
+await ed.locator("haus3d-panel .ed-bar button[data-view='split']").click();
 await ed.locator("haus3d-panel .ed-bar button[data-act=save]").click();
 await ed.waitForTimeout(800);
 const saved = await ed.evaluate(() => {
@@ -210,6 +210,75 @@ await cyberDach.locator("haus3d-panel .dialog .close").click();
 await cyberDach.waitForTimeout(1200);
 await cyberDach.screenshot({ path: `${out}/cyber-dach.png` });
 console.log(JSON.stringify({ outside }));
+// Etappe 3: Editor 2D + 3D, Magnet, Pfeiltasten, Möbelkatalog, Farben, eigene Körper, L-Dach
+for (const p of browser.contexts().flatMap((c) => c.pages())) await p.close();
+const e3 = await shot("etappe3", "?roof=gable&lhaus&garden", { width: 1280, height: 800 });
+await e3.screenshot({ path: `${out}/l-dach.png` });
+await e3.locator("haus3d-panel .edit").click();
+await e3.waitForTimeout(400);
+await e3.locator("haus3d-panel .floorsel").selectOption("eg");
+await e3.locator("haus3d-panel .ed-bar button[data-view='split']").click();
+await e3.waitForTimeout(800);
+const plan = (x, z) => e3.evaluate(([x, z]) => {
+  const e = window.panel._editor; const r = e.svg.getBoundingClientRect();
+  return [r.left + e.tx + x * e.scale, r.top + e.tz + z * e.scale];
+}, [x, z]);
+// Möbelkatalog: Kategorien, Vorschaubilder, Suche
+await e3.locator("haus3d-panel .ed-bar button[data-tool=furniture]").click();
+await e3.waitForTimeout(2500);
+const catalog = await e3.evaluate(() => {
+  const el = window.panel._editor.props;
+  return { cats: el.querySelectorAll(".cat").length, tiles: el.querySelectorAll(".tile").length, images: el.querySelectorAll(".tile img").length };
+});
+await e3.screenshot({ path: `${out}/moebelkatalog.png` });
+await e3.locator("haus3d-panel .ed-props .search").fill("netz");
+const searchHits = await e3.locator("haus3d-panel .ed-props .tile").count();
+await e3.locator("haus3d-panel .ed-props .tile[data-furn=network_cabinet]").click();
+let [px, py] = await plan(9.5, 1.5); await e3.mouse.click(px, py);
+// Magnet: Schrank zur Wand bei x = 11 ziehen (Wohnzimmer/Küche liegen 0..11)
+const before = await e3.evaluate(() => { const e = window.panel._editor; return e.floor.furniture.find((m) => m.id === e.sel.id); });
+[px, py] = await plan(before.x, before.z);
+let [qx, qy] = await plan(10.6, 1.6);
+await e3.mouse.move(px, py); await e3.mouse.down(); await e3.mouse.move(qx, qy, { steps: 6 }); await e3.mouse.up();
+const magnet = await e3.evaluate(() => { const e = window.panel._editor; const m = e.floor.furniture.find((x) => x.id === e.sel.id); return { x: m.x, z: m.z, rotation: m.rotation }; });
+// Pfeiltasten: 2 × hoch (je 5 cm)
+await e3.keyboard.press("ArrowUp"); await e3.keyboard.press("ArrowUp");
+const nudged = await e3.evaluate(() => { const e = window.panel._editor; const m = e.floor.furniture.find((x) => x.id === e.sel.id); return { z: m.z, undo: e.undoStack.length }; });
+// eigener Zylinder mit Farbe
+await e3.locator("haus3d-panel .ed-bar button[data-tool=furniture]").click();
+await e3.locator("haus3d-panel .ed-props .search").fill("");
+await e3.locator("haus3d-panel .ed-props .tile[data-furn=custom_cylinder]").click();
+[px, py] = await plan(5, 2.5); await e3.mouse.click(px, py);
+await e3.locator("haus3d-panel .ed-props button[data-swatch=color][data-c='#4f7fa8']").click();
+await e3.locator("haus3d-panel .ed-props input[data-m=name]").fill("Regentonne");
+await e3.locator("haus3d-panel .ed-props input[data-m=name]").press("Tab");
+// Raum: Bodenfarbe und Wandfarbe
+await e3.locator("haus3d-panel .ed-bar button[data-tool=select]").click();
+[px, py] = await plan(2, 2); await e3.mouse.click(px, py);
+await e3.locator("haus3d-panel .ed-props select[data-room=floor_material]").selectOption("walnut");
+await e3.locator("haus3d-panel .ed-props button[data-swatch=wall_color][data-c='#9cc0dc']").click();
+await e3.waitForTimeout(1500);
+await e3.screenshot({ path: `${out}/editor-2d-3d.png` });
+// 3D: Möbel in der 3D-Ansicht anklicken wählt es aus
+const pick3d = await e3.evaluate(() => {
+  const e = window.panel._editor; const sc = e.scene3d;
+  const m = e.floor.furniture.find((x) => x.type === "custom_cylinder");
+  const r = sc.renderer.domElement.getBoundingClientRect();
+  const v = sc.camera.position.clone(); // Mittelpunkt des Zylinders auf den Bildschirm
+  const p = new v.constructor(m.x, (e.floor.elevation ?? 0) + 0.5, m.z).project(sc.camera);
+  const x = r.left + (p.x + 1) / 2 * r.width; const y = r.top + (1 - p.y) / 2 * r.height;
+  return { x, y, hit: sc.pick(x, y, { furniture: true }), id: m.id };
+});
+await e3.locator("haus3d-panel .ed-bar button[data-act=save]").click();
+await e3.waitForTimeout(800);
+const saved3 = await e3.evaluate(() => {
+  const msg = window.calls.filter((c) => c.type === "haus3d/building/save").at(-1);
+  const eg = msg.building.floors.find((f) => f.id === "eg");
+  const wz = eg.rooms.find((r) => r.id === "wohnzimmer");
+  const cyl = eg.furniture.find((m) => m.type === "custom_cylinder");
+  return { floor: wz.floor_material, wall: wz.wall_color, cyl: { color: cyl.color, name: cyl.name } };
+});
+console.log(JSON.stringify({ catalog, searchHits, magnet, nudged, pick3d: { hit: pick3d.hit, id: pick3d.id }, saved3 }));
 console.log(JSON.stringify({ info, calls, hidpi, roomPanel, saved, moved: { x: Math.round(moved.x), y: Math.round(moved.y) }, hiddenSaved, anim, errors: errors.filter((e) => !e.includes("404")) }, null, 1));
 await browser.close();
 server.close();

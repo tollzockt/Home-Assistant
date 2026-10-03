@@ -76,7 +76,35 @@ export const FURNITURE = {
   parasol: ["Sonnenschirm", 2.5, 2.5, 2.4],
   garden_table: ["Gartentisch", 1.4, 0.8, 0.74],
   bbq: ["Grill", 1.0, 0.6, 1.1],
+  rock: ["Findling", 0.9, 0.7, 0.5],
+  rock_group: ["Steingruppe", 1.6, 1.1, 0.5],
+  stepping_stone: ["Trittstein", 0.5, 0.4, 0.05],
+  // Technik
+  network_cabinet: ["Netzwerkschrank", 0.6, 0.6, 1.2],
+  server_rack: ["Serverschrank", 0.6, 1.0, 2.0],
+  boiler: ["Heizkessel", 0.6, 0.65, 1.8],
+  water_tank: ["Warmwasserspeicher", 0.65, 0.65, 1.7],
+  heat_pump: ["Wärmepumpe (außen)", 1.0, 0.4, 0.8],
+  fuse_box: ["Sicherungskasten", 0.55, 0.15, 0.75],
+  // eigene Körper (Maße und Farbe frei)
+  custom_box: ["Quader (eigener)", 1.0, 1.0, 1.0],
+  custom_cylinder: ["Zylinder (eigener)", 0.6, 0.6, 1.0],
 };
+
+/** Kategorien für die Möbelauswahl im Editor (jeder Typ genau einmal). */
+export const FURNITURE_CATEGORIES = [
+  ["Wohnen", ["sofa", "armchair", "stool", "coffee_table", "tv_board", "tv_wall", "sideboard", "shelf", "plant", "rug", "radiator"]],
+  ["Essen", ["table", "table_round", "chair", "bench", "corner_bench", "bar_stool"]],
+  ["Küche", ["kitchen", "kitchen_wall", "kitchen_tall", "island", "sink", "stove", "dishwasher", "fridge", "fridge_smart"]],
+  ["Schlafen", ["bed", "bunk_bed", "nightstand", "wardrobe", "dresser"]],
+  ["Bad & Wäsche", ["bathtub", "shower", "wc", "washbasin", "washer", "dryer"]],
+  ["Büro", ["desk", "office_chair", "tall_cabinet", "coat_rack"]],
+  ["Technik", ["network_cabinet", "server_rack", "boiler", "water_tank", "heat_pump", "fuse_box", "robot_vacuum"]],
+  ["Licht", ["lamp_ceiling", "lamp_downlight", "lamp_spot", "lamp_panel", "lamp_pendant", "lamp_floor", "lamp_table", "lamp_wall", "led_strip", "lamp_uplight", "lamp_bollard", "lamp_garden"]],
+  ["Garten", ["tree", "tree_conifer", "tree_fruit", "bush", "flowers", "grass", "planter", "rock", "rock_group", "stepping_stone", "lounger", "parasol", "garden_table", "bbq"]],
+  ["Bau", ["stairs", "stairwell", "parking"]],
+  ["Eigene Körper", ["custom_box", "custom_cylinder"]],
+];
 
 /** Farben je Stil; im Cyberpunk-Stil dunkel mit Neon-Kanten. */
 export function furnitureMaterials(style) {
@@ -97,6 +125,9 @@ export function furnitureMaterials(style) {
     bark: m(0x6b4a2f),
     blossom: [0xe0457b, 0xf2c84b, 0x8e6ae0, 0xffffff].map((c) => m(c)),
     fruit: m(0xd33f2f),
+    stone: m(0x8f8c86, { roughness: 0.95 }),
+    stoneLight: m(0xb9b4aa, { roughness: 0.95 }),
+    led: new THREE.MeshStandardMaterial({ color: 0x00e676, emissive: 0x00e676, emissiveIntensity: 1.2 }),
     canvas: m(0xf0e6cf),
     glass: new THREE.MeshStandardMaterial({ color: 0x9fd3f0, transparent: true, opacity: 0.3, depthWrite: false }),
     screen: m(0x111111, { emissive: cyber ? 0x2962ff : 0x000000, emissiveIntensity: cyber ? 0.6 : 0 }),
@@ -428,11 +459,94 @@ function buildModel(type, w, d, h, M) {
       box(g, M.metal, w * 0.2, 0.03, d * 0.6, -w * 0.4, h * 0.75, 0);
       box(g, M.metal, w * 0.2, 0.03, d * 0.6, w * 0.4, h * 0.75, 0);
       break;
+    case "rock":
+    case "rock_group": {
+      const stones = type === "rock" ? [[0, 0, 1, 1]] : [[-w * 0.22, -d * 0.1, 0.62, 1], [w * 0.25, d * 0.12, 0.5, 0.75], [w * 0.02, d * 0.3, 0.34, 0.5]];
+      stones.forEach(([x, z, k, kh], i) => {
+        const geo = new THREE.DodecahedronGeometry(0.5, 0);
+        // leicht unregelmäßig: Ecken je nach Index verschoben
+        const pos = geo.attributes.position;
+        for (let v = 0; v < pos.count; v++) pos.setXYZ(v, pos.getX(v) * (1 + 0.12 * Math.sin(v * 1.7 + i)), pos.getY(v), pos.getZ(v) * (1 + 0.12 * Math.cos(v * 2.3 + i)));
+        geo.computeVertexNormals();
+        const r = new THREE.Mesh(geo, i % 2 ? M.stoneLight : M.stone);
+        r.scale.set(w * k, h * kh * 1.6, d * k * (type === "rock" ? 1 : 1.3));
+        r.position.set(x, h * kh * 0.45, z);
+        g.add(r);
+      });
+      break;
+    }
+    case "stepping_stone": {
+      const r = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.5, 1, 9), M.stoneLight);
+      r.scale.set(w, Math.max(h, 0.02), d);
+      r.position.y = Math.max(h, 0.02) / 2;
+      g.add(r);
+      break;
+    }
+    case "network_cabinet":
+    case "server_rack": {
+      box(g, M.dark, w, h, d);
+      // Glastür vorne, Patchfelder und blinkende LEDs dahinter
+      const units = Math.max(2, Math.floor((h - 0.2) / 0.18));
+      for (let i = 0; i < units; i++) {
+        const y = 0.1 + i * ((h - 0.2) / units);
+        box(g, M.metal, w * 0.8, 0.04, 0.02, 0, y + 0.03, d / 2 - 0.04);
+        for (let k = 0; k < 4; k++) box(g, M.led, 0.015, 0.015, 0.01, -w * 0.3 + k * 0.05, y + 0.045, d / 2 - 0.025);
+      }
+      box(g, M.glass, w * 0.92, h * 0.94, 0.01, 0, h * 0.03, d / 2 + 0.005);
+      break;
+    }
+    case "boiler":
+      box(g, M.white, w, h, d);
+      box(g, M.dark, w * 0.5, h * 0.08, 0.01, 0, h * 0.72, d / 2 + 0.005);
+      box(g, M.screen, w * 0.2, h * 0.04, 0.012, -w * 0.08, h * 0.74, d / 2 + 0.008);
+      box(g, M.metal, w * 0.6, 0.02, 0.02, 0, h * 0.12, d / 2 + 0.01);
+      for (const x of [-w * 0.2, 0, w * 0.2]) cyl(g, M.metal, 0.02, 0.25, x, h, -d * 0.2, 8);
+      break;
+    case "water_tank":
+      cyl(g, M.white, Math.min(w, d) / 2, h, 0, 0, 0, 24);
+      cyl(g, M.metal, Math.min(w, d) / 2 + 0.005, 0.04, 0, h * 0.25, 0, 24);
+      cyl(g, M.metal, Math.min(w, d) / 2 + 0.005, 0.04, 0, h * 0.75, 0, 24);
+      break;
+    case "heat_pump": {
+      box(g, M.light, w, h, d);
+      const fan = new THREE.Mesh(new THREE.CylinderGeometry(h * 0.35, h * 0.35, 0.02, 24), M.dark);
+      fan.rotation.x = Math.PI / 2;
+      fan.position.set(-w * 0.15, h / 2, d / 2 + 0.01);
+      g.add(fan);
+      break;
+    }
+    case "fuse_box":
+      box(g, M.white, w, h, d);
+      for (let i = 0; i < 3; i++) box(g, M.dark, w * 0.8, 0.05, 0.01, 0, h * (0.25 + i * 0.22), d / 2 + 0.005);
+      break;
+    case "custom_box":
+      box(g, M.light, w, h, d);
+      break;
+    case "custom_cylinder": {
+      const c = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.5, 1, 32), M.light);
+      c.scale.set(w, h, d);
+      c.position.y = h / 2;
+      g.add(c);
+      break;
+    }
     default:
       box(g, M.light, w, h, d);
   }
   g.userData.bulbs = bulbs;
   return g;
+}
+
+/** Eigene Farbe (item.color, "#rrggbb"): ersetzt die Hauptmaterialien (Stoff, Holz, Korpus). */
+function colored(M, color) {
+  if (!/^#[0-9a-f]{6}$/i.test(color ?? "")) return M;
+  const mat = M.wood.clone();
+  mat.color.set(color);
+  if (M.edge) {
+    // Cyberpunk: dunkler Körper, eigene Farbe leuchtet
+    mat.color.set(0x150a2c);
+    mat.emissive.set(color);
+  }
+  return { ...M, wood: mat, fabric: mat, light: mat, white: mat, dark: mat, stone: mat, stoneLight: mat };
 }
 
 /**
@@ -446,10 +560,10 @@ export function buildFurniture(item, M, elev, floorHeight) {
   const w = item.w || def[1];
   const d = item.d || def[2];
   const h = item.h || def[3];
-  const g = buildModel(item.type, w, d, h, M);
+  const g = buildModel(item.type, w, d, h, colored(M, item.color));
   const ceiling = ["lamp_ceiling", "lamp_panel", "lamp_downlight", "lamp_pendant", "kitchen_wall"].includes(item.type);
-  const wall = ["lamp_wall", "lamp_spot", "tv_wall", "radiator"].includes(item.type);
-  let y = item.mount_y ?? (ceiling ? floorHeight - h - 0.01 : wall ? (item.type === "radiator" ? 0.1 : 1.6) : 0);
+  const wall = ["lamp_wall", "lamp_spot", "tv_wall", "radiator", "fuse_box"].includes(item.type);
+  let y = item.mount_y ?? (ceiling ? floorHeight - h - 0.01 : wall ? (item.type === "radiator" ? 0.1 : item.type === "fuse_box" ? 1.2 : 1.6) : 0);
   if (item.type === "kitchen_wall" && item.mount_y == null) y = 1.45;
   if (item.type === "radiator" && item.mount_y == null) y = 0;
   g.position.set(item.x, elev + y, item.z);
@@ -459,7 +573,8 @@ export function buildFurniture(item, M, elev, floorHeight) {
       if (o.isMesh && o.material !== M.glass) o.add(new THREE.LineSegments(new THREE.EdgesGeometry(o.geometry, 30), M.edge));
     });
   }
-  g.userData.furniture = item.id;
+  // alle Teile kennen ihr Möbelstück (Anklicken im 3D-Editor)
+  g.traverse((o) => (o.userData.furniture = item.id));
   return g;
 }
 
