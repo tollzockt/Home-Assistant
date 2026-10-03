@@ -38,7 +38,18 @@ OPENING_STYLES = [
     "standard",
     "bars",
 ]
-OUTDOOR_TYPES = ["lawn", "terrace", "path", "driveway", "pool", "bed", "hedge", "fence"]
+OUTDOOR_TYPES = ["lawn", "terrace", "path", "driveway", "pool", "bed", "hedge", "fence", "balcony"]
+ROOF_TYPES = ["none", "flat", "gable", "hip", "shed"]
+
+ROOF_SCHEMA = vol.Schema(
+    {
+        vol.Optional("type", default="none"): vol.In(ROOF_TYPES),
+        vol.Optional("pitch", default=35): vol.All(vol.Coerce(float), vol.Range(min=5, max=60)),
+        vol.Optional("overhang", default=0.4): vol.All(vol.Coerce(float), vol.Range(min=0, max=1.5)),
+        vol.Optional("direction", default="auto"): vol.In(["auto", "x", "z"]),
+    },
+    extra=vol.ALLOW_EXTRA,
+)
 
 ROOM_SCHEMA = vol.Schema(
     {
@@ -118,6 +129,8 @@ SETTINGS_SCHEMA = vol.Schema(
         vol.Optional("wall_interior", default=0.12): vol.All(vol.Coerce(float), vol.Range(min=0.02, max=1)),
         vol.Optional("grid", default=0.05): vol.All(vol.Coerce(float), vol.Range(min=0.01, max=1)),
         vol.Optional("energy", default=lambda: dict(DEFAULT_ENERGY)): ENERGY_SCHEMA,
+        vol.Optional("roof"): ROOF_SCHEMA,
+        vol.Optional("weather"): vol.Any(None, str),
     },
     extra=vol.ALLOW_EXTRA,
 )

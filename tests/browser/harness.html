@@ -33,6 +33,24 @@ for (const o of eg?.openings ?? []) {
   if (o.id === "wz_fenster_west") Object.assign(o, { type: "door", sill: 0, height: 2.1, leaves: 2, style: "glass", contact: "binary_sensor.terrasse_doppel" });
   if (o.id === "sz_fenster") Object.assign(o, { type: "door", sill: 0, height: 2.1, style: "sliding", contact: "binary_sensor.schiebetuer" });
 }
+// ?roof=gable|hip|shed|flat, ?garden (Balkon, Bäume, Geländer), ?weather=rainy|snowy|…
+if (params.get("roof")) data.settings = { ...(data.settings ?? {}), roof: { type: params.get("roof"), pitch: 30 } };
+if (params.has("garden") && eg) {
+  eg.outdoor.push({ id: "balkon", type: "balcony", name: "Balkon", points: [[3, 8], [7, 8], [7, 9.6], [3, 9.6]] });
+  const terr = eg.outdoor.find((o) => o.id === "terrasse");
+  if (terr) terr.railing = "bars";
+  eg.furniture = [...(eg.furniture ?? []),
+    { id: "baum1", type: "tree", x: 16.5, z: -2, rotation: 0 },
+    { id: "baum2", type: "tree_conifer", x: -1.5, z: 10.5, rotation: 0 },
+    { id: "baum3", type: "tree_fruit", x: 10, z: 10.5, rotation: 0 },
+    { id: "busch1", type: "bush", x: 8, z: -2.5, rotation: 0 },
+    { id: "blumen1", type: "flowers", x: 14, z: -1, rotation: 0 },
+    { id: "gras1", type: "grass", x: 14.5, z: 3.5, rotation: 0 },
+    { id: "schirm", type: "parasol", x: 2.5, z: -1.8, rotation: 0 },
+    { id: "liege", type: "lounger", x: 11, z: -0.6, rotation: 90 },
+    { id: "kuebel", type: "planter", x: 6.4, z: 9.1, rotation: 0 },
+  ];
+}
 const st = (entity_id, state, attributes = {}) => ({ entity_id, state, attributes: { friendly_name: entity_id, ...attributes }, last_updated: "" });
 const states = {};
 const entities = {};
@@ -67,6 +85,7 @@ const energy = {
   "sensor.pv_ertrag_heute": st("sensor.pv_ertrag_heute", "1.234", { unit_of_measurement: "kWh" }),
 };
 for (const s of Object.values(energy)) add(s, "balkonkraftwerk");
+if (params.get("weather")) add(st("weather.zuhause", params.get("weather"), { friendly_name: "Zuhause" }), null);
 window.calls = [];
 window.events = [];
 const areaNames = { wohnzimmer: "Wohnzimmer", kuche: "Küche", flur: "Flur", badezimmer: "Badezimmer", schlafzimmer: "Schlafzimmer", garage: "Garage", waschraum: "Waschraum", bar: "Bar", balkonkraftwerk: "Balkonkraftwerk", gaste_bad: "Gäste Bad" };

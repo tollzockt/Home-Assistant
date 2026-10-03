@@ -257,3 +257,27 @@ async def test_invalid_stored_state_is_backed_up(hass: HomeAssistant, hass_stora
     await hass.async_block_till_done()
     assert hass.data[DOMAIN].building["floors"] == []
     assert hass_storage["haus3d.building_invalid"]["data"] == broken
+
+
+async def test_balcony_roof_and_weather_settings(hass: HomeAssistant, setup_integration, hass_ws_client) -> None:
+    """Balkon als Gartenfläche, Dach- und Wettereinstellungen werden gespeichert und geprüft."""
+    building = copy.deepcopy(SEED)
+    floor = building["floors"][-1]
+    floor.setdefault("outdoor", []).append(
+        {"id": "balkon", "type": "balcony", "points": [[0, -1.5], [3, -1.5], [3, 0], [0, 0]], "railing": "bars"}
+    )
+    building["settings"]["roof"] = {"type": "gable", "pitch": 30, "overhang": 0.5}
+    building["settings"]["weather"] = "weather.zuhause"
+    ws = await hass_ws_client(hass)
+    await ws.send_json({"id": 1, "type": "haus3d/building/save", "building": building})
+    msg = await ws.receive_json()
+    assert msg["success"], msg
+    saved = msg["result"]["building"]
+    assert saved["settings"]["roof"]["type"] == "gable"
+    assert saved["settings"]["roof"]["direction"] == "auto"
+    assert saved["settings"]["weather"] == "weather.zuhause"
+    assert saved["floors"][-1]["outdoor"][-1]["railing"] == "bars"
+    building["settings"]["roof"]["type"] = "kuppel"
+    await ws.send_json({"id": 2, "type": "haus3d/building/save", "building": building, "revision": msg["result"]["revision"]})
+    msg = await ws.receive_json()
+    assert msg["error"]["code"] == "invalid_format"

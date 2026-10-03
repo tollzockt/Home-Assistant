@@ -4,6 +4,7 @@
 import * as THREE from "./vendor/three.module.min.js";
 import { OrbitControls } from "./vendor/OrbitControls.js";
 import { buildDevice, buildFurniture, furnitureMaterials } from "./furniture.js";
+import { freeEdges, roofFloor, roofFrame, roofRooms, roofSettings, scatter, seeded } from "./exterior.js";
 import { centroid, computeWalls, labelPoint, pieceFootprint, pointInPolygon, wallPieces } from "./walls.js";
 
 const FLOOR_COLORS = {
@@ -24,6 +25,7 @@ const OUTDOOR = {
   bed: { color: 0x6b4a2f, y: -0.035, h: 0.15 },
   hedge: { color: 0x2f6b2a, y: -0.035, h: 1.2 },
   fence: { color: 0x8a6f52, y: -0.035, h: 1.0 },
+  balcony: { color: 0xb5ada3, y: 0, h: 0 },
 };
 
 const SLAB = 0.15;
@@ -229,6 +231,16 @@ export class HouseScene {
           edge: new THREE.LineBasicMaterial({ color: 0x00f0ff, transparent: true, opacity: 0.95 }),
           outline: new THREE.LineBasicMaterial({ color: 0xff2bd6, transparent: true, opacity: 0.9 }),
           gardenLine: new THREE.LineBasicMaterial({ color: 0x1de9b6, transparent: true, opacity: 0.5 }),
+          roof: std({ color: 0x1b0f33, emissive: 0x7c4dff, emissiveIntensity: 0.25, roughness: 0.8, side: THREE.DoubleSide }),
+          roofEdge: new THREE.LineBasicMaterial({ color: 0xff2bd6, transparent: true, opacity: 0.9 }),
+          gable: std({ color: 0x1d0f3a, emissive: 0x0a0320, side: THREE.DoubleSide }),
+          railing: std({ color: 0x1b0f33, emissive: 0x00e5ff, emissiveIntensity: 0.6 }),
+          railGlass: std({ color: 0x00e5ff, emissive: 0x00b8d4, emissiveIntensity: 0.5, transparent: true, opacity: 0.25, depthWrite: false, side: THREE.DoubleSide }),
+          railWood: std({ color: 0x24123f, emissive: 0xff2bd6, emissiveIntensity: 0.3 }),
+          balcony: std({ color: 0x2a1450, emissive: 0x2a1450, emissiveIntensity: 0.4 }),
+          flowers: [0xff2bd6, 0x00e5ff, 0xffd000, 0x7c4dff].map((c) => std({ color: c, emissive: c, emissiveIntensity: 0.8 })),
+          rain: new THREE.LineBasicMaterial({ color: 0x00e5ff, transparent: true, opacity: 0.55 }),
+          snow: new THREE.PointsMaterial({ color: 0xffffff, size: 0.09, transparent: true, opacity: 0.9, depthWrite: false }),
         }
       : {
           wall: std({ vertexColors: true, roughness: 0.9 }),
@@ -246,9 +258,18 @@ export class HouseScene {
           solarFrame: std({ color: 0xb0b6bd, metalness: 0.6, roughness: 0.4 }),
           flowLine: new THREE.MeshBasicMaterial({ color: 0xffc107, transparent: true, opacity: 0.35 }),
           flowDot: new THREE.MeshBasicMaterial({ color: 0xffd54f }),
+          roof: std({ color: 0x9a4a36, roughness: 0.85, side: THREE.DoubleSide }),
+          gable: std({ color: this.dark ? 0xc9c3b8 : 0xf3efe7, roughness: 0.9, side: THREE.DoubleSide }),
+          railing: std({ color: 0x5f6368, roughness: 0.5, metalness: 0.5 }),
+          railGlass: std({ color: 0xbfe3f5, transparent: true, opacity: 0.3, roughness: 0.05, depthWrite: false, side: THREE.DoubleSide }),
+          railWood: std({ color: 0x8a6440, roughness: 0.85 }),
+          balcony: std({ color: 0xb5ada3, roughness: 0.9 }),
+          flowers: [0xe0457b, 0xf2c84b, 0x8e6ae0, 0xffffff, 0xf07c3a].map((c) => std({ color: c, roughness: 0.7 })),
+          rain: new THREE.LineBasicMaterial({ color: this.style === "night" ? 0x8fa6d8 : 0x7f97ad, transparent: true, opacity: 0.5 }),
+          snow: new THREE.PointsMaterial({ color: 0xffffff, size: 0.08, transparent: true, opacity: 0.95, depthWrite: false }),
         };
     const garden = cyber
-      ? { lawn: 0x062a24, terrace: 0x2a1450, path: 0x1a1030, driveway: 0x140c26, pool: 0x1b0f33, bed: 0x3a0f3a, hedge: 0x0b4f3f, fence: 0x4a148c }
+      ? { lawn: 0x062a24, terrace: 0x2a1450, path: 0x1a1030, driveway: 0x140c26, pool: 0x1b0f33, bed: 0x3a0f3a, hedge: 0x0b4f3f, fence: 0x4a148c, balcony: 0x2a1450 }
       : Object.fromEntries(Object.entries(OUTDOOR).map(([k, v]) => [k, v.color]));
     this.outdoorMats = Object.fromEntries(
       Object.keys(OUTDOOR).map((k) => [k, std(cyber ? { color: garden[k], emissive: garden[k], emissiveIntensity: 0.35, roughness: 1 } : { color: garden[k], roughness: 1 })]),
@@ -256,7 +277,7 @@ export class HouseScene {
   }
 
   _disposeMats() {
-    for (const m of [...Object.values(this.mats ?? {}), ...Object.values(this.outdoorMats ?? {}), ...Object.values(this.furnMats ?? {})]) {
+    for (const m of [...Object.values(this.mats ?? {}).flat(), ...Object.values(this.outdoorMats ?? {}), ...Object.values(this.furnMats ?? {}).flat()]) {
       if (!m) continue;
       m.map?.dispose();
       m.dispose();
@@ -290,6 +311,8 @@ export class HouseScene {
     this.lampBulbs.clear();
     for (const floor of building.floors ?? []) this._buildFloor(floor, building.settings ?? {}, footing(building.floors, floor));
     this._buildEnergy(building);
+    this._buildRoof(building);
+    if (this._weather) this.setWeather(this._weather, { force: true });
     if (this.style === "cyber") {
       const lowest = Math.min(0, ...(building.floors ?? []).map((f) => f.elevation ?? 0));
       const grid = new THREE.GridHelper(120, 120, 0xff2bd6, 0x2a1450);
@@ -319,6 +342,7 @@ export class HouseScene {
       });
     }
     this.devicesGroup.visible = on("devices") && this._deviceList?.length > 0;
+    if (this.weather) this.weather.obj.visible = on("weather");
     this._cameraMoved();
   }
 
@@ -374,7 +398,9 @@ export class HouseScene {
       if (!entry.group.visible) continue;
       entry.group.traverse((o) => o.isMesh && (o.userData.entity || o.userData.room) && targets.push(o));
     }
+    if (this._roofShown()) targets.push(...this.roofMeshes);
     for (const hit of this.raycaster.intersectObjects(targets.filter(visible), false)) {
+      if (hit.object.userData.roof) return null;
       if (hit.object.userData.entity) return { entity_id: hit.object.userData.entity };
       if (hit.object.userData.room) return { ...hit.object.userData.room };
     }
@@ -513,6 +539,12 @@ export class HouseScene {
     // Möbel (NeonPlan furniture[]); Lampen mit Entität leuchten, wenn das Licht an ist
     const furn = new THREE.Group();
     furn.userData.layer = "furniture";
+    // Gartenmöbel und Pflanzen außerhalb der Räume (und nicht auf dem Balkon) gehören zum Gelände
+    const gardenFurn = new THREE.Group();
+    gardenFurn.userData.layer = "furniture";
+    const inside = (p) =>
+      (floor.rooms ?? []).some((r) => pointInPolygon(p, r.points)) ||
+      (floor.outdoor ?? []).some((o) => o.type === "balcony" && pointInPolygon(p, o.points));
     for (const item of floor.furniture ?? []) {
       const obj = buildFurniture(item, this.furnMats, elev, floor.height ?? 2.5);
       const entity = item.entity && item.entity !== "none" ? item.entity : null;
@@ -521,9 +553,10 @@ export class HouseScene {
         if (!this.lampBulbs.has(entity)) this.lampBulbs.set(entity, []);
         this.lampBulbs.get(entity).push(...obj.userData.bulbs);
       }
-      furn.add(obj);
+      (inside([item.x, item.z]) ? furn : gardenFurn).add(obj);
     }
     group.add(furn);
+    garden.add(gardenFurn);
     entry.occluders.push(walls);
 
     // Öffnungen
@@ -538,7 +571,12 @@ export class HouseScene {
 
     // Garten; Gartenflächen mit Bereich bekommen einen Anker für Beschriftung und Geräte
     for (const area of floor.outdoor ?? []) {
-      garden.add(this._buildOutdoor(area, elev));
+      // Balkone gehören zur Etage (verschwinden mit ihr), der übrige Garten bleibt stehen
+      const obj = this._buildOutdoor(area, elev, floor);
+      if (area.type === "balcony") {
+        obj.userData.layer = "floors";
+        group.add(obj);
+      } else garden.add(obj);
       if (!area.area_id) continue;
       const c = labelPoint(area.points);
       const hs = Array.isArray(area.heights) ? area.heights : [];
@@ -680,11 +718,20 @@ export class HouseScene {
     return item;
   }
 
-  _buildOutdoor(area, elev) {
+  _buildOutdoor(area, elev, floor = null) {
     const look = OUTDOOR[area.type] ?? OUTDOOR.lawn;
     const group = new THREE.Group();
     const heights = Array.isArray(area.heights) && area.heights.length === area.points.length ? area.heights.map((h) => Number(h) || 0) : null;
     let geo;
+    if (area.type === "balcony") {
+      // Platte unter Fußbodenhöhe der Etage, Oberkante = Boden
+      const slab = new THREE.Mesh(flatOrExtruded(area.points, 0.2), this.outdoorMats.balcony);
+      slab.position.y = elev - 0.2;
+      group.add(slab);
+      if (this.mats.gardenLine) group.add(outline(area.points, elev + 0.01, this.mats.gardenLine));
+      this._buildRailing(group, area, elev, floor);
+      return group;
+    }
     if (heights && look.h === 0) {
       // schräge Fläche (Hang, Böschung): Höhe je Eckpunkt
       geo = slopedSurface(area.points, heights);
@@ -713,7 +760,156 @@ export class HouseScene {
       water.position.y = elev + look.y + look.h + 0.005;
       group.add(water);
     }
+    if (area.type === "bed") this._buildFlowers(group, area, elev + look.y + look.h);
+    if (!heights) this._buildRailing(group, area, elev + look.y + look.h, floor);
     return group;
+  }
+
+  /**
+   * Geländer/Zaun an den Kanten, die nicht am Haus liegen. area.railing: glass | bars | wood | none
+   * (Balkon: Glas, sonst keins), area.railing_height in m (Standard 1,0).
+   */
+  _buildRailing(group, area, y, floor) {
+    const style = area.railing ?? (area.type === "balcony" ? "glass" : "none");
+    if (!style || style === "none") return;
+    const h = Math.min(2.5, Math.max(0.3, Number(area.railing_height) || 1));
+    const edges = freeEdges(area.points, floor?.rooms ?? []);
+    const rail = new THREE.Group();
+    rail.userData.layer = "walls";
+    const beam = (mat, a, b, y0, y1, t) => {
+      const len = Math.max(t, Math.hypot(b[0] - a[0], b[1] - a[1]));
+      const m = new THREE.Mesh(new THREE.BoxGeometry(len, y1 - y0, t), mat);
+      m.position.set((a[0] + b[0]) / 2, (y0 + y1) / 2, (a[1] + b[1]) / 2);
+      m.rotation.y = -Math.atan2(b[1] - a[1], b[0] - a[0]);
+      rail.add(m);
+      return m;
+    };
+    const bars = [];
+    const wood = style === "wood";
+    const frame = wood ? this.mats.railWood : this.mats.railing;
+    for (const [a, b] of edges) {
+      const len = Math.hypot(b[0] - a[0], b[1] - a[1]);
+      if (len < 0.05) continue;
+      const at = (t) => [a[0] + ((b[0] - a[0]) * t) / len, a[1] + ((b[1] - a[1]) * t) / len];
+      beam(frame, a, b, y + h - 0.05, y + h, 0.07); // Handlauf
+      const posts = Math.max(1, Math.ceil(len / 1.5));
+      for (let i = 0; i <= posts; i++) {
+        const p = at((len * i) / posts);
+        beam(frame, p, p, y, y + h, 0.05);
+      }
+      if (style === "glass") beam(this.mats.railGlass, a, b, y + 0.06, y + h - 0.06, 0.015);
+      else if (wood) for (const k of [0.25, 0.5, 0.75]) beam(frame, a, b, y + h * k - 0.05, y + h * k + 0.05, 0.03);
+      else {
+        beam(frame, a, b, y + 0.08, y + 0.12, 0.04);
+        for (let t = 0.12; t < len - 0.06; t += 0.12) bars.push(at(t));
+      }
+    }
+    if (bars.length) {
+      const geo = new THREE.BoxGeometry(0.02, h - 0.17, 0.02);
+      const inst = new THREE.InstancedMesh(geo, frame, bars.length);
+      const m = new THREE.Matrix4();
+      bars.forEach((p, i) => inst.setMatrixAt(i, m.makeTranslation(p[0], y + 0.12 + (h - 0.17) / 2, p[1])));
+      rail.add(inst);
+    }
+    group.add(rail);
+  }
+
+  /** Beet: Büsche und Blüten, bei jedem Aufbau gleich verteilt. */
+  _buildFlowers(group, area, y) {
+    const pts = scatter(area.points, { seed: area.id ?? "beet", perM2: 7, n: 160, margin: 0.12 });
+    if (!pts.length) return;
+    const rnd = seeded(`${area.id}:farbe`);
+    const m = new THREE.Matrix4();
+    const q = new THREE.Quaternion();
+    const one = new THREE.Vector3();
+    const leafGeo = new THREE.SphereGeometry(0.13, 8, 6);
+    const leaves = new THREE.InstancedMesh(leafGeo, this.furnMats.green, pts.length);
+    const blooms = this.mats.flowers.map(() => []);
+    pts.forEach((p, i) => {
+      const s = 0.7 + rnd() * 0.6;
+      leaves.setMatrixAt(i, m.compose(new THREE.Vector3(p[0], y + 0.08 * s, p[1]), q, one.set(s, s * 0.8, s)));
+      blooms[Math.floor(rnd() * blooms.length)].push([p, s]);
+    });
+    group.add(leaves);
+    const bloomGeo = new THREE.SphereGeometry(0.06, 8, 6);
+    blooms.forEach((list, k) => {
+      if (!list.length) return;
+      const inst = new THREE.InstancedMesh(bloomGeo, this.mats.flowers[k], list.length);
+      list.forEach(([p, s], i) => inst.setMatrixAt(i, m.makeTranslation(p[0] + 0.04, y + 0.2 * s, p[1] - 0.03)));
+      group.add(inst);
+    });
+  }
+
+  /** Dach über der obersten Etage (settings.roof). Nur in der Ansicht „Alle“ sichtbar. */
+  _buildRoof(building) {
+    this.roofHolder = null;
+    this.roofMeshes = [];
+    const roof = roofSettings(building.settings);
+    if (roof.type === "none") return;
+    const floor = roofFloor(building, roof);
+    const rooms = roofRooms(floor, roof);
+    if (!rooms.length) return;
+    const wall = building.settings?.wall_exterior ?? 0.24;
+    const ov = roof.overhang;
+    const fr = roofFrame(rooms, { wall, overhang: ov, direction: roof.direction });
+    const top = (floor.elevation ?? 0) + (floor.height ?? 2.5);
+    const tan = Math.tan(THREE.MathUtils.degToRad(roof.pitch));
+    const L = fr.length / 2;
+    const W = fr.width / 2;
+    const Li = Math.max(0.1, L - ov);
+    const Wi = Math.max(0.1, W - ov);
+    const P = (s, t, y) => [fr.center[0] + s * fr.u[0] + t * fr.v[0], y, fr.center[1] + s * fr.u[1] + t * fr.v[1]];
+    const roofPos = [];
+    const gablePos = [];
+    const tri = (list, ...pts) => list.push(...pts.flat());
+    const quad = (list, a, b, c, d) => tri(list, a, b, c, a, c, d);
+    const eave = top - ov * tan; // Dachfläche trifft die Wand genau an ihrer Oberkante
+    const holder = new THREE.Group();
+    const inner = new THREE.Group();
+    inner.userData.layer = "roof";
+    holder.add(inner);
+    if (roof.type === "flat") {
+      const slab = new THREE.Mesh(new THREE.BoxGeometry(2 * L, 0.25, 2 * W), this.mats.roof);
+      slab.position.set(fr.center[0], top + 0.125, fr.center[1]);
+      slab.rotation.y = -Math.atan2(fr.u[1], fr.u[0]);
+      inner.add(slab);
+      this.roofMeshes.push(slab);
+    } else if (roof.type === "gable" || roof.type === "hip") {
+      const ridge = eave + W * tan;
+      const r = roof.type === "hip" ? Math.max(0, L - W) : L;
+      quad(roofPos, P(-L, -W, eave), P(L, -W, eave), P(r, 0, ridge), P(-r, 0, ridge));
+      quad(roofPos, P(-L, W, eave), P(L, W, eave), P(r, 0, ridge), P(-r, 0, ridge));
+      if (roof.type === "hip") {
+        tri(roofPos, P(-L, -W, eave), P(-L, W, eave), P(-r, 0, ridge));
+        tri(roofPos, P(L, -W, eave), P(L, W, eave), P(r, 0, ridge));
+      } else {
+        // Giebelwände über den Stirnseiten
+        const yi = eave + (W - Wi) * tan;
+        for (const s of [-Li, Li]) tri(gablePos, P(s, -Wi, yi), P(s, Wi, yi), P(s, 0, ridge));
+      }
+    } else if (roof.type === "shed") {
+      const yAt = (t) => eave + (t + W) * tan;
+      quad(roofPos, P(-L, -W, eave), P(L, -W, eave), P(L, W, yAt(W)), P(-L, W, yAt(W)));
+      for (const s of [-Li, Li]) tri(gablePos, P(s, -Wi, top), P(s, Wi, top), P(s, Wi, yAt(Wi)));
+      quad(gablePos, P(-Li, Wi, top), P(Li, Wi, top), P(Li, Wi, yAt(Wi)), P(-Li, Wi, yAt(Wi)));
+    }
+    const mesh = (pos, mat) => {
+      if (!pos.length) return null;
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
+      geo.computeVertexNormals();
+      const m = new THREE.Mesh(geo, mat);
+      inner.add(m);
+      this.roofMeshes.push(m);
+      return m;
+    };
+    mesh(roofPos, this.mats.roof);
+    mesh(gablePos, this.mats.gable);
+    for (const m of this.roofMeshes) m.userData.roof = true;
+    // Cyberpunk: Neonkanten (als Kind des Dachs, damit sie dessen Lage übernehmen)
+    if (this.mats.roofEdge) for (const m of this.roofMeshes) m.add(new THREE.LineSegments(new THREE.EdgesGeometry(m.geometry, 20), this.mats.roofEdge));
+    this.roofHolder = holder;
+    this.root.add(holder);
   }
 
   _buildEnergy(building) {
@@ -804,7 +1000,7 @@ export class HouseScene {
   _dispose(obj) {
     obj.traverse((o) => {
       if (o.geometry) o.geometry.dispose();
-      const shared = [...Object.values(this.mats), ...Object.values(this.outdoorMats), ...Object.values(this.furnMats ?? {})];
+      const shared = [...Object.values(this.mats).flat(), ...Object.values(this.outdoorMats), ...Object.values(this.furnMats ?? {}).flat()];
       for (const m of [].concat(o.material ?? [])) if (!shared.includes(m)) m.dispose();
     });
   }
@@ -815,6 +1011,8 @@ export class HouseScene {
   setFilter(filter, { fit = false } = {}) {
     this.filter = this.floors.has(filter) ? filter : "all";
     for (const [id, entry] of this.floors) entry.group.visible = this.filter === "all" || this.filter === id;
+    // Dach nur in der Gesamtansicht; mit Etagenwahl schaut man hinein
+    if (this.roofHolder) this.roofHolder.visible = this.filter === "all";
     this._syncDeviceVisibility();
     if (fit) this.fitCamera();
     this._cameraMoved();
@@ -940,7 +1138,12 @@ export class HouseScene {
     this.raycaster.far = dist - 0.15;
     const targets = [];
     for (const [id, entry] of this.floors) if (entry.group.visible && id !== floorId) targets.push(...entry.occluders);
+    if (this._roofShown()) targets.push(...this.roofMeshes);
     return this.raycaster.intersectObjects(targets, false).length > 0;
+  }
+
+  _roofShown() {
+    return !!this.roofHolder?.visible && this.layers.roof !== false && this.roofMeshes?.length > 0;
   }
 
   // ------------------------------------------------------------------ Schleife
@@ -974,21 +1177,25 @@ export class HouseScene {
     this._lastAnim = now;
     const animating = this._animating && this._animate(animDt);
     const flowing = this.flow && this.flow.speed > 0 && this.isFloorVisible(this.flow.floorId);
+    const weather = !!this._weather && this.layers.weather !== false && this._stepWeather(animDt);
     if (flowing) {
       this.flow.phase = (this.flow.phase + dt * this.flow.speed) % 1;
       const n = this.flow.dots.length;
       this.flow.dots.forEach((d, i) => d.position.copy(this.flow.curve.getPointAt((this.flow.phase + i / n) % 1)));
     }
-    if (this._dirty || moving || flowing || animating) {
+    // nur Wetter: höchstens ca. 30 Bilder pro Sekunde (schont Tablets)
+    const weatherOnly = weather && !(this._dirty || moving || flowing || animating);
+    if ((this._dirty || moving || flowing || animating || weather) && !(weatherOnly && now - (this._lastRender ?? 0) < 32)) {
       this.renderer.render(this.scene, this.camera);
       this._dirty = false;
+      this._lastRender = now;
     }
     if (this._camDirty || moving) {
       this._camDirty = false;
       this.onCameraChange();
     }
     // weiterlaufen, solange gedämpft gedreht wird oder Energie fließt; sonst bis zur nächsten Änderung schlafen
-    if (moving || flowing || animating) this._kick();
+    if (moving || flowing || animating || weather) this._kick();
   }
 
   /** Bewegt Türen, Fensterflügel, Rollläden und Tore Richtung Ziel; true, solange sich etwas bewegt. */
@@ -1025,8 +1232,124 @@ export class HouseScene {
     return busy;
   }
 
+  // ------------------------------------------------------------------ Wetter
+
+  /** Regen, Schnee oder Hagel draußen; w = {kind: "rain"|"snow"|"hail"|null, amount 0..1, lightning}. */
+  setWeather(w, { force = false } = {}) {
+    const next = w && (w.kind || w.lightning) ? { kind: w.kind ?? null, amount: w.amount ?? 0.5, lightning: !!w.lightning } : null;
+    const prev = this._weather;
+    if (!force && JSON.stringify(prev ?? null) === JSON.stringify(next)) return;
+    this._weather = next;
+    if (this.weather) {
+      this.scene.remove(this.weather.obj);
+      this.weather.obj.geometry.dispose();
+      this.weather = null;
+    }
+    this._flash = 0;
+    this._applyBackground();
+    this._snowTint(next?.kind === "snow" ? 0.25 + 0.5 * next.amount : 0);
+    if (next?.kind && this.building) this._buildWeather(next);
+    this.applyLayers();
+    this.invalidate();
+  }
+
+  /** Schnee bleibt liegen: Rasen, Wege und Dach werden heller. */
+  _snowTint(k) {
+    const white = new THREE.Color(0xf4f7fb);
+    const mats = [...["lawn", "terrace", "path", "driveway", "bed", "hedge", "balcony"].map((t) => this.outdoorMats[t]), this.mats.roof];
+    const tint = (m, f) => {
+      if (!m) return;
+      m.userData.base ??= m.color.clone();
+      m.color.copy(m.userData.base).lerp(white, (this.style === "cyber" ? 0.4 : 1) * f);
+    };
+    for (const m of mats) tint(m, k);
+    // Baumkronen und Büsche nur leicht angezuckert
+    for (const m of [this.furnMats.leaf, this.furnMats.leafDark]) tint(m, k * 0.45);
+  }
+
+  _buildWeather(w) {
+    // Bereich: ums Haus herum, Tropfen nur außerhalb der Räume (x, z bleiben fest, nur y läuft)
+    const floors = this.building.floors ?? [];
+    const polys = floors.flatMap((f) => (f.rooms ?? []).map((r) => r.points));
+    const pts = floors.flatMap((f) => [...(f.rooms ?? []), ...(f.outdoor ?? [])].flatMap((r) => r.points ?? []));
+    if (!pts.length) return;
+    const xs = pts.map((p) => p[0]);
+    const zs = pts.map((p) => p[1]);
+    const [x0, x1, z0, z1] = [Math.min(...xs) - 6, Math.max(...xs) + 6, Math.min(...zs) - 6, Math.max(...zs) + 6];
+    const ground = Math.min(...floors.map((f) => f.elevation ?? 0).filter((e) => e <= 0), 0) - 0.05;
+    const groundAt = (x, z) => {
+      // Gartenfläche an dieser Stelle (höchste Etage mit Fläche unter dem Punkt)
+      let y = ground;
+      for (const f of floors) for (const o of f.outdoor ?? []) if (o.type !== "balcony" && pointInPolygon([x, z], o.points)) y = Math.max(y, (f.elevation ?? 0) - 0.03);
+      return y;
+    };
+    const top = Math.max(...floors.map((f) => (f.elevation ?? 0) + (f.height ?? 2.5)), 3) + 7;
+    const area = (x1 - x0) * (z1 - z0);
+    const density = w.kind === "rain" ? 10 : w.kind === "hail" ? 4 : 6;
+    const n = Math.min(6000, Math.round(area * density * (0.3 + 0.7 * w.amount)));
+    const rnd = seeded(`wetter:${n}`);
+    const drops = [];
+    for (let tries = 0; drops.length < n && tries < n * 4; tries++) {
+      const x = x0 + rnd() * (x1 - x0);
+      const z = z0 + rnd() * (z1 - z0);
+      if (polys.some((p) => pointInPolygon([x, z], p))) continue;
+      const g = groundAt(x, z);
+      drops.push({ x, z, g, y: g + rnd() * (top - g), phase: rnd() * Math.PI * 2 });
+    }
+    const rain = w.kind === "rain";
+    const len = 0.25 + 0.25 * w.amount;
+    const pos = new Float32Array(drops.length * (rain ? 6 : 3));
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute("position", new THREE.BufferAttribute(pos, 3));
+    const obj = rain ? new THREE.LineSegments(geo, this.mats.rain) : new THREE.Points(geo, this.mats.snow);
+    obj.frustumCulled = false;
+    obj.userData.layer = "weather";
+    if (w.kind === "hail") obj.material = this.mats.snow;
+    this.scene.add(obj);
+    this.weather = { obj, drops, top, rain, len, speed: rain ? 8 + 4 * w.amount : w.kind === "hail" ? 10 : 0.9, snow: w.kind === "snow", t: 0 };
+    this._stepWeather(0);
+  }
+
+  /** Bewegt Regen/Schnee; true, solange Wetter angezeigt wird. */
+  _stepWeather(dt) {
+    const wx = this.weather;
+    if (this._weather?.lightning) {
+      // Blitz: ab und zu kurz hell
+      if (this._flash > 0) {
+        this._flash -= dt;
+        if (this._flash <= 0) this._applyBackground();
+      } else if (Math.random() < dt / 6) {
+        this._flash = 0.12;
+        this.hemi.intensity += 2.5;
+      }
+    }
+    if (!wx) return !!this._weather?.lightning;
+    wx.t += dt;
+    const pos = wx.obj.geometry.attributes.position.array;
+    const fall = wx.speed * dt;
+    wx.drops.forEach((d, i) => {
+      d.y -= fall;
+      if (d.y < d.g) d.y += wx.top - d.g;
+      if (wx.rain) {
+        const k = i * 6;
+        pos[k] = pos[k + 3] = d.x + 0.05;
+        pos[k + 2] = pos[k + 5] = d.z;
+        pos[k + 1] = d.y;
+        pos[k + 4] = d.y + wx.len;
+      } else {
+        const sway = wx.snow ? 0.25 * Math.sin(wx.t * 0.8 + d.phase) : 0;
+        pos[i * 3] = d.x + sway;
+        pos[i * 3 + 1] = d.y;
+        pos[i * 3 + 2] = d.z + (wx.snow ? 0.2 * Math.cos(wx.t * 0.6 + d.phase) : 0);
+      }
+    });
+    wx.obj.geometry.attributes.position.needsUpdate = true;
+    return true;
+  }
+
   dispose() {
     this.stop();
+    if (this.weather) this.weather.obj.geometry.dispose();
     this._resize.disconnect();
     this.controls.dispose();
     for (const child of [...this.root.children]) this._dispose(child);
