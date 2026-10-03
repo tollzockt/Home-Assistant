@@ -91,7 +91,8 @@ Ansicht **2D**, **2D + 3D** (nebeneinander, auf schmalen Geräten untereinander)
   Gartenfläche der unteren Etage zeichnen, so dass ihre Ecken oben an die Fläche der oberen Etage
   stoßen, dann **Höhen automatisch**. Ecken oben bekommen den Höhenunterschied, unten 0, dazwischen
   wird verteilt. Alternativ Höhe je Ecke von Hand. Beim Verschieben von Ecken bleiben die Höhen.
-- **Aufräumen** (Besen): entfernt doppelte Eckpunkte und „Spitzen“ (Kanten, die auf sich selbst
+- **Aufräumen** (Besen): gleicht Versätze von wenigen Zentimetern zwischen Räumen an (die 3D-Ansicht tut
+  das ohnehin, sonst entstünden doppelte Wände mit Spalt), entfernt doppelte Eckpunkte und „Spitzen“ (Kanten, die auf sich selbst
   zurücklaufen), ohne Fenster und Türen zu verschieben, und rückt Möbel, die in Wände ragen, davor.
 - Rückgängig/Wiederholen (Strg+Z), Lücken schließen, Etagen anlegen/löschen.
   Gespeichert wird erst mit „Speichern“, der alte Stand landet im Verlauf.
@@ -104,8 +105,8 @@ Damit HACS sie als Update anbietet, braucht es ein **Release**:
 
 1. Auf GitHub im Repository rechts **Releases → Draft a new release** (bzw. „Create a new release“).
 2. **Choose a tag** → neuen Tag eintippen, genau wie die Version in `manifest.json` mit „v“ davor,
-   z. B. `v0.8.0` → „Create new tag“. Ziel-Zweig: `main`.
-3. Titel z. B. `0.8.0`, kurze Beschreibung, bei „Release label“ **None** (nicht Pre-release),
+   z. B. `v0.8.1` → „Create new tag“. Ziel-Zweig: `main`.
+3. Titel z. B. `0.8.1`, kurze Beschreibung, bei „Release label“ **None** (nicht Pre-release),
    **Publish release**.
 4. In Home Assistant: **HACS → Haus 3D** (ggf. ⋮ → „Informationen aktualisieren“) → **Herunterladen**/
    **Aktualisieren** → Home Assistant **neu starten**.

@@ -262,3 +262,15 @@ test("Lücken schließen lässt Außenwände und weit entfernte Räume in Ruhe",
   assert.deepEqual(gaps, []);
   assert.deepEqual(closed.map((r) => r.points), rooms.map((r) => r.points));
 });
+
+test("Wenige Zentimeter Versatz ergeben eine Innenwand statt zwei Außenwände", async () => {
+  const { computeWalls } = await import("../../custom_components/haus3d/frontend/walls.js");
+  const floor = { id: "f", openings: [], rooms: [
+    { id: "a", points: [[0, 0], [7.786, 0], [7.786, 5], [0, 5]] },
+    { id: "b", points: [[7.8, 0], [11, 0], [11, 5], [7.8, 5.02]] },
+  ] };
+  const { segments } = computeWalls(floor, { wall_exterior: 0.24, wall_interior: 0.12 });
+  const inner = segments.filter((s) => s.kind === "interior");
+  assert.equal(inner.length, 1);
+  assert.ok(Math.abs(inner[0].length - 5) < 0.03);
+});
