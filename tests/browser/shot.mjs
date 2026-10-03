@@ -138,6 +138,50 @@ const saved = await ed.evaluate(() => {
     furniture: eg.furniture.filter((m) => m.x > 12).map((m) => ({ type: m.type, x: m.x, z: m.z, rotation: m.rotation })),
     editorOpen: !!window.panel._editor };
 });
-console.log(JSON.stringify({ info, calls, hidpi, roomPanel, saved, errors: errors.filter((e) => !e.includes("404")) }, null, 1));
+// Etappe 1: zwei Raumfenster, verschieben, Gerät ausblenden, Nacht-Stil, Animation
+const e1 = await shot("etappe1", "", { width: 1280, height: 800 });
+await e1.locator("haus3d-panel .floors button", { hasText: "EG" }).click();
+await e1.waitForTimeout(800);
+const openRoom = (floorName, roomName) => e1.evaluate(([fn, rn]) => {
+  const p = window.panel; const f = p._building.floors.find((x) => x.name === fn);
+  p._selectRoom({ floorId: f.id, roomId: f.rooms.find((r) => r.name === rn).id }); }, [floorName, roomName]);
+await openRoom("EG", "Wohnzimmer");
+await openRoom("EG", "Küche");
+await e1.waitForTimeout(600);
+const panels = e1.locator("haus3d-panel .roompanel");
+const head = panels.nth(1).locator(".rp-head");
+const hb = await head.boundingBox();
+await e1.mouse.move(hb.x + 60, hb.y + 10); await e1.mouse.down(); await e1.mouse.move(hb.x + 560, hb.y + 40, { steps: 6 }); await e1.mouse.up();
+const moved = await panels.nth(1).boundingBox();
+// Wohnzimmer: Stehlampe ausblenden
+await panels.nth(0).locator(".cfg").click();
+await panels.nth(0).locator('input[type=checkbox][data-id="light.wohnzimmer_stehlampe"]').uncheck();
+await panels.nth(0).locator(".save").click();
+await e1.waitForTimeout(800);
+const hiddenSaved = await e1.evaluate(() => {
+  const msg = window.calls.filter((c) => c.type === "haus3d/building/save").at(-1);
+  const wz = msg?.building.floors.find((f) => f.id === "eg").rooms.find((r) => r.id === "wohnzimmer");
+  return { hidden: wz?.hidden_entities, panelCount: window.panel._panels.length,
+    stehlampeIcon: [...window.panel.shadowRoot.querySelectorAll(".dev")].some((d) => d.title.startsWith("light.wohnzimmer_stehlampe")) };
+});
+await e1.screenshot({ path: `${out}/zwei-raumfenster.png` });
+// Nacht-Stil
+await e1.locator("haus3d-panel .gear").click();
+await e1.locator("haus3d-panel .seg[data-key=style] button", { hasText: "Nacht" }).click();
+await e1.locator("haus3d-panel .dialog .close").click();
+await e1.waitForTimeout(800);
+await e1.screenshot({ path: `${out}/nacht.png` });
+// Animation: Haustür öffnen, Winkel nach kurzer Zeit zwischen 0 und Ziel
+const anim = await e1.evaluate(async () => {
+  const p = window.panel;
+  const s = { ...p._hass.states["binary_sensor.haustuer"], state: "on" };
+  p.hass = { ...p._hass, states: { ...p._hass.states, "binary_sensor.haustuer": s } };
+  const item = p._scene.floors.get("eg").openings.get("flur_haustuer");
+  await new Promise((r) => setTimeout(r, 150));
+  const mid = item.leaves[0].pivot.rotation.y;
+  await new Promise((r) => setTimeout(r, 1200));
+  return { mid: +mid.toFixed(3), end: +item.leaves[0].pivot.rotation.y.toFixed(3), target: +item.leaves[0].angle.toFixed(3) };
+});
+console.log(JSON.stringify({ info, calls, hidpi, roomPanel, saved, moved: { x: Math.round(moved.x), y: Math.round(moved.y) }, hiddenSaved, anim, errors: errors.filter((e) => !e.includes("404")) }, null, 1));
 await browser.close();
 server.close();

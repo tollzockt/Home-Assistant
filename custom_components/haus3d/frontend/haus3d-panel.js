@@ -3,6 +3,8 @@
 import * as THREE from "./vendor/three.module.min.js";
 import {
   canToggle,
+  displayKind,
+  roomEntities,
   coverClosedFraction,
   domainOf,
   energyValues,
@@ -23,7 +25,28 @@ import { closeGaps } from "./walls.js";
 import { EDITOR_STYLE, FloorEditor } from "./editor.js";
 
 const LONG_PRESS_MS = 550;
+const esc = (v) => String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
 const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
+
+const ENERGY_CORE = [
+  ["solar", "mdi:white-balance-sunny", "Solar"],
+  ["einspeisung", "mdi:transmission-tower-import", "Einspeisung"],
+  ["akku_ladestand", "mdi:battery", "Akku"],
+  ["akku_leistung", "mdi:battery-charging", "Akkuleistung"],
+  ["ertrag_heute", "mdi:counter", "Ertrag heute"],
+];
+
+/** Zeilen der Energie-Anzeige: feste Werte des Balkonkraftwerks plus frei gewählte (settings.energy.extra). */
+function energyRows(energy, hass) {
+  const rows = ENERGY_CORE.filter(([key]) => energy[key] && hass.states[energy[key]]).map(([key, icon, name]) => ({ key, icon, name, entity: energy[key] }));
+  for (const x of energy.extra ?? []) {
+    const id = typeof x === "string" ? x : x?.entity;
+    const st = id && hass.states[id];
+    if (!st) continue;
+    rows.push({ key: null, entity: id, name: (typeof x === "object" && x.name) || st.attributes.friendly_name || id, icon: st.attributes.icon ?? SENSOR_ICONS[st.attributes.device_class] ?? "mdi:flash" });
+  }
+  return rows;
+}
 
 /** Ebenen und ihre Namen im Einstellungsfenster. */
 const LAYERS = [
@@ -40,7 +63,7 @@ const LAYERS = [
   ["energy", "Energieanzeige"],
 ];
 
-const DEFAULT_SETTINGS = { style: "standard", deviceMode: "icons", layers: Object.fromEntries(LAYERS.map(([k]) => [k, true])) };
+const DEFAULT_SETTINGS = { style: "auto", deviceMode: "icons", layers: Object.fromEntries(LAYERS.map(([k]) => [k, true])) };
 
 function loadSettings(raw, legacyStyle) {
   let saved = {};
@@ -51,6 +74,7 @@ function loadSettings(raw, legacyStyle) {
   }
   const out = { ...DEFAULT_SETTINGS, ...saved, layers: { ...DEFAULT_SETTINGS.layers, ...(saved.layers ?? {}) } };
   if (!raw && legacyStyle === "cyber") out.style = "cyber";
+  if (out.style === "standard") out.style = "day";
   return out;
 }
 const fmt = (v, digits = 1) => (v == null ? "–" : v.toLocaleString("de-DE", { maximumFractionDigits: digits, minimumFractionDigits: 0 }));
@@ -69,8 +93,37 @@ const CONTACT_ICONS = {
   opening: ["mdi:square-outline", "mdi:square"],
 };
 
+const DOMAIN_ICONS = {
+  sensor: "mdi:eye-outline",
+  binary_sensor: "mdi:checkbox-blank-circle-outline",
+  media_player: "mdi:speaker",
+  lock: "mdi:lock",
+  vacuum: "mdi:robot-vacuum",
+  camera: "mdi:cctv",
+  scene: "mdi:palette",
+  script: "mdi:script-text-outline",
+  button: "mdi:gesture-tap-button",
+  input_button: "mdi:gesture-tap-button",
+  input_boolean: "mdi:toggle-switch-outline",
+  automation: "mdi:robot",
+  humidifier: "mdi:air-humidifier",
+  water_heater: "mdi:water-boiler",
+  alarm_control_panel: "mdi:shield-home",
+  siren: "mdi:bullhorn",
+  number: "mdi:ray-vertex",
+  select: "mdi:format-list-bulleted",
+  person: "mdi:account",
+  device_tracker: "mdi:map-marker",
+  weather: "mdi:weather-partly-cloudy",
+};
+const SENSOR_ICONS = { temperature: "mdi:thermometer", humidity: "mdi:water-percent", power: "mdi:flash", energy: "mdi:lightning-bolt", battery: "mdi:battery", illuminance: "mdi:brightness-5", motion: "mdi:motion-sensor", occupancy: "mdi:account-eye", carbon_dioxide: "mdi:molecule-co2" };
+
 function iconFor(kind, stateObj) {
   if (stateObj.attributes?.icon) return stateObj.attributes.icon;
+  if (kind === "other") {
+    const domain = stateObj.entity_id.split(".")[0];
+    return SENSOR_ICONS[stateObj.attributes?.device_class] ?? DOMAIN_ICONS[domain] ?? "mdi:circle-medium";
+  }
   const active = isActive(kind, stateObj);
   if (kind === "contact") return (CONTACT_ICONS[stateObj.attributes.device_class] ?? CONTACT_ICONS.opening)[active ? 0 : 1];
   if (kind === "cover" && stateObj.attributes.device_class === "garage") return CONTACT_ICONS.garage_door[active ? 0 : 1];
@@ -79,6 +132,7 @@ function iconFor(kind, stateObj) {
 
 function isActive(kind, stateObj) {
   if (kind === "cover" || kind === "contact") return isOpen(stateObj);
+  if (kind === "other") return ["on", "open", "playing", "unlocked", "cleaning", "home", "heat", "cool"].includes(stateObj.state);
   if (kind === "climate") return !["off", "unavailable", "unknown"].includes(stateObj.state);
   return stateObj.state === "on";
 }
@@ -107,10 +161,40 @@ const STYLE = `
 .toggles { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 12px; }
 .toggles label { display: flex; align-items: center; gap: 8px; min-height: 36px; cursor: pointer; font-size: 14px; }
 .toggles input { width: 18px; height: 18px; accent-color: var(--primary-color, #03a9f4); }
+.en-row { display: flex; align-items: center; gap: 6px; margin: 4px 0; font-size: 13px; }
+.en-row span { width: 90px; flex: none; color: var(--secondary-text-color); }
+.en-row input { flex: 1; min-width: 0; font: inherit; font-size: 13px; padding: 7px; border-radius: 8px; border: 1px solid var(--divider-color, rgba(127,127,127,.4)); background: var(--primary-background-color, #fff); color: inherit; }
+.en-row input[data-extra-name] { flex: 0 0 90px; }
+.dialog .btns { display: flex; gap: 8px; margin-top: 10px; }
+.dialog .btns button { flex: 1; font: inherit; padding: 9px; border-radius: 8px; border: 1px solid var(--divider-color, rgba(127,127,127,.4)); background: none; color: inherit; cursor: pointer; }
+.dialog .btns .primary { background: var(--primary-color, #03a9f4); color: #fff; border-color: transparent; }
 .hint { font-size: 12px; color: var(--secondary-text-color); margin: 14px 0 0; }
-.roompanel { position: absolute; left: 12px; bottom: 12px; width: min(320px, calc(100% - 24px)); max-height: 55%; overflow: auto; z-index: 4;
+.roompanel { position: absolute; left: 12px; top: 12px; width: min(320px, calc(100% - 24px)); max-height: 60%; overflow: auto; z-index: 4; touch-action: none;
   background: var(--card-background-color, #fff); color: var(--primary-text-color); border-radius: 14px; box-shadow: 0 4px 18px rgba(0,0,0,.35); }
-.rp-head { display: flex; align-items: center; justify-content: space-between; padding: 4px 4px 0 14px; font-size: 16px; }
+.rp-head { display: flex; align-items: center; gap: 4px; padding: 4px 4px 0 8px; font-size: 16px; cursor: grab; user-select: none; }
+.rp-head b { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rp-head .grip { color: var(--secondary-text-color); --mdc-icon-size: 18px; }
+.rp-check { display: flex; align-items: center; gap: 10px; padding: 6px 14px; min-height: 40px; font-size: 14px; }
+.rp-check span { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+.rp-check small { color: var(--secondary-text-color); font-size: 11px; overflow: hidden; text-overflow: ellipsis; }
+.rp-check input { width: 20px; height: 20px; accent-color: var(--primary-color, #03a9f4); }
+.rp-add { display: flex; gap: 6px; padding: 6px 14px; }
+.rp-add input { flex: 1; min-width: 0; font: inherit; padding: 8px; border-radius: 8px; border: 1px solid var(--divider-color, rgba(127,127,127,.4)); background: var(--primary-background-color, #fff); color: inherit; }
+.rp-add button, .rp-btns button { font: inherit; padding: 8px 14px; border-radius: 8px; border: 1px solid var(--divider-color, rgba(127,127,127,.4)); background: none; color: inherit; cursor: pointer; min-height: 40px; }
+.rp-btns { display: flex; justify-content: flex-end; gap: 8px; padding: 8px 14px 14px; }
+.rp-btns .primary { background: var(--primary-color, #03a9f4); color: #fff; border-color: transparent; }
+/* Tablet und Touch: größere Ziele */
+@media (pointer: coarse) {
+  button.icon { width: 48px; height: 48px; }
+  .floors button { min-height: 40px; padding: 8px 16px; font-size: 15px; }
+  .dev { width: 42px; height: 42px; --mdc-icon-size: 22px; }
+  .rp-row { min-height: 52px; }
+  .rp-icon { width: 38px; height: 38px; }
+  .toggles label { min-height: 44px; }
+  .seg button { min-height: 44px; }
+  .energy { font-size: 14px; }
+  .energy .row { padding: 5px 0; }
+}
 .rp-sub { padding: 0 14px 6px; font-size: 12px; color: var(--secondary-text-color); }
 .rp-row { display: flex; align-items: center; gap: 10px; padding: 6px 14px; min-height: 44px; cursor: pointer; user-select: none; --mdc-icon-size: 20px; }
 .rp-row:hover { background: rgba(127,127,127,.1); }
@@ -183,7 +267,11 @@ button.icon.menu { display: none; }
   box-shadow: var(--ha-card-box-shadow, 0 2px 6px rgba(0,0,0,.25));
   --mdc-icon-size: 18px;
 }
-.energy h3 { margin: 0 0 6px; font-size: 14px; font-weight: 500; display: flex; align-items: center; gap: 6px; }
+.energy h3 { margin: 0 0 6px; font-size: 14px; font-weight: 500; display: flex; align-items: center; gap: 6px; cursor: pointer; user-select: none; min-height: 32px; }
+.energy h3 span { flex: 1; }
+.energy .chev { transition: transform .2s; }
+.energy.collapsed h3 { margin: 0; }
+.energy.collapsed .chev { transform: rotate(-90deg); }
 .energy .row { display: flex; align-items: center; gap: 8px; padding: 2px 0; }
 .energy .row span:nth-child(2) { margin-right: auto; color: var(--secondary-text-color); }
 .energy .row b { font-weight: 500; }
@@ -215,6 +303,8 @@ button.icon.menu { display: none; }
 .popup .item span { margin-right: auto; font-size: 13px; }
 .popup .item button { width: auto; padding: 6px 10px; min-height: 36px; color: var(--primary-color); }
 .popup .scroll { max-height: 50vh; overflow-y: auto; }
+:host([night]) .label { background: rgba(14,20,44,.85); color: #e3e8ff; }
+:host([night]) .label .clim { color: #aab4e8; }
 :host([cyber]) { background: #07030f; }
 :host([cyber]) header { background: linear-gradient(90deg, #12052a, #07030f 60%, #1a0630); color: #e0f7ff; border-bottom: 1px solid #ff2bd6; box-shadow: 0 0 12px rgba(255,43,214,.35); }
 :host([cyber]) header .title { font-family: "Orbitron", "Rajdhani", var(--paper-font-body1_-_font-family, sans-serif); letter-spacing: .12em; text-transform: uppercase; text-shadow: 0 0 8px #00e5ff; }
@@ -269,6 +359,7 @@ class Haus3DPanel extends HTMLElement {
     this._hass = hass;
     if (!this._built) return;
     if (!prev || prev.themes?.darkMode !== hass.themes?.darkMode) this._applyTheme();
+    if (!prev || prev.states?.["sun.sun"] !== hass.states?.["sun.sun"]) this._applyStyle();
     if (!prev || prev.user?.is_admin !== hass.user?.is_admin) this._renderToolbar();
     if (!this._building) return;
     if (!prev || prev.entities !== hass.entities || prev.devices !== hass.devices) {
@@ -344,7 +435,6 @@ class Haus3DPanel extends HTMLElement {
       ev.stopPropagation();
       this._openSettings();
     });
-    this.toggleAttribute("cyber", this._settings.style === "cyber");
     this._applyOverlayLayers();
     this._bindCanvas();
     this.addEventListener("keydown", (ev) => {
@@ -373,7 +463,6 @@ class Haus3DPanel extends HTMLElement {
         dark: !!this._hass?.themes?.darkMode,
         onCameraChange: () => this._positionOverlays(),
       });
-      this._scene.setStyle(this._settings.style);
       this._scene.setLayers(this._settings.layers);
     } catch (err) {
       this._showMessage(`3D-Darstellung nicht möglich (WebGL fehlt?): ${err.message}`);
@@ -474,7 +563,11 @@ class Haus3DPanel extends HTMLElement {
 
   _setFilter(id) {
     this._filter = id;
-    if (this._selected && this._selected.floorId !== id) this._selectRoom(null);
+    if (id !== "all" && (this._panels ?? []).some((p) => p.floorId !== id)) {
+      for (const p of this._panels.filter((x) => x.floorId !== id)) p.el?.remove();
+      this._panels = this._panels.filter((x) => x.floorId === id);
+      this._scene?.selectRooms(this._panels.map((p) => ({ floorId: p.floorId, roomId: p.roomId })), { focus: false });
+    }
     this._store("haus3d.filter", id);
     this._scene?.setFilter(id, { fit: true });
     this._renderToolbar();
@@ -557,34 +650,26 @@ class Haus3DPanel extends HTMLElement {
     }
     this._energyEl?.remove();
     this._energyEl = null;
-    const energy = this._building.settings?.energy ?? {};
-    if (Object.values(energy).some((id) => typeof id === "string" && hass.states[id])) {
+    const rows = energyRows(this._building.settings?.energy ?? {}, hass);
+    if (rows.length) {
       const el = document.createElement("div");
       el.className = "energy";
-      el.innerHTML = `
-        <h3><ha-icon icon="mdi:solar-power-variant"></ha-icon>Balkonkraftwerk</h3>
-        ${[
-          ["solar", "mdi:white-balance-sunny", "Solar"],
-          ["einspeisung", "mdi:transmission-tower-import", "Einspeisung"],
-          ["akku_ladestand", "mdi:battery", "Akku"],
-          ["akku_leistung", "mdi:battery-charging", "Akkuleistung"],
-          ["ertrag_heute", "mdi:counter", "Ertrag heute"],
-        ]
-          .filter(([key]) => energy[key] && hass.states[energy[key]])
-          .map(([key, icon, name]) => `<div class="row" data-key="${key}" data-entity="${energy[key]}"><ha-icon icon="${icon}"></ha-icon><span>${name}</span><b></b></div>`)
-          .join("")}`;
+      el.innerHTML = `<h3><ha-icon icon="mdi:lightning-bolt-circle"></ha-icon><span>Energie</span><ha-icon class="chev" icon="mdi:chevron-down"></ha-icon></h3>` +
+        rows.map((r, i) => `<div class="row" data-i="${i}"><ha-icon icon="${r.icon}"></ha-icon><span></span><b></b></div>`).join("");
+      rows.forEach((r, i) => (el.querySelector(`.row[data-i="${i}"] span`).textContent = r.name));
       el.querySelector("h3").addEventListener("click", () => {
         this._energyCollapsed = el.classList.toggle("collapsed");
       });
-      for (const row of el.querySelectorAll(".row")) {
+      el.querySelectorAll(".row").forEach((row) => {
         row.style.cursor = "pointer";
-        row.addEventListener("click", () => this._moreInfo(row.dataset.entity));
-      }
+        row.addEventListener("click", () => this._moreInfo(rows[Number(row.dataset.i)].entity));
+      });
       // eingeklappt bleibt eingeklappt (auch nach Neuaufbau); Standard: auf schmalen Bildschirmen zu
       const collapsed = this._energyCollapsed ?? !!window.matchMedia?.("(max-width: 600px)").matches;
       el.classList.toggle("collapsed", collapsed);
       this._els.stage.appendChild(el);
       this._energyEl = el;
+      this._energyRows = rows;
       el.hidden = this._settings.layers.energy === false;
     }
     this._positionOverlays();
@@ -642,12 +727,19 @@ class Haus3DPanel extends HTMLElement {
   }
 
   _activate(entityId) {
-    if (!canToggle(entityId)) {
+    const domain = domainOf(entityId);
+    const st = this._hass.states[entityId];
+    let call = null;
+    if (canToggle(entityId) || ["input_boolean", "automation", "humidifier", "siren"].includes(domain)) call = [domain, "toggle"];
+    else if (domain === "scene" || domain === "script") call = [domain, "turn_on"];
+    else if (domain === "button" || domain === "input_button") call = [domain, "press"];
+    else if (domain === "lock") call = [domain, st?.state === "locked" ? "unlock" : "lock"];
+    else if (domain === "media_player") call = [domain, "media_play_pause"];
+    if (!call) {
       this._moreInfo(entityId);
       return;
     }
-    const domain = domainOf(entityId);
-    this._hass.callService(domain, "toggle", { entity_id: entityId }).catch((err) => this._toast(`Schalten fehlgeschlagen: ${err.message ?? err}`));
+    this._hass.callService(call[0], call[1], { entity_id: entityId }).catch((err) => this._toast(`Aktion fehlgeschlagen: ${err.message ?? err}`));
   }
 
   _moreInfo(entityId) {
@@ -716,14 +808,11 @@ class Haus3DPanel extends HTMLElement {
 
     if (this._energyEl) {
       for (const row of this._energyEl.querySelectorAll(".row")) {
-        const v = energy[row.dataset.key];
-        const text = {
-          solar: `${fmt(v, 0)} W`,
-          einspeisung: `${fmt(v, 0)} W`,
-          akku_ladestand: `${fmt(v, 0)} %`,
-          akku_leistung: `${fmt(v, 0)} W`,
-          ertrag_heute: `${fmt(v, 2)} kWh`,
-        }[row.dataset.key];
+        const r = this._energyRows[Number(row.dataset.i)];
+        const v = energy[r.key];
+        const text = r.key
+          ? { solar: `${fmt(v, 0)} W`, einspeisung: `${fmt(v, 0)} W`, akku_ladestand: `${fmt(v, 0)} %`, akku_leistung: `${fmt(v, 0)} W`, ertrag_heute: `${fmt(v, 2)} kWh` }[r.key]
+          : hass.states[r.entity] ? (hass.formatEntityState ? hass.formatEntityState(hass.states[r.entity]) : hass.states[r.entity].state) : "–";
         row.querySelector("b").textContent = text;
       }
     }
@@ -770,6 +859,24 @@ class Haus3DPanel extends HTMLElement {
 
   // ------------------------------------------------------------------ Einstellungen
 
+  /** Tatsächlicher Stil: bei "auto" Tag/Nacht nach dem Sonnenstand (sun.sun). */
+  _effectiveStyle() {
+    const st = this._settings.style;
+    if (st !== "auto") return st;
+    return this._hass?.states?.["sun.sun"]?.state === "below_horizon" ? "night" : "day";
+  }
+
+  _applyStyle() {
+    const style = this._effectiveStyle();
+    if (style === this._appliedStyle) return;
+    this._appliedStyle = style;
+    this.toggleAttribute("cyber", style === "cyber");
+    this.toggleAttribute("night", style === "night");
+    this._scene?.setStyle(style);
+    this._scene?.setLayers(this._settings.layers);
+    if (this._building) this._refreshEntities();
+  }
+
   _saveSettings() {
     this._store("haus3d.settings", JSON.stringify(this._settings));
   }
@@ -796,7 +903,7 @@ class Haus3DPanel extends HTMLElement {
         <div class="dialog-body">
           <h4>Darstellung</h4>
           <div class="seg" data-key="style">
-            <button data-value="standard">Standard</button><button data-value="cyber">Cyberpunk</button>
+            <button data-value="auto">Auto</button><button data-value="day">Tag</button><button data-value="night">Nacht</button><button data-value="cyber">Cyberpunk</button>
           </div>
           <h4>Geräte anzeigen als</h4>
           <div class="seg" data-key="deviceMode">
@@ -806,7 +913,8 @@ class Haus3DPanel extends HTMLElement {
           <div class="toggles">
             ${LAYERS.map(([k, name]) => `<label><input type="checkbox" data-layer="${k}"${st.layers[k] !== false ? " checked" : ""}><span>${name}</span></label>`).join("")}
           </div>
-          <p class="hint">Die Einstellungen gelten für dieses Gerät/diesen Browser.</p>
+          <p class="hint">Darstellung und Einblenden gelten für dieses Gerät/diesen Browser.</p>
+          ${this._hass?.user?.is_admin ? `<h4>Energie-Anzeige (für alle)</h4><div class="energy-cfg"></div>` : ""}
         </div>
       </div>`;
     const syncSeg = () => {
@@ -820,12 +928,8 @@ class Haus3DPanel extends HTMLElement {
         st[seg.dataset.key] = b.dataset.value;
         syncSeg();
         this._saveSettings();
-        if (seg.dataset.key === "style") {
-          this.toggleAttribute("cyber", st.style === "cyber");
-          this._scene?.setStyle(st.style);
-          this._scene?.setLayers(st.layers);
-        }
-        this._refreshEntities();
+        if (seg.dataset.key === "style") this._applyStyle();
+        else this._refreshEntities();
       });
     }
     for (const box of el.querySelectorAll("input[data-layer]")) {
@@ -840,8 +944,47 @@ class Haus3DPanel extends HTMLElement {
     el.addEventListener("click", (ev) => {
       if (ev.target === el) this._closeDialog();
     });
+    const cfg = el.querySelector(".energy-cfg");
+    if (cfg) this._renderEnergyConfig(cfg);
     this._els.stage.appendChild(el);
     this._dialog = el;
+  }
+
+  /** Energie-Anzeige einstellen: feste Werte des Balkonkraftwerks und zusätzliche Entitäten. */
+  _renderEnergyConfig(box) {
+    const hass = this._hass;
+    const energy = structuredClone(this._building?.settings?.energy ?? {});
+    energy.extra = [...(energy.extra ?? [])].map((x) => (typeof x === "string" ? { entity: x } : x));
+    const opts = `<datalist id="en-all">${Object.keys(hass.states).filter((id) => /^(sensor|binary_sensor|input_number|number)\./.test(id)).sort().map((id) => `<option value="${esc(id)}">${esc(hass.states[id].attributes.friendly_name ?? "")}</option>`).join("")}</datalist>`;
+    const render = () => {
+      box.innerHTML = `${ENERGY_CORE.map(([k, , name]) => `<label class="en-row"><span>${name}</span><input list="en-all" data-core="${k}" value="${esc(energy[k] ?? "")}" placeholder="– keine –"></label>`).join("")}
+        ${energy.extra.map((x, i) => `<div class="en-row"><input data-extra-name="${i}" value="${esc(x.name ?? "")}" placeholder="Name"><input list="en-all" data-extra="${i}" value="${esc(x.entity ?? "")}"><button class="icon" data-rm="${i}" title="Entfernen"><ha-icon icon="mdi:delete-outline"></ha-icon></button></div>`).join("")}
+        ${opts}
+        <div class="btns"><button class="en-add">+ Wert hinzufügen</button><button class="en-save primary">Speichern</button></div>`;
+      box.querySelectorAll("[data-core]").forEach((i) => i.addEventListener("change", () => (energy[i.dataset.core] = i.value.trim() || null)));
+      box.querySelectorAll("[data-extra]").forEach((i) => i.addEventListener("change", () => (energy.extra[Number(i.dataset.extra)].entity = i.value.trim())));
+      box.querySelectorAll("[data-extra-name]").forEach((i) => i.addEventListener("change", () => (energy.extra[Number(i.dataset.extraName)].name = i.value.trim() || undefined)));
+      box.querySelectorAll("[data-rm]").forEach((b) => b.addEventListener("click", () => {
+        energy.extra.splice(Number(b.dataset.rm), 1);
+        render();
+      }));
+      box.querySelector(".en-add").addEventListener("click", () => {
+        energy.extra.push({ entity: "" });
+        render();
+      });
+      box.querySelector(".en-save").addEventListener("click", async () => {
+        const building = structuredClone(this._building);
+        building.settings.energy = { ...energy, extra: energy.extra.filter((x) => x.entity) };
+        try {
+          const res = await hass.callWS({ type: "haus3d/building/save", building, revision: this._revision });
+          this._setBuilding(res.building, res.revision, { keepCamera: true });
+          this._toast("Energie-Anzeige gespeichert.");
+        } catch (err) {
+          this._toast(`Speichern fehlgeschlagen: ${err.message ?? err.code}`);
+        }
+      });
+    };
+    render();
   }
 
   _closeDialog() {
@@ -888,9 +1031,8 @@ class Haus3DPanel extends HTMLElement {
       else if (hit?.roomId) {
         // erst die Etage wählen, dann den Raum: in "Alle" führt ein Klick zur Etage des Raums
         if (this._filter === "all") this._setFilter(hit.floorId);
-        const same = this._selected && this._selected.floorId === hit.floorId && this._selected.roomId === hit.roomId;
-        this._selectRoom(same ? null : hit);
-      } else this._selectRoom(null);
+        this._selectRoom(hit, { toggle: true });
+      }
     });
     target.addEventListener("contextmenu", (ev) => {
       const hit = this._scene?.pick(ev.clientX, ev.clientY);
@@ -901,54 +1043,165 @@ class Haus3DPanel extends HTMLElement {
     });
   }
 
-  _selectRoom(sel) {
-    this._selected = sel ? { floorId: sel.floorId, roomId: sel.roomId } : null;
-    this._scene?.selectRoom(this._selected);
+  /** Raum öffnen/schließen (null = alle schließen). Bis zu 3 Raumfenster gleichzeitig. */
+  _selectRoom(sel, { toggle = false } = {}) {
+    this._panels = this._panels ?? [];
+    if (!sel) {
+      for (const p of this._panels) p.el.remove();
+      this._panels = [];
+    } else {
+      const i = this._panels.findIndex((p) => p.floorId === sel.floorId && p.roomId === sel.roomId);
+      if (i >= 0 && toggle) {
+        this._panels[i].el.remove();
+        this._panels.splice(i, 1);
+      } else if (i < 0) {
+        this._panels.push({ floorId: sel.floorId, roomId: sel.roomId, el: null, editing: false });
+        while (this._panels.length > 3) this._panels.shift().el?.remove();
+      }
+    }
+    this._selected = this._panels.at(-1) ?? null;
+    this._scene?.selectRooms(this._panels.map((p) => ({ floorId: p.floorId, roomId: p.roomId })), { focus: !!sel && !toggle });
     this._renderRoomPanel();
   }
 
-  /** Raumfenster: Name, Klima und alle Geräte des Bereichs zum Schalten. */
+  /** Raumfenster: Name, Klima und alle Geräte des Raums; verschiebbar, mit "Geräte anpassen" für Admins. */
   _renderRoomPanel() {
-    const sel = this._selected;
-    const floor = sel && this._building?.floors.find((f) => f.id === sel.floorId);
-    const room = floor && placesOf(floor).find((r) => r.id === sel.roomId);
-    if (!room) {
-      this._roomPanel?.remove();
-      this._roomPanel = null;
-      return;
-    }
+    this._panels = this._panels ?? [];
     const hass = this._hass;
-    if (!this._roomPanel) {
-      this._roomPanel = document.createElement("div");
-      this._roomPanel.className = "roompanel";
-      this._els.stage.appendChild(this._roomPanel);
-    }
-    const ids = (this._byArea.get(room.area_id) ?? []).filter((id) => iconKind(hass.states[id]) || ["temperature", "humidity"].includes(hass.states[id]?.attributes?.device_class));
-    const climate = roomClimate(room, hass, this._byArea);
-    const parts = [];
-    if (climate.temperature != null) parts.push(`${fmt(climate.temperature)} °C`);
-    if (climate.humidity != null) parts.push(`${fmt(climate.humidity, 0)} %`);
-    const p = this._roomPanel;
-    p.innerHTML = `<div class="rp-head"><b></b><button class="icon close" title="Schließen"><ha-icon icon="mdi:close"></ha-icon></button></div>
-      <div class="rp-sub"></div><div class="rp-list"></div>`;
-    p.querySelector("b").textContent = room.name;
-    p.querySelector(".rp-sub").textContent = [floor.name, ...parts].join(" · ") + (room.area_id ? "" : " · kein Bereich zugeordnet");
-    p.querySelector(".close").addEventListener("click", () => this._selectRoom(null));
-    const list = p.querySelector(".rp-list");
-    if (!ids.length) list.innerHTML = `<div class="rp-empty">Keine Geräte im Bereich.</div>`;
-    for (const id of ids) {
-      const st = hass.states[id];
-      const kind = iconKind(st) ?? "sensor";
-      const row = document.createElement("div");
-      row.className = "rp-row";
-      const active = kind !== "sensor" && isActive(kind, st);
-      row.innerHTML = `<span class="rp-icon${active ? (kind === "contact" ? " alert" : " active") : ""}"><ha-icon></ha-icon></span><span class="rp-name"></span><span class="rp-state"></span>`;
-      row.querySelector("ha-icon").setAttribute("icon", kind === "sensor" ? (st.attributes.device_class === "humidity" ? "mdi:water-percent" : "mdi:thermometer") : iconFor(kind, st));
-      row.querySelector(".rp-name").textContent = st.attributes.friendly_name ?? id;
-      row.querySelector(".rp-state").textContent = hass.formatEntityState ? hass.formatEntityState(st) : st.state;
-      this._bindIcon(row, id);
-      list.appendChild(row);
-    }
+    this._panels = this._panels.filter((p) => {
+      const floor = this._building?.floors.find((f) => f.id === p.floorId);
+      const room = floor && placesOf(floor).find((r) => r.id === p.roomId);
+      if (!room) p.el?.remove();
+      return !!room;
+    });
+    this._panels.forEach((p, idx) => {
+      if (p.editing) return; // Eingaben nicht überschreiben
+      const floor = this._building.floors.find((f) => f.id === p.floorId);
+      const room = placesOf(floor).find((r) => r.id === p.roomId);
+      if (!p.el) {
+        p.el = document.createElement("div");
+        p.el.className = "roompanel";
+        const stage = this._els.stage.getBoundingClientRect();
+        p.x = p.x ?? 12 + idx * 28;
+        p.y = p.y ?? Math.max(12, stage.height - 360 - idx * 28);
+        this._els.stage.appendChild(p.el);
+        this._dragPanel(p);
+      }
+      p.el.style.left = `${p.x}px`;
+      p.el.style.top = `${p.y}px`;
+      const ids = roomEntities(room, hass, this._byArea, this._building).filter((id) => displayKind(hass.states[id]));
+      const climate = roomClimate(room, hass, this._byArea);
+      const parts = [];
+      if (climate.temperature != null) parts.push(`${fmt(climate.temperature)} °C`);
+      if (climate.humidity != null) parts.push(`${fmt(climate.humidity, 0)} %`);
+      const admin = !!hass.user?.is_admin;
+      p.el.innerHTML = `<div class="rp-head"><ha-icon class="grip" icon="mdi:drag"></ha-icon><b></b>${admin ? `<button class="icon cfg" title="Geräte anpassen"><ha-icon icon="mdi:tune-variant"></ha-icon></button>` : ""}<button class="icon close" title="Schließen"><ha-icon icon="mdi:close"></ha-icon></button></div>
+        <div class="rp-sub"></div><div class="rp-list"></div>`;
+      p.el.querySelector("b").textContent = room.name;
+      p.el.querySelector(".rp-sub").textContent = [floor.name, ...parts].join(" · ") + (room.area_id ? "" : " · kein Bereich zugeordnet");
+      p.el.querySelector(".close").addEventListener("click", () => this._selectRoom({ floorId: p.floorId, roomId: p.roomId }, { toggle: true }));
+      p.el.querySelector(".cfg")?.addEventListener("click", () => this._customizeRoom(p, room));
+      const list = p.el.querySelector(".rp-list");
+      if (!ids.length) list.innerHTML = `<div class="rp-empty">Keine Geräte. Über ⚙ hinzufügen.</div>`;
+      for (const id of ids) {
+        const st = hass.states[id];
+        const kind = displayKind(st);
+        const row = document.createElement("div");
+        row.className = "rp-row";
+        const active = isActive(kind, st);
+        row.innerHTML = `<span class="rp-icon${active ? (kind === "contact" ? " alert" : " active") : ""}"><ha-icon></ha-icon></span><span class="rp-name"></span><span class="rp-state"></span>`;
+        row.querySelector("ha-icon").setAttribute("icon", iconFor(kind, st));
+        row.querySelector(".rp-name").textContent = st.attributes.friendly_name ?? id;
+        row.querySelector(".rp-state").textContent = hass.formatEntityState ? hass.formatEntityState(st) : st.state;
+        this._bindIcon(row, id);
+        list.appendChild(row);
+      }
+    });
+  }
+
+  /** Raumfenster am Kopf ziehen (Maus und Finger); bleibt im sichtbaren Bereich. */
+  _dragPanel(p) {
+    let start = null;
+    p.el.addEventListener("pointerdown", (ev) => {
+      if (!ev.target.closest(".rp-head") || ev.target.closest("button")) return;
+      ev.preventDefault();
+      p.el.setPointerCapture(ev.pointerId);
+      start = { x: ev.clientX, y: ev.clientY, px: p.x, py: p.y };
+      // nach vorn holen
+      this._els.stage.appendChild(p.el);
+    });
+    p.el.addEventListener("pointermove", (ev) => {
+      if (!start) return;
+      const stage = this._els.stage.getBoundingClientRect();
+      p.x = Math.max(0, Math.min(stage.width - 120, start.px + ev.clientX - start.x));
+      p.y = Math.max(0, Math.min(stage.height - 48, start.py + ev.clientY - start.y));
+      p.el.style.left = `${p.x}px`;
+      p.el.style.top = `${p.y}px`;
+    });
+    const end = () => (start = null);
+    p.el.addEventListener("pointerup", end);
+    p.el.addEventListener("pointercancel", end);
+  }
+
+  /** Geräte eines Raums anpassen: Bereichsgeräte ein-/ausblenden, beliebige Entitäten hinzufügen. */
+  _customizeRoom(p, room) {
+    const hass = this._hass;
+    p.editing = true;
+    const areaIds = room.area_id ? this._byArea.get(room.area_id) ?? [] : [];
+    const hidden = new Set(room.hidden_entities ?? []);
+    const extra = [...(room.panel ?? [])];
+    const name = (id) => hass.states[id]?.attributes.friendly_name ?? id;
+    const render = () => {
+      p.el.innerHTML = `<div class="rp-head"><ha-icon class="grip" icon="mdi:drag"></ha-icon><b>Geräte: ${esc(room.name)}</b></div>
+        <div class="rp-sub">Haken = im Modell und im Raumfenster anzeigen.</div>
+        <div class="rp-list">
+          ${areaIds.map((id) => `<label class="rp-check"><input type="checkbox" data-id="${esc(id)}"${hidden.has(id) ? "" : " checked"}><span>${esc(name(id))}<small>${esc(id)}</small></span></label>`).join("") || `<div class="rp-empty">Kein Bereich zugeordnet.</div>`}
+          ${extra.map((id, i) => `<div class="rp-check"><ha-icon icon="mdi:plus-circle-outline"></ha-icon><span>${esc(name(id))}<small>${esc(id)}</small></span><button class="icon rm" data-i="${i}" title="Entfernen"><ha-icon icon="mdi:delete-outline"></ha-icon></button></div>`).join("")}
+        </div>
+        <div class="rp-add"><input list="rp-all" placeholder="Entität hinzufügen …"><datalist id="rp-all">${Object.keys(hass.states).sort().map((id) => `<option value="${esc(id)}">${esc(name(id))}</option>`).join("")}</datalist><button class="add">+</button></div>
+        <div class="rp-btns"><button class="cancel">Abbrechen</button><button class="save primary">Speichern</button></div>`;
+      p.el.querySelectorAll("input[type=checkbox]").forEach((c) => c.addEventListener("change", () => (c.checked ? hidden.delete(c.dataset.id) : hidden.add(c.dataset.id))));
+      p.el.querySelectorAll(".rm").forEach((b) => b.addEventListener("click", () => {
+        extra.splice(Number(b.dataset.i), 1);
+        render();
+      }));
+      const input = p.el.querySelector(".rp-add input");
+      const add = () => {
+        const id = input.value.trim();
+        if (!hass.states[id]) {
+          this._toast("Diese Entität gibt es nicht.");
+          return;
+        }
+        if (areaIds.includes(id)) hidden.delete(id);
+        else if (!extra.includes(id)) extra.push(id);
+        render();
+      };
+      p.el.querySelector(".add").addEventListener("click", add);
+      input.addEventListener("keydown", (ev) => ev.key === "Enter" && add());
+      p.el.querySelector(".cancel").addEventListener("click", () => {
+        p.editing = false;
+        this._renderRoomPanel();
+      });
+      p.el.querySelector(".save").addEventListener("click", async () => {
+        const building = structuredClone(this._building);
+        for (const f of building.floors) {
+          for (const r of [...f.rooms, ...(f.outdoor ?? [])]) {
+            if (r.id !== room.id) continue;
+            r.hidden_entities = [...hidden];
+            r.panel = extra;
+          }
+        }
+        try {
+          const res = await this._hass.callWS({ type: "haus3d/building/save", building, revision: this._revision });
+          p.editing = false;
+          this._setBuilding(res.building, res.revision, { keepCamera: true });
+          this._toast("Geräte gespeichert.");
+        } catch (err) {
+          this._toast(err.code === "conflict" ? "Der Stand wurde inzwischen geändert. Seite neu laden." : `Speichern fehlgeschlagen: ${err.message ?? err.code}`);
+        }
+      });
+    };
+    render();
   }
 
   _renderLegend() {

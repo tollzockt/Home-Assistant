@@ -201,3 +201,15 @@ function pointInPolygonLocal(p, pts) {
   }
   return inside;
 }
+
+test("Geräte anpassen: ausgeblendet (auch fest platziert) und hinzugefügt", () => {
+  const h = makeHass([
+    [st("light.decke", "on"), { area_id: "wohnzimmer" }],
+    [st("light.stehlampe", "off"), { area_id: "wohnzimmer" }],
+    [st("media_player.tv", "playing"), { area_id: "sonstwo" }],
+  ]);
+  const r = { id: "wz", name: "Wohnzimmer", area_id: "wohnzimmer", points: [[0, 0], [6, 0], [6, 4], [0, 4]], hidden_entities: ["light.decke", "light.stehlampe"], panel: ["media_player.tv"] };
+  const f = { id: "eg", rooms: [r], openings: [], placements: [{ entity_id: "light.stehlampe", x: 1, z: 1, y: null }], furniture: [] };
+  const icons = buildingIcons({ floors: [f] }, h).get("eg");
+  assert.deepEqual(icons.map((i) => [i.entity_id, i.kind]), [["media_player.tv", "other"]]);
+});

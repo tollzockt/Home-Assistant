@@ -182,7 +182,8 @@ export class HouseScene {
 
   /** Darstellungsstil: "standard" oder "cyber" (Cyberpunk/Neon). Baut Materialien und Szene neu. */
   setStyle(style) {
-    const next = style === "cyber" ? "cyber" : "standard";
+    // "day" (Standard), "night", "cyber"; alte Einstellung "standard" = Tag
+    const next = style === "cyber" ? "cyber" : style === "night" ? "night" : "standard";
     if (next === this.style) return;
     this.style = next;
     this._disposeMats();
@@ -193,11 +194,15 @@ export class HouseScene {
 
   _applyBackground() {
     const cyber = this.style === "cyber";
-    this.scene.background = new THREE.Color(cyber ? 0x07030f : this.dark ? 0x1b1f24 : 0xe9eef2);
-    this.hemi.color.set(cyber ? 0x8f7dff : 0xffffff);
-    this.hemi.groundColor.set(cyber ? 0x1a0630 : 0x8a7f70);
-    this.hemi.intensity = cyber ? 1.3 : this.dark ? 1.1 : 1.6;
-    this.sun.intensity = cyber ? 0.7 : this.dark ? 1.1 : 1.6;
+    const night = this.style === "night";
+    this.scene.background = new THREE.Color(cyber ? 0x07030f : night ? 0x0a1022 : this.dark ? 0x1b1f24 : 0xe9eef2);
+    this.hemi.color.set(cyber ? 0x8f7dff : night ? 0x5b6cff : 0xffffff);
+    this.hemi.groundColor.set(cyber ? 0x1a0630 : night ? 0x0b0d1a : 0x8a7f70);
+    this.hemi.intensity = cyber ? 1.3 : night ? 0.55 : this.dark ? 1.1 : 1.6;
+    // Nacht: schwaches, bläuliches Mondlicht
+    this.sun.color.set(night ? 0x9fb3ff : 0xffffff);
+    this.sun.intensity = cyber ? 0.7 : night ? 0.35 : this.dark ? 1.1 : 1.6;
+    if (this.mats?.glow) this.mats.glow.opacity = night ? 0.32 : cyber ? 0.22 : 0.16;
   }
 
   _makeMats() {
@@ -378,9 +383,15 @@ export class HouseScene {
 
   /** Raum hervorheben (oder null); mit focus fährt die Kamera hin. */
   selectRoom(sel, { focus = true } = {}) {
+    this.selectRooms(sel ? [sel] : [], { focus });
+  }
+
+  /** Mehrere Räume hervorheben; die Kamera fährt (mit focus) zum zuletzt gewählten. */
+  selectRooms(list, { focus = true } = {}) {
+    const sel = list.at(-1) ?? null;
     this.selected = sel;
     for (const [floorId, entry] of this.floors) {
-      for (const [roomId, r] of entry.rooms) r.selected = !!sel && sel.floorId === floorId && sel.roomId === roomId;
+      for (const [roomId, r] of entry.rooms) r.selected = list.some((x) => x.floorId === floorId && x.roomId === roomId);
     }
     if (sel && focus) {
       const r = this.floors.get(sel.floorId)?.rooms.get(sel.roomId);
@@ -572,10 +583,23 @@ export class HouseScene {
         group.add(m);
         item.frames.push(m);
       }
-      const pane = box(width - 2 * f, h - 2 * f, 0.01, this.mats.glass, 0, h / 2, 0);
+      // Flügel: Glas mit innerem Rahmen an einem Drehpunkt auf der Anschlagseite (schwenkt nach innen)
+      const sw = width - 2 * f;
+      const side = (o.hinge === "right" ? 1 : -1) * rs;
+      const sash = new THREE.Group();
+      sash.position.set(side * (sw / 2), 0, 0);
+      const pane = box(sw - 0.04, h - 2 * f - 0.04, 0.01, this.mats.glass, -side * (sw / 2), h / 2, 0);
       pane.renderOrder = 3;
-      group.add(pane);
+      sash.add(pane);
       item.panes.push(pane);
+      for (const m of [box(sw, 0.03, 0.05, this.mats.frame, -side * (sw / 2), f, 0), box(sw, 0.03, 0.05, this.mats.frame, -side * (sw / 2), h - f - 0.03, 0), box(0.03, h - 2 * f, 0.05, this.mats.frame, -side * 0.015, f, 0), box(0.03, h - 2 * f, 0.05, this.mats.frame, -side * (sw - 0.015), f, 0)]) {
+        sash.add(m);
+        item.frames.push(m);
+      }
+      group.add(sash);
+      // fest verglaste Fenster ("nicht zu öffnen", fixed) bleiben zu
+      const fixed = o.fixed === true || /nicht zu öffnen|fest/i.test(o.name ?? "");
+      if (!fixed) item.leaves.push({ pivot: sash, closed: sash.position.clone(), open: sash.position.clone(), angle: THREE.MathUtils.degToRad(35) * rs * side });
     } else if (o.type === "door") {
       const style = o.style ?? null;
       if (style !== "passage") {
@@ -852,12 +876,12 @@ export class HouseScene {
           else color.setRGB(...s.tempColor(t), THREE.SRGBColorSpace);
         } else {
           color.copy(r.base);
-          if (this.dark && this.style !== "cyber") color.multiplyScalar(0.8);
+          if (this.dark && this.style === "standard") color.multiplyScalar(0.8);
         }
         // Cyberpunk: Boden glimmt leicht in seiner Farbe, damit er sich deutlich vom Hintergrund abhebt
         const idle = this.style === "cyber" && !s.tempMode ? r.base : new THREE.Color(0x000000);
         r.mesh.material.emissive.copy(lit && !s.tempMode ? WARM : idle);
-        r.mesh.material.emissiveIntensity = lit ? 0.45 : this.style === "cyber" ? 0.3 : 0;
+        r.mesh.material.emissiveIntensity = lit ? (this.style === "night" ? 0.9 : 0.45) : this.style === "cyber" ? 0.3 : 0;
         r.glow.visible = lit && !s.tempMode;
       }
       for (const [openingId, item] of entry.openings) {
@@ -866,19 +890,18 @@ export class HouseScene {
         for (const m of item.frames) m.material = open ? this.mats.frameAlert : this.mats.frame;
         for (const p of item.panes) p.material = open ? this.mats.glassAlert : this.mats.glass;
         for (const solid of item.solids) solid.material = open ? this.mats.frameAlert : solid.userData.base;
-        for (const leaf of item.leaves) {
-          leaf.pivot.position.copy(open ? leaf.open : leaf.closed);
-          leaf.pivot.rotation.y = open ? leaf.angle : 0;
-        }
         const closed = s.covers.get(key);
+        // Ziele setzen; die Bewegung macht _animate() Bild für Bild
+        item.anim = item.anim ?? { open: open ? 1 : 0, cover: null };
+        item.anim.openTarget = open ? 1 : 0;
         if (item.garage) {
-          const frac = closed == null ? (open ? 0.15 : 1) : Math.max(0.08, closed);
-          item.garage.scale.y = frac;
+          item.anim.coverTarget = closed == null ? (open ? 0.15 : 1) : Math.max(0.08, closed);
           item.garage.material = open ? this.mats.frameAlert : this.mats.garage;
         } else if (item.blind) {
-          item.blind.visible = closed != null && closed > 0.02;
-          item.blind.scale.y = Math.max(0.02, closed ?? 0);
+          item.anim.coverTarget = closed ?? 0;
         }
+        if (item.anim.cover == null) item.anim.cover = item.anim.coverTarget ?? 0;
+        this._animating = true;
       }
     }
     for (const [entity, bulbs] of this.lampBulbs) {
@@ -886,6 +909,7 @@ export class HouseScene {
       for (const b of bulbs) b.material = on ? this.furnMats.bulbOn : this.furnMats.bulb;
     }
     this._applySelection();
+    this._animate(1 / 60);
     if (this.flow) {
       const w = s.feedIn ?? 0;
       const active = w > 1;
@@ -944,13 +968,18 @@ export class HouseScene {
     if (!this._running) return;
     const dt = Math.min(0.1, this._clock.getDelta());
     const moving = this.controls.update();
+    // Animationen nach echter Zeit (bei wenigen Bildern pro Sekunde nicht langsamer, nur ruckeliger)
+    const now = performance.now();
+    const animDt = Math.min(0.5, (now - (this._lastAnim ?? now)) / 1000);
+    this._lastAnim = now;
+    const animating = this._animating && this._animate(animDt);
     const flowing = this.flow && this.flow.speed > 0 && this.isFloorVisible(this.flow.floorId);
     if (flowing) {
       this.flow.phase = (this.flow.phase + dt * this.flow.speed) % 1;
       const n = this.flow.dots.length;
       this.flow.dots.forEach((d, i) => d.position.copy(this.flow.curve.getPointAt((this.flow.phase + i / n) % 1)));
     }
-    if (this._dirty || moving || flowing) {
+    if (this._dirty || moving || flowing || animating) {
       this.renderer.render(this.scene, this.camera);
       this._dirty = false;
     }
@@ -959,7 +988,41 @@ export class HouseScene {
       this.onCameraChange();
     }
     // weiterlaufen, solange gedämpft gedreht wird oder Energie fließt; sonst bis zur nächsten Änderung schlafen
-    if (moving || flowing) this._kick();
+    if (moving || flowing || animating) this._kick();
+  }
+
+  /** Bewegt Türen, Fensterflügel, Rollläden und Tore Richtung Ziel; true, solange sich etwas bewegt. */
+  _animate(dt) {
+    let busy = false;
+    const step = (cur, target, speed) => {
+      const d = target - cur;
+      if (Math.abs(d) < 0.002) return target;
+      busy = true;
+      return cur + Math.sign(d) * Math.min(Math.abs(d), speed * dt);
+    };
+    for (const entry of this.floors.values()) {
+      for (const item of entry.openings.values()) {
+        const a = item.anim;
+        if (!a) continue;
+        a.open = step(a.open, a.openTarget ?? 0, 1.6); // ca. 0,6 s für eine Tür
+        const t = a.open * a.open * (3 - 2 * a.open); // weich an- und auslaufen
+        for (const leaf of item.leaves) {
+          leaf.pivot.position.lerpVectors(leaf.closed, leaf.open, t);
+          leaf.pivot.rotation.y = leaf.angle * t;
+        }
+        if (a.coverTarget != null) {
+          a.cover = step(a.cover, a.coverTarget, 0.35); // Rollladen: ca. 3 s ganz auf/zu
+          if (item.garage) item.garage.scale.y = Math.max(0.02, a.cover);
+          else if (item.blind) {
+            item.blind.visible = a.cover > 0.02;
+            item.blind.scale.y = Math.max(0.02, a.cover);
+          }
+        }
+      }
+    }
+    this._animating = busy;
+    if (busy) this._dirty = true;
+    return busy;
   }
 
   dispose() {

@@ -37,6 +37,25 @@ export function iconKind(stateObj) {
 
 export const canToggle = (entityId) => TOGGLE_DOMAINS.includes(domainOf(entityId));
 
+/** Art für Entitäten, die von Hand zu einem Raum hinzugefügt wurden: Symbolart oder "other". */
+export const displayKind = (stateObj) => iconKind(stateObj) ?? (stateObj ? "other" : null);
+
+/** Ausgeblendete Entitäten eines Raums (hidden_entities) und global (settings.hidden_entities). */
+export function hiddenSet(room, building) {
+  return new Set([...(room?.hidden_entities ?? []), ...(building?.settings?.hidden_entities ?? [])]);
+}
+
+/**
+ * Entitäten eines Raums: alle des Bereichs (ohne ausgeblendete) plus von Hand hinzugefügte (panel).
+ * @returns {string[]}
+ */
+export function roomEntities(room, hass, byArea, building = null) {
+  const hidden = hiddenSet(room, building);
+  const ids = (room.area_id ? byArea.get(room.area_id) ?? [] : []).filter((id) => !hidden.has(id));
+  for (const id of room.panel ?? []) if (hass.states?.[id] && !hidden.has(id) && !ids.includes(id)) ids.push(id);
+  return ids;
+}
+
 /**
  * Orte einer Etage, denen Geräte zugeordnet werden: Räume und Gartenflächen mit area_id
  * (Erweiterung von Haus 3D; NeonPlan ignoriert area_id/name an Gartenflächen).
@@ -92,19 +111,22 @@ export function buildingIcons(building, hass, byArea = entitiesByArea(hass)) {
   for (const floor of building.floors ?? []) {
     const icons = result.get(floor.id);
     for (const room of placesOf(floor)) {
-      if (!room.area_id || ownedAreas.has(room.area_id)) continue;
-      ownedAreas.add(room.area_id);
-      const auto = (byArea.get(room.area_id) ?? []).filter((id) => iconKind(hass.states[id]) && !manual.has(id));
+      if ((!room.area_id && !room.panel?.length) || (room.area_id && ownedAreas.has(room.area_id))) continue;
+      if (room.area_id) ownedAreas.add(room.area_id);
+      const extra = new Set(room.panel ?? []);
+      const auto = roomEntities(room, hass, byArea, building).filter((id) => (extra.has(id) ? displayKind(hass.states[id]) : iconKind(hass.states[id])) && !manual.has(id));
       const spots = layout(room.points, auto.length);
-      auto.forEach((id, i) => icons.push({ entity_id: id, kind: iconKind(hass.states[id]), x: spots[i][0], z: spots[i][1], y: null, room: room.id, manual: false }));
+      auto.forEach((id, i) => icons.push({ entity_id: id, kind: displayKind(hass.states[id]), x: spots[i][0], z: spots[i][1], y: null, room: room.id, manual: false }));
     }
   }
   for (const [entityId, p] of manual) {
-    const kind = iconKind(hass.states?.[entityId]);
+    const kind = displayKind(hass.states?.[entityId]);
     const icons = result.get(p.floorId);
     if (!kind || !icons) continue;
     const floor = building.floors.find((f) => f.id === p.floorId);
     const room = placesOf(floor).find((r) => pointInPolygon([p.x, p.z], r.points));
+    // ausgeblendet (im Raum an dieser Stelle oder global): auch fest platziert nicht zeigen
+    if (hiddenSet(room, building).has(entityId)) continue;
     icons.push({ entity_id: entityId, kind, x: p.x, z: p.z, y: p.y, room: room?.id ?? null, manual: true });
   }
   return result;
@@ -324,6 +346,7 @@ export function watchedEntities(building, hass, byArea) {
           if (cls === "temperature" || cls === "humidity") ids.add(id);
         } else if (iconKind(hass.states[id])) ids.add(id);
       }
+      for (const id of room.panel ?? []) ids.add(id);
       for (const key of ["temperature", "humidity"]) {
         const fixed = room.climate?.[key];
         if (fixed && fixed !== "none") ids.add(fixed);
