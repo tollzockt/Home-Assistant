@@ -117,14 +117,52 @@ function canonical(u) {
  * @param {{wall_exterior?: number, wall_interior?: number}} settings
  * @returns {{segments: object[], openings: object[], warnings: string[]}}
  */
+/** Toleranz, bis zu der fast gleiche Koordinaten als gleich gelten (Meter). */
+export const ALIGN = 0.04;
+
+/**
+ * Fast gleiche x- und z-Werte aller Raumpunkte zusammenlegen. Je Gruppe gilt der häufigste Wert.
+ * @returns {(p: number[]) => number[]} Abbildung eines Punkts auf den ausgerichteten Punkt
+ */
+export function alignAxes(rooms, tol = ALIGN) {
+  const table = (vals) => {
+    const sorted = [...vals].sort((x, y) => x - y);
+    const map = new Map();
+    let group = [];
+    const flush = () => {
+      if (!group.length) return;
+      const count = new Map();
+      for (const v of group) count.set(v, (count.get(v) ?? 0) + 1);
+      let best = group[0];
+      for (const [v, c] of count) if (c > count.get(best)) best = v;
+      for (const v of group) map.set(v, best);
+      group = [];
+    };
+    for (const v of sorted) {
+      if (group.length && v - group[0] > tol) flush();
+      group.push(v);
+    }
+    flush();
+    return map;
+  };
+  const pts = rooms.flatMap((r) => r.points ?? []);
+  const xs = table(pts.map((p) => p[0]));
+  const zs = table(pts.map((p) => p[1]));
+  return (p) => [xs.get(p[0]) ?? p[0], zs.get(p[1]) ?? p[1]];
+}
+
 export function computeWalls(floor, settings = {}) {
   const ext = settings.wall_exterior ?? 0.24;
   const int = settings.wall_interior ?? 0.12;
   const warnings = [];
 
-  // 0. Eckpunkte einrasten: Punkte näher als SNAP werden zu einem Punkt (wie im Editor gerundet)
+  // 0. Eckpunkte einrasten: fast gleiche x- bzw. z-Werte (bis ALIGN, z. B. 9,75 und 9,771) zusammenlegen,
+  // sonst entstehen aus wenigen Zentimetern Versatz zwei Außenwände mit Spalt. Danach Punkte näher als SNAP
+  // zu einem Punkt.
+  const align = alignAxes(floor.rooms ?? []);
   const verts = [];
-  const snap = (p) => {
+  const snap = (p0) => {
+    const p = align(p0);
     for (const v of verts) if (Math.abs(v[0] - p[0]) <= SNAP && Math.abs(v[1] - p[1]) <= SNAP) return v;
     const v = [p[0], p[1]];
     verts.push(v);

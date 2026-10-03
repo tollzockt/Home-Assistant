@@ -1,7 +1,7 @@
 // Reine Bearbeitungs-Operationen für den Editor (ohne DOM, mit node testbar).
 // Alle Koordinaten in Metern, Plan [x, z].
 
-import { pointInPolygon, signedArea } from "./walls.js";
+import { alignAxes, pointInPolygon, signedArea } from "./walls.js";
 
 const r3 = (v) => Math.round(v * 1000) / 1000;
 
@@ -210,7 +210,22 @@ export function openingGeometry(floor, o) {
 export function cleanFloor(floor) {
   let fixed = 0;
   let out = floor;
-  for (const room of floor.rooms ?? []) {
+  // fast gleiche Koordinaten (wenige Zentimeter Versatz) angleichen, wie die Wandberechnung es tut
+  const align = alignAxes(floor.rooms ?? []);
+  let aligned = 0;
+  out = {
+    ...out,
+    rooms: (out.rooms ?? []).map((r) => ({
+      ...r,
+      points: r.points.map((p) => {
+        const q = align(p);
+        if (q[0] !== p[0] || q[1] !== p[1]) aligned++;
+        return q;
+      }),
+    })),
+  };
+  fixed += aligned;
+  for (const room of out.rooms ?? []) {
     const pts = cleanPoints(room.points);
     if (pts.length === room.points.length || pts.length < 3) continue;
     fixed += room.points.length - pts.length;
