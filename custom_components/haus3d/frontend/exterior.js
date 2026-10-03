@@ -366,3 +366,98 @@ export function scatter(points, { n = 40, perM2 = 6, seed = "x", margin = 0.1 } 
 }
 
 const r3 = (v) => Math.round(v * 1000) / 1000;
+
+/**
+ * Eigene Dächer einzelner Räume (room.roof, z. B. Schuppen, Carport): berührende Räume mit Dach
+ * bilden eine Gruppe; die Einstellungen kommen vom ersten Raum der Gruppe.
+ * @returns {{rooms: object[], roof: object}[]}
+ */
+export function roomRoofGroups(floor) {
+  const rooms = (floor?.rooms ?? []).filter((r) => r.roof && r.roof.type && r.roof.type !== "none" && (r.points ?? []).length >= 3);
+  const box = (r) => {
+    const xs = r.points.map((p) => p[0]);
+    const zs = r.points.map((p) => p[1]);
+    return [Math.min(...xs), Math.max(...xs), Math.min(...zs), Math.max(...zs)];
+  };
+  const boxes = rooms.map(box);
+  const parent = rooms.map((_, i) => i);
+  const find = (i) => (parent[i] === i ? i : (parent[i] = find(parent[i])));
+  for (let i = 0; i < rooms.length; i++)
+    for (let j = i + 1; j < rooms.length; j++) {
+      const [a, b] = [boxes[i], boxes[j]];
+      if (Math.max(a[0] - b[1], b[0] - a[1], a[2] - b[3], b[2] - a[3]) < 0.05) parent[find(i)] = find(j);
+    }
+  const groups = new Map();
+  rooms.forEach((r, i) => {
+    const k = find(i);
+    if (!groups.has(k)) groups.set(k, []);
+    groups.get(k).push(r);
+  });
+  return [...groups.values()].map((list) => ({ rooms: list, roof: roofSettings({ roof: list[0].roof }) }));
+}
+
+/** Abstand eines Punkts zum Rand eines Polygons (0, wenn innen). */
+function distToPolygon(p, poly) {
+  if (pointInPolygon(p, poly)) return 0;
+  let best = Infinity;
+  for (let i = 0; i < poly.length; i++) {
+    const a = poly[i];
+    const b = poly[(i + 1) % poly.length];
+    const dx = b[0] - a[0];
+    const dz = b[1] - a[1];
+    const l2 = dx * dx + dz * dz || 1e-12;
+    const t = Math.max(0, Math.min(1, ((p[0] - a[0]) * dx + (p[1] - a[1]) * dz) / l2));
+    best = Math.min(best, Math.hypot(p[0] - a[0] - dx * t, p[1] - a[1] - dz * t));
+  }
+  return best;
+}
+
+/**
+ * Hang automatisch: Höhe je Eckpunkt einer Gartenfläche (relativ zu ihrer Etage). Ecken, die an
+ * Gartenflächen einer anderen Etage stoßen, bekommen deren Höhenunterschied, Ecken an Flächen der
+ * eigenen Etage 0, die übrigen werden entlang des Umrisses zwischen den bekannten interpoliert.
+ * @returns {number[]|null} heights, oder null, wenn die Fläche eben bleibt
+ */
+export function autoHeights(building, floorId, areaId, tol = 0.5) {
+  const floor = building.floors.find((f) => f.id === floorId);
+  const area = floor?.outdoor?.find((o) => o.id === areaId);
+  if (!area) return null;
+  const elev = floor.elevation ?? 0;
+  const pts = area.points;
+  const known = pts.map((p) => {
+    let other = null;
+    for (const f of building.floors) {
+      if (f.id === floorId) continue;
+      const dh = (f.elevation ?? 0) - elev;
+      if (Math.abs(dh) < 0.05) continue;
+      if ((f.outdoor ?? []).some((o) => o.type !== "balcony" && distToPolygon(p, o.points) <= tol)) {
+        // mehrere Etagen: die mit dem kleinsten Höhenunterschied (nächste Geländestufe)
+        if (other === null || Math.abs(dh) < Math.abs(other)) other = dh;
+      }
+    }
+    if (other !== null) return Math.round(other * 1000) / 1000;
+    if ((floor.outdoor ?? []).some((o) => o.id !== areaId && distToPolygon(p, o.points) <= tol)) return 0;
+    return null;
+  });
+  if (!known.some((h) => h !== null && h !== 0)) return null;
+  // Lücken entlang des Umrisses linear füllen
+  const n = pts.length;
+  const seg = pts.map((p, i) => Math.hypot(pts[(i + 1) % n][0] - p[0], pts[(i + 1) % n][1] - p[1]));
+  return known.map((h, i) => {
+    if (h !== null) return h;
+    let back = 0;
+    let fwd = 0;
+    let hb = null;
+    let hf = null;
+    for (let k = 1; k < n && hb === null; k++) {
+      back += seg[(i - k + n) % n];
+      hb = known[(i - k + n) % n];
+    }
+    for (let k = 1; k < n && hf === null; k++) {
+      fwd += seg[(i + k - 1) % n];
+      hf = known[(i + k) % n];
+    }
+    if (hb === null || hf === null) return hb ?? hf ?? 0;
+    return Math.round((hb + ((hf - hb) * back) / (back + fwd || 1)) * 1000) / 1000;
+  });
+}

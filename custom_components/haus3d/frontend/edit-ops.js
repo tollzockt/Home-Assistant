@@ -362,3 +362,107 @@ export function pushOutOfWalls(item, faces) {
   }
   return moved ? { x: r3(p[0]), z: r3(p[1]) } : null;
 }
+
+/** Eckpunkte anderer Räume derselben Etage, die auf einem Punkt liegen: [{roomId, i}]. */
+export function linkedVertices(floor, p, exceptRoomId = null, tol = 0.02) {
+  const out = [];
+  for (const r of floor.rooms ?? []) {
+    if (r.id === exceptRoomId) continue;
+    r.points.forEach((q, i) => {
+      if (Math.hypot(q[0] - p[0], q[1] - p[1]) <= tol) out.push({ roomId: r.id, i });
+    });
+  }
+  return out;
+}
+
+/**
+ * Wand (Raumkante i) senkrecht um d Meter verschieben. Mit linked gehen angrenzende Räume mit:
+ * - Kanten anderer Räume, die auf der Wand liegen, wandern mit;
+ * - reicht eine Nachbarkante über die Wand hinaus, bekommt sie dort einen Versatz (zwei neue Ecken);
+ * - Ecken, an denen die Wand nur stumpf anstößt, wandern mit; Wände, die in Verlängerung weiterlaufen, bleiben.
+ * Öffnungen behalten ihre Lage (Kante und Offset werden beim Einfügen von Ecken angepasst).
+ */
+export function moveEdge(floor, roomId, i, d, { linked = true, tol = 0.02 } = {}) {
+  const room = floor.rooms.find((r) => r.id === roomId);
+  const n0 = room.points.length;
+  const a = room.points[i];
+  const b = room.points[(i + 1) % n0];
+  const len = Math.hypot(b[0] - a[0], b[1] - a[1]) || 1;
+  const u = [(b[0] - a[0]) / len, (b[1] - a[1]) / len];
+  const nrm = [-u[1], u[0]];
+  const along = (p) => (p[0] - a[0]) * u[0] + (p[1] - a[1]) * u[1];
+  const off = (p) => Math.abs((p[0] - a[0]) * nrm[0] + (p[1] - a[1]) * nrm[1]);
+  const onLine = (p) => off(p) <= tol;
+  const inside = (p, q) => {
+    if (!onLine(p) || !onLine(q)) return false;
+    const m = (along(p) + along(q)) / 2;
+    return m > tol && m < len - tol && Math.abs(along(p) - along(q)) > tol;
+  };
+  let f = floor;
+  const moving = new Set([`${roomId}#${i}`, `${roomId}#${(i + 1) % n0}`]);
+  if (linked) {
+    for (const r0 of floor.rooms) {
+      if (r0.id === roomId) continue;
+      // 1. Versatz: Wandenden a/b, die mitten in einer Nachbarkante auf derselben Linie liegen
+      for (let guard = 0; guard < 4; guard++) {
+        const r = f.rooms.find((x) => x.id === r0.id);
+        const m = r.points.length;
+        let done = true;
+        for (let k = 0; k < m; k++) {
+          const p = r.points[k];
+          const q = r.points[(k + 1) % m];
+          if (!onLine(p) || !onLine(q)) continue;
+          const lo = Math.min(along(p), along(q));
+          const hi = Math.max(along(p), along(q));
+          const cut = [0, len].find((t) => t > lo + tol && t < hi - tol);
+          if (cut === undefined) continue;
+          const e = [r3(a[0] + u[0] * cut), r3(a[1] + u[1] * cut)];
+          f = insertVertex(f, r.id, k, e);
+          f = insertVertex(f, r.id, k + 1, e);
+          done = false;
+          break;
+        }
+        if (done) break;
+      }
+      // 2. welche Ecken des Nachbarn wandern
+      const r = f.rooms.find((x) => x.id === r0.id);
+      const m = r.points.length;
+      r.points.forEach((p, k) => {
+        const prev = r.points[(k - 1 + m) % m];
+        const next = r.points[(k + 1) % m];
+        const prevSame = Math.hypot(prev[0] - p[0], prev[1] - p[1]) <= tol;
+        const nextSame = Math.hypot(next[0] - p[0], next[1] - p[1]) <= tol;
+        // Kanten zur Nachbarecke; doppelte Ecken (Versatz) zählen nur zur Seite, an der sie hängen
+        const inPrev = !prevSame && inside(prev, p);
+        const inNext = !nextSame && inside(p, next);
+        if (inPrev || inNext) {
+          moving.add(`${r.id}#${k}`);
+          return;
+        }
+        const atEnd = Math.hypot(p[0] - a[0], p[1] - a[1]) <= tol || Math.hypot(p[0] - b[0], p[1] - b[1]) <= tol;
+        if (!atEnd || prevSame || nextSame) return;
+        // stumpfer Anschluss (keine Kante auf der Linie) wandert mit, Verlängerungen bleiben
+        const collinear = (!prevSame && onLine(prev)) || (!nextSame && onLine(next));
+        if (!collinear) moving.add(`${r.id}#${k}`);
+      });
+    }
+  }
+  return {
+    ...f,
+    rooms: f.rooms.map((r) => ({
+      ...r,
+      points: r.points.map((q, k) => (moving.has(`${r.id}#${k}`) ? [r3(q[0] + nrm[0] * d), r3(q[1] + nrm[1] * d)] : q)),
+    })),
+  };
+}
+
+/** Eckpunkt setzen; mit linked wandern gleich liegende Ecken anderer Räume mit. */
+export function moveVertex(floor, roomId, i, p, { linked = true } = {}) {
+  const old = floor.rooms.find((r) => r.id === roomId).points[i];
+  const moves = new Set([`${roomId}#${i}`]);
+  if (linked) for (const m of linkedVertices(floor, old, roomId)) moves.add(`${m.roomId}#${m.i}`);
+  return {
+    ...floor,
+    rooms: floor.rooms.map((r) => ({ ...r, points: r.points.map((q, k) => (moves.has(`${r.id}#${k}`) ? [r3(p[0]), r3(p[1])] : q)) })),
+  };
+}

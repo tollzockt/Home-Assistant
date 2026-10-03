@@ -5,7 +5,7 @@ import * as THREE from "./vendor/three.module.min.js";
 import { OrbitControls } from "./vendor/OrbitControls.js";
 import { buildDevice, buildFurniture, furnitureMaterials } from "./furniture.js";
 import { floorColor } from "./model.js";
-import { freeEdges, roofFloor, roofParts, roofRooms, roofSettings, scatter, seeded } from "./exterior.js";
+import { freeEdges, roofFloor, roofParts, roofRooms, roofSettings, roomRoofGroups, scatter, seeded } from "./exterior.js";
 import { centroid, computeWalls, labelPoint, pieceFootprint, pointInPolygon, wallPieces } from "./walls.js";
 
 const OUTDOOR = {
@@ -332,8 +332,8 @@ export class HouseScene {
     this.warnings = [];
     this.lampBulbs.clear();
     for (const floor of building.floors ?? []) this._buildFloor(floor, building.settings ?? {}, footing(building.floors, floor));
-    this._buildEnergy(building);
     this._buildRoof(building);
+    this._buildEnergy(building);
     if (this._weather) this.setWeather(this._weather, { force: true });
     if (this.style === "cyber") {
       const lowest = Math.min(0, ...(building.floors ?? []).map((f) => f.elevation ?? 0));
@@ -572,10 +572,13 @@ export class HouseScene {
     const extCol = custom(settings.wall_colors?.exterior, colors.exterior);
     const intCol = custom(settings.wall_colors?.interior, colors.interior);
     const roomCols = new Map((floor.rooms ?? []).map((r) => [r.id, custom(r.wall_color, intCol)]));
-    const face = (roomId) => (roomId ? roomCols.get(roomId) ?? intCol : extCol);
+    // Außenseite: Farbe des Raums dahinter (room.exterior_color, z. B. Holzschuppen), sonst Hausfarbe
+    const extCols = new Map((floor.rooms ?? []).map((r) => [r.id, custom(r.exterior_color, extCol)]));
     for (const seg of segments) {
+      const outside = extCols.get(seg.roomLeft ?? seg.roomRight) ?? extCol;
+      const face = (roomId) => (roomId ? roomCols.get(roomId) ?? intCol : outside);
       const h = seg.height ?? height;
-      const end = seg.kind === "exterior" ? extCol : intCol;
+      const end = seg.kind === "exterior" ? outside : intCol;
       const sides = seg.kind === "free" ? intCol : [end, face(seg.roomRight), end, face(seg.roomLeft)];
       // Wandfuß unter dem Boden: schließt die Fuge zur Etage darunter (Deckenstärke)
       prisms.prism(pieceFootprint(seg, 0, seg.length), elev - base, elev, sides, colors.cap);
@@ -931,29 +934,62 @@ export class HouseScene {
     });
   }
 
-  /** Dach über der obersten Etage (settings.roof). Nur in der Ansicht „Alle“ sichtbar. */
+  /** Dach über der obersten Etage (settings.roof, nur in „Alle“) und eigene Dächer einzelner Räume (room.roof). */
   _buildRoof(building) {
     this.roofHolder = null;
     this.roofMeshes = [];
-    const roof = roofSettings(building.settings);
-    if (roof.type === "none") return;
-    const floor = roofFloor(building, roof);
-    const rooms = roofRooms(floor, roof);
-    if (!rooms.length) return;
+    this.roomRoofs = new Map(); // roomId -> {parts, eave, tan, type}
     const wall = building.settings?.wall_exterior ?? 0.24;
+    const roof = roofSettings(building.settings);
+    if (roof.type !== "none") {
+      const floor = roofFloor(building, roof);
+      const rooms = roofRooms(floor, roof);
+      if (rooms.length) {
+        const holder = new THREE.Group();
+        const inner = new THREE.Group();
+        inner.userData.layer = "roof";
+        holder.add(inner);
+        const top = (floor.elevation ?? 0) + (floor.height ?? 2.5);
+        const res = this._roofGeometry(rooms, roof, top, wall, inner);
+        this.roofMeshes.push(...res.meshes);
+        for (const m of res.meshes) m.userData.roof = true;
+        this.roofHolder = holder;
+        this.root.add(holder);
+      }
+    }
+    // eigene Dächer (Schuppen, Carport …): gehören zur Etage, immer sichtbar
+    for (const floor of building.floors ?? []) {
+      const entry = this.floors.get(floor.id);
+      if (!entry) continue;
+      for (const g of roomRoofGroups(floor)) {
+        const group = new THREE.Group();
+        group.userData.layer = "roof";
+        const top = (floor.elevation ?? 0) + (floor.height ?? 2.5);
+        const res = this._roofGeometry(g.rooms, g.roof, top, building.settings?.wall_exterior ?? 0.24, group, { roomRoof: true });
+        for (const r of g.rooms) this.roomRoofs.set(r.id, res);
+        entry.group.add(group);
+      }
+    }
+  }
+
+  /**
+   * Dachflächen und Giebel für eine Gruppe von Räumen bauen und in parent hängen.
+   * @returns {{meshes: THREE.Mesh[], parts: object[], eave: number, tan: number, type: string, top: number}}
+   */
+  _roofGeometry(rooms, roof, top, wall, parent, { roomRoof = false } = {}) {
     const ov = roof.overhang;
     const parts = roofParts(rooms, { wall, overhang: ov, direction: roof.direction });
-    const top = (floor.elevation ?? 0) + (floor.height ?? 2.5);
     const tan = Math.tan(THREE.MathUtils.degToRad(roof.pitch));
     const roofPos = [];
     const gablePos = [];
     const tri = (list, ...pts) => list.push(...pts.flat());
     const quad = (list, a, b, c, d) => tri(list, a, b, c, a, c, d);
     const eave = top - ov * tan; // Dachfläche trifft die Wand genau an ihrer Oberkante
-    const holder = new THREE.Group();
-    const inner = new THREE.Group();
-    inner.userData.layer = "roof";
-    holder.add(inner);
+    const meshes = [];
+    // eigene Dachfarbe (roof.color), sonst Standard des Stils
+    const custom = /^#[0-9a-f]{6}$/i.test(roof.color ?? "") && this.style !== "cyber";
+    const roofMat = custom ? this.mats.roof.clone() : this.mats.roof;
+    if (custom) roofMat.color.set(roof.color);
     // L-/T-Häuser: mehrere Teile; ein Flügel steckt mit einem Ende (open) im Hauptdach
     for (const fr of parts) {
       const L = fr.length / 2;
@@ -964,11 +1000,11 @@ export class HouseScene {
       const Lhi = openHi ? L : Math.max(0.1, L - ov);
       const P = (s, t, y) => [fr.center[0] + s * fr.u[0] + t * fr.v[0], y, fr.center[1] + s * fr.u[1] + t * fr.v[1]];
       if (roof.type === "flat") {
-        const slab = new THREE.Mesh(new THREE.BoxGeometry(2 * L, 0.25, 2 * W), this.mats.roof);
+        const slab = new THREE.Mesh(new THREE.BoxGeometry(2 * L, 0.25, 2 * W), roofMat);
         slab.position.set(fr.center[0], top + 0.125, fr.center[1]);
         slab.rotation.y = -Math.atan2(fr.u[1], fr.u[0]);
-        inner.add(slab);
-        this.roofMeshes.push(slab);
+        parent.add(slab);
+        meshes.push(slab);
       } else if (roof.type === "gable" || roof.type === "hip") {
         const ridge = eave + W * tan;
         const hip = roof.type === "hip";
@@ -990,22 +1026,23 @@ export class HouseScene {
       }
     }
     const mesh = (pos, mat) => {
-      if (!pos.length) return null;
+      if (!pos.length) return;
       const geo = new THREE.BufferGeometry();
       geo.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
       geo.computeVertexNormals();
       const m = new THREE.Mesh(geo, mat);
-      inner.add(m);
-      this.roofMeshes.push(m);
-      return m;
+      parent.add(m);
+      meshes.push(m);
     };
-    mesh(roofPos, this.mats.roof);
-    mesh(gablePos, this.mats.gable);
-    for (const m of this.roofMeshes) m.userData.roof = true;
+    mesh(roofPos, roofMat);
+    // Giebel in der Wandfarbe des Raums (außen), bei Raumdächern
+    const ext = roomRoof && /^#[0-9a-f]{6}$/i.test(rooms[0]?.exterior_color ?? "") && this.style !== "cyber";
+    const gableMat = ext ? this.mats.gable.clone() : this.mats.gable;
+    if (ext) gableMat.color.set(rooms[0].exterior_color);
+    mesh(gablePos, gableMat);
     // Cyberpunk: Neonkanten (als Kind des Dachs, damit sie dessen Lage übernehmen)
-    if (this.mats.roofEdge) for (const m of this.roofMeshes) m.add(new THREE.LineSegments(new THREE.EdgesGeometry(m.geometry, 20), this.mats.roofEdge));
-    this.roofHolder = holder;
-    this.root.add(holder);
+    if (this.mats.roofEdge) for (const m of meshes) m.add(new THREE.LineSegments(new THREE.EdgesGeometry(m.geometry, 20), this.mats.roofEdge));
+    return { meshes, parts, eave, tan, type: roof.type, top };
   }
 
   _buildEnergy(building) {
@@ -1024,6 +1061,15 @@ export class HouseScene {
     const top = elev + (shed.floor.height ?? 2.5);
     const tilt = THREE.MathUtils.degToRad(20);
     const solar = new THREE.Group();
+    const pitched = this.roomRoofs?.get(shed.room.id);
+    if (pitched && (pitched.type === "gable" || pitched.type === "shed")) {
+      // Schuppen mit eigenem Dach: Module liegen flach auf den Dachflächen (wie in echt)
+      this._panelsOnRoof(solar, pitched, shed.room.solar_panels ?? 4);
+      solar.userData.layer = "solar";
+      entry.group.add(solar);
+      this._buildFlow(building, shed, top + (pitched.parts[0]?.width ?? 2) / 2 * pitched.tan, entry);
+      return;
+    }
     // Dachplatte
     const roof = new THREE.Mesh(flatOrExtruded(shed.room.points, 0.08), this.mats.solarFrame);
     roof.position.y = top;
@@ -1063,7 +1109,46 @@ export class HouseScene {
     }
     solar.userData.layer = "solar";
     entry.group.add(solar);
+    this._buildFlow(building, shed, top, entry);
+  }
 
+  /** Module (1,0 × 1,7 m, hochkant) gleichmäßig auf die Dachflächen verteilen. */
+  _panelsOnRoof(group, roofInfo, count) {
+    const fr = roofInfo.parts[0];
+    if (!fr || count <= 0) return;
+    const L = fr.length / 2;
+    const W = fr.width / 2;
+    const slopes = roofInfo.type === "gable" ? [-1, 1] : [0];
+    const pw = 1.0;
+    const pd = Math.min(1.7, (roofInfo.type === "gable" ? W : 2 * W) / Math.cos(Math.atan(roofInfo.tan)) - 0.25);
+    const perSlope = Math.ceil(count / slopes.length);
+    const fit = Math.max(1, Math.floor((2 * L - 0.3) / (pw + 0.05)));
+    let left = count;
+    for (const sg of slopes) {
+      const n = Math.min(perSlope, fit, left);
+      left -= n;
+      // Mitte der Dachfläche quer zum First; Höhe dort
+      const t = roofInfo.type === "gable" ? sg * (W / 2) : 0;
+      const y = roofInfo.type === "gable" ? roofInfo.eave + (W - Math.abs(t)) * roofInfo.tan : roofInfo.eave + W * roofInfo.tan;
+      const U = new THREE.Vector3(fr.u[0], 0, fr.u[1]);
+      // Richtung hangabwärts und Flächennormale
+      const down = roofInfo.type === "gable" ? new THREE.Vector3(sg * fr.v[0], -roofInfo.tan, sg * fr.v[1]).normalize() : new THREE.Vector3(-fr.v[0], -roofInfo.tan, -fr.v[1]).normalize();
+      let N = new THREE.Vector3().crossVectors(down, U).normalize();
+      if (N.y < 0) N.negate();
+      const Z = new THREE.Vector3().crossVectors(U, N);
+      const basis = new THREE.Matrix4().makeBasis(U, N, Z);
+      for (let k = 0; k < n; k++) {
+        const s = (k - (n - 1) / 2) * (pw + 0.05);
+        const panel = new THREE.Mesh(new THREE.BoxGeometry(pw, 0.04, pd), [this.mats.solarFrame, this.mats.solarFrame, this.mats.solar, this.mats.solarFrame, this.mats.solarFrame, this.mats.solarFrame]);
+        panel.quaternion.setFromRotationMatrix(basis);
+        panel.position.set(fr.center[0] + s * fr.u[0] + t * fr.v[0], y, fr.center[1] + s * fr.u[1] + t * fr.v[1]).addScaledVector(N, 0.06);
+        group.add(panel);
+      }
+    }
+  }
+
+  /** Energieflusslinie vom Schuppen zum Haus. */
+  _buildFlow(building, shed, top, entry) {
     // Energieflusslinie zum Haus (Schwerpunkt der übrigen Räume der Etage, sonst aller Etagen)
     const others = (shed.floor.rooms ?? []).filter((r) => r !== shed.room);
     const pool = others.length ? others : (building.floors ?? []).flatMap((f) => f.rooms ?? []).filter((r) => r !== shed.room);

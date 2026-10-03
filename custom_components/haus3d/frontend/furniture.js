@@ -76,6 +76,8 @@ export const FURNITURE = {
   parasol: ["Sonnenschirm", 2.5, 2.5, 2.4],
   garden_table: ["Gartentisch", 1.4, 0.8, 0.74],
   bbq: ["Grill", 1.0, 0.6, 1.1],
+  hot_tub: ["Whirlpool (aufblasbar)", 1.95, 1.95, 0.71],
+  composter: ["Komposter", 0.8, 0.8, 0.85],
   rock: ["Findling", 0.9, 0.7, 0.5],
   rock_group: ["Steingruppe", 1.6, 1.1, 0.5],
   stepping_stone: ["Trittstein", 0.5, 0.4, 0.05],
@@ -101,7 +103,7 @@ export const FURNITURE_CATEGORIES = [
   ["Büro", ["desk", "office_chair", "tall_cabinet", "coat_rack"]],
   ["Technik", ["network_cabinet", "server_rack", "boiler", "water_tank", "heat_pump", "fuse_box", "robot_vacuum"]],
   ["Licht", ["lamp_ceiling", "lamp_downlight", "lamp_spot", "lamp_panel", "lamp_pendant", "lamp_floor", "lamp_table", "lamp_wall", "led_strip", "lamp_uplight", "lamp_bollard", "lamp_garden"]],
-  ["Garten", ["tree", "tree_conifer", "tree_fruit", "bush", "flowers", "grass", "planter", "rock", "rock_group", "stepping_stone", "lounger", "parasol", "garden_table", "bbq"]],
+  ["Garten", ["tree", "tree_conifer", "tree_fruit", "bush", "flowers", "grass", "planter", "hot_tub", "composter", "rock", "rock_group", "stepping_stone", "lounger", "parasol", "garden_table", "bbq"]],
   ["Bau", ["stairs", "stairwell", "parking"]],
   ["Eigene Körper", ["custom_box", "custom_cylinder"]],
 ];
@@ -129,6 +131,9 @@ export function furnitureMaterials(style) {
     stoneLight: m(0xb9b4aa, { roughness: 0.95 }),
     led: new THREE.MeshStandardMaterial({ color: 0x00e676, emissive: 0x00e676, emissiveIntensity: 1.2 }),
     canvas: m(0xf0e6cf),
+    tub: m(0xcfc6b4, { roughness: 0.6 }),
+    cover: m(0x6e665c, { roughness: 0.9 }),
+    plasticDark: m(0x2f3437, { roughness: 0.8 }),
     glass: new THREE.MeshStandardMaterial({ color: 0x9fd3f0, transparent: true, opacity: 0.3, depthWrite: false }),
     screen: m(0x111111, { emissive: cyber ? 0x2962ff : 0x000000, emissiveIntensity: cyber ? 0.6 : 0 }),
     bulb: new THREE.MeshStandardMaterial({ color: 0xfff3c4, emissive: 0x000000 }),
@@ -458,6 +463,26 @@ function buildModel(type, w, d, h, M) {
       box(g, M.dark, w * 0.6, h * 0.3, d * 0.8, 0, h * 0.55, 0);
       box(g, M.metal, w * 0.2, 0.03, d * 0.6, -w * 0.4, h * 0.75, 0);
       box(g, M.metal, w * 0.2, 0.03, d * 0.6, w * 0.4, h * 0.75, 0);
+      break;
+    case "hot_tub": {
+      // runder, aufblasbarer Pool mit Abdeckung
+      const r = Math.min(w, d) / 2;
+      const ring = new THREE.Mesh(new THREE.CylinderGeometry(r, r * 0.97, h * 0.92, 40), M.tub);
+      ring.position.y = (h * 0.92) / 2;
+      g.add(ring);
+      const lid = new THREE.Mesh(new THREE.CylinderGeometry(r * 0.98, r * 0.98, h * 0.08, 40), M.cover);
+      lid.position.y = h * 0.96;
+      g.add(lid);
+      const band = new THREE.Mesh(new THREE.TorusGeometry(r * 0.99, 0.02, 6, 40), M.cover);
+      band.rotation.x = Math.PI / 2;
+      band.position.y = h * 0.5;
+      g.add(band);
+      break;
+    }
+    case "composter":
+      box(g, M.plasticDark, w, h * 0.85, d);
+      box(g, M.plasticDark, w * 1.04, h * 0.15, d * 1.04, 0, h * 0.85, 0);
+      for (let i = 0; i < 3; i++) box(g, M.green, w * 0.3, 0.06, 0.01, 0, h * (0.2 + i * 0.22), d / 2 + 0.005);
       break;
     case "rock":
     case "rock_group": {

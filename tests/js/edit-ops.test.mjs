@@ -140,3 +140,40 @@ test("Möbel aus der Wand rücken, Drehung bleibt", async () => {
   assert.deepEqual(q, { x: 3.44, z: 1.5 });
   assert.equal(pushOutOfWalls({ type: "bed", x: 2, z: 1.5, w: 2, d: 1, rotation: 90 }, faces), null);
 });
+
+test("Wand verschieben: Nachbarraum geht mit, Öffnungen bleiben", async () => {
+  const { moveEdge, moveVertex } = await import("../../custom_components/haus3d/frontend/edit-ops.js");
+  const f = floorWith([rectRoom([0, 0], [4, 3], "a"), rectRoom([4, 0], [8, 3], "b")], [
+    { id: "o", room_id: "a", edge: 1, offset: 1.5, width: 0.9, type: "door", sill: 0, height: 2 },
+  ]);
+  // Kante 1 von a ist die Wand bei x = 4 (von (4,0) nach (4,3)); Normale zeigt nach -x
+  const g = moveEdge(f, "a", 1, -0.5);
+  assert.deepEqual(g.rooms[0].points, [[0, 0], [4.5, 0], [4.5, 3], [0, 3]]);
+  assert.deepEqual(g.rooms[1].points, [[4.5, 0], [8, 0], [8, 3], [4.5, 3]]);
+  assert.equal(computeWalls(g).warnings.length, 0);
+  assert.deepEqual(g.openings, f.openings);
+  // ohne Verknüpfung bleibt b, wie es war
+  assert.deepEqual(moveEdge(f, "a", 1, -0.5, { linked: false }).rooms[1].points, f.rooms[1].points);
+  // Eckpunkt: gemeinsame Ecke wandert in beiden Räumen
+  const h = moveVertex(f, "a", 2, [4.2, 3.1]);
+  assert.deepEqual(h.rooms[1].points[3], [4.2, 3.1]);
+});
+
+test("Wand mit T-Stoß: Nachbar bekommt einen Versatz statt schief zu werden", async () => {
+  const { moveEdge } = await import("../../custom_components/haus3d/frontend/edit-ops.js");
+  const f = floorWith([
+    { id: "wz", points: [[0, 0], [7, 0], [7, 5], [0, 5]] },
+    { id: "ku", points: [[7, 0], [11, 0], [11, 4], [7, 4]] },
+    { id: "fl", points: [[7, 4], [11, 4], [11, 7], [7, 7]] },
+    { id: "sz", points: [[3, 5], [7, 5], [7, 8], [3, 8]] },
+  ]);
+  const g = moveEdge(f, "wz", 1, -0.5); // Normale der Kante (7,0)->(7,5) zeigt nach -x
+  const pts = Object.fromEntries(g.rooms.map((r) => [r.id, r.points]));
+  assert.deepEqual(pts.wz, [[0, 0], [7.5, 0], [7.5, 5], [0, 5]]);
+  assert.deepEqual(pts.ku, [[7.5, 0], [11, 0], [11, 4], [7.5, 4]]);
+  // Flur: Westwand nur bis z = 5 versetzt, darüber bleibt sie bei x = 7
+  assert.deepEqual(pts.fl, [[7.5, 4], [11, 4], [11, 7], [7, 7], [7, 5], [7.5, 5]]);
+  // Schlafzimmer läuft oberhalb weiter: bleibt
+  assert.deepEqual(pts.sz, f.rooms[3].points);
+  assert.equal(computeWalls(g).warnings.length, 0);
+});

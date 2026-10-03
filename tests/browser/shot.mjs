@@ -269,6 +269,21 @@ const pick3d = await e3.evaluate(() => {
   const x = r.left + (p.x + 1) / 2 * r.width; const y = r.top + (1 - p.y) / 2 * r.height;
   return { x, y, hit: sc.pick(x, y, { furniture: true }), id: m.id };
 });
+// Wand ziehen: Wohnzimmer (0..7 × 0..5), Wand bei x = 7 um 0,5 m nach rechts; Küche geht mit
+await e3.locator("haus3d-panel .ed-bar button[data-tool=select]").click();
+[px, py] = await plan(2, 2); await e3.mouse.click(px, py);
+const wall = await e3.evaluate(() => {
+  const e = window.panel._editor; const r = e.floor.rooms.find((x) => x.id === "wohnzimmer");
+  const i = r.points.findIndex((p, k) => { const q = r.points[(k + 1) % r.points.length]; return Math.abs(p[0] - 7) < 1e-6 && Math.abs(q[0] - 7) < 1e-6; });
+  return i;
+});
+[px, py] = await plan(7, 1.2); [qx, qy] = await plan(7.5, 1.2);
+await e3.mouse.move(px, py); await e3.mouse.down(); await e3.mouse.move(qx, qy, { steps: 5 }); await e3.mouse.up();
+const wallMoved = await e3.evaluate((i) => {
+  const e = window.panel._editor; const f = e.floor;
+  return { edge: i, wz: f.rooms.find((x) => x.id === "wohnzimmer").points.map((p) => p[0]), kueche: f.rooms.find((x) => x.id === "kueche").points.map((p) => p[0]) };
+}, wall);
+console.log(JSON.stringify({ wallMoved }));
 await e3.locator("haus3d-panel .ed-bar button[data-act=save]").click();
 await e3.waitForTimeout(800);
 const saved3 = await e3.evaluate(() => {
