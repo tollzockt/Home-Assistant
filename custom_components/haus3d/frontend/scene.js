@@ -4,6 +4,8 @@
 import * as THREE from "./vendor/three.module.min.js";
 import { OrbitControls } from "./vendor/OrbitControls.js";
 import { buildDevice, buildFurniture, furnitureMaterials } from "./furniture.js";
+import { angleBetween, sunLook, sunVector } from "./sun.js";
+import { colorKey } from "./light.js";
 import { floorColor, textureFor } from "./model.js";
 import { getTexture, planarUVs } from "./textures.js";
 import { ambientInterval, lodState, resolveQuality, shouldRender } from "./perf.js";
@@ -27,6 +29,8 @@ const OUTDOOR = {
 
 const SLAB = 0.15;
 const WARM = new THREE.Color(0xffb347);
+// Grund-Deckkraft des Licht-Glühens je Stil (nie mats.glow.opacity lesen: Blitze verändern es)
+const STYLE_GLOW = { night: 0.32, cyber: 0.22, standard: 0.16 };
 const ALERT = 0xe53935;
 
 /** Plan [x, z] -> Shape in der XY-Ebene, die nach rotateX(-PI/2) wieder bei (x, 0, z) liegt. */
@@ -155,7 +159,11 @@ export class HouseScene {
     this.hemi = new THREE.HemisphereLight(0xffffff, 0x8a7f70, 1.6);
     this.sun = new THREE.DirectionalLight(0xffffff, 1.6);
     this.sun.position.set(12, 30, 8);
-    this.scene.add(this.hemi, this.sun);
+    this.scene.add(this.hemi, this.sun, this.sun.target);
+    this._sunCenter = new THREE.Vector3();
+    this._sunR = 40;
+    this._sunDir = null; // Richtung zur echten Sonne (setSun) oder null = feste Lampe
+    this._lightCache = new Map(); // Lampen- und Fensterfarben (je Farbe ein Material)
 
     this.style = "standard";
     this.layers = {};
@@ -214,7 +222,58 @@ export class HouseScene {
     // Nacht: schwaches, bläuliches Mondlicht
     this.sun.color.set(night ? 0x9fb3ff : 0xffffff);
     this.sun.intensity = cyber ? 0.7 : night ? 0.35 : this.dark ? 1.1 : 1.6;
-    if (this.mats?.glow) this.mats.glow.opacity = night ? 0.32 : cyber ? 0.22 : 0.16;
+    // echte Sonne: nur im Tag-Stil Farbe und Stärke nach der Sonnenhöhe (Nacht/Cyber wie bisher)
+    if (this.style === "standard" && this._sunLook) {
+      this.sun.color.setHex(this._sunLook.colorHex);
+      this.sun.intensity *= this._sunLook.intensityFactor;
+      this.hemi.intensity *= this._sunLook.hemiFactor;
+    }
+    if (this.mats?.glow) this.mats.glow.opacity = STYLE_GLOW[this.style] ?? 0.16;
+  }
+
+  /**
+   * Licht aus Richtung der echten Sonne. pos: {azimuth, elevation} (Grad) oder null = feste Lampe.
+   * Kostet nichts pro Bild: nur Lichtwerte, neu gezeichnet erst ab 0,3° Änderung.
+   */
+  setSun(pos, north = 0) {
+    const dir = pos && Number.isFinite(pos.azimuth) && Number.isFinite(pos.elevation) ? sunVector(pos.azimuth, pos.elevation, north) : null;
+    const look = dir ? sunLook(pos.elevation) : null;
+    const up = !!look;
+    if (dir && this._sunDir && angleBetween(dir, this._sunDir) < 0.3 && up === !!this._sunLook) return false;
+    if (!dir && !this._sunDir) return false;
+    this._sunDir = up ? dir : null;
+    this._sunLook = look;
+    this._sunPos = up ? { azimuth: pos.azimuth, elevation: pos.elevation } : null;
+    this._placeSun();
+    this._applyBackground();
+    this.invalidate();
+    return true;
+  }
+
+  _placeSun() {
+    if (this._sunDir) {
+      const [x, y, z] = this._sunDir;
+      this.sun.position.copy(this._sunCenter).add(new THREE.Vector3(x, y, z).multiplyScalar(this._sunR));
+    } else this.sun.position.copy(this._sunCenter).add(new THREE.Vector3(12, 30, 8));
+    this.sun.target.position.copy(this._sunCenter);
+    this.sun.target.updateMatrixWorld();
+  }
+
+  /** Material in einer Lichtfarbe (Lampe an, beleuchtetes Fenster), höchstens 32 Stück. */
+  _lightMat(kind, color, make) {
+    const key = `${kind}:${colorKey(color)}`;
+    let m = this._lightCache.get(key);
+    if (!m) {
+      if (this._lightCache.size >= 32) return null;
+      m = make();
+      this._lightCache.set(key, m);
+    }
+    return m;
+  }
+
+  _clearLightCache() {
+    for (const m of this._lightCache.values()) m.dispose();
+    this._lightCache.clear();
   }
 
   _makeMats() {
@@ -312,6 +371,7 @@ export class HouseScene {
   }
 
   _disposeMats() {
+    this._clearLightCache();
     // Texturen sind geteilt (textures.js) und werden nicht entsorgt
     for (const m of this.texMats?.values() ?? []) m.dispose();
     for (const m of [...Object.values(this.mats ?? {}).flat(), ...Object.values(this.outdoorMats ?? {}), ...Object.values(this.furnMats ?? {}).flat()]) {
@@ -340,6 +400,7 @@ export class HouseScene {
 
   setBuilding(building, { keepCamera = false } = {}) {
     for (const child of [...this.root.children]) this._dispose(child);
+    this._clearLightCache();
     this.root.clear();
     this.floors.clear();
     this.anchors = [];
@@ -367,6 +428,14 @@ export class HouseScene {
     this.setFilter(this.filter, { fit: !keepCamera });
     if (this._deviceList) this.setDevices(this._deviceList);
     this.applyLayers();
+    // Mitte und Abstand der Sonne aus dem Haus (ohne Garten)
+    const box = new THREE.Box3();
+    for (const entry of this.floors.values()) for (const m of entry.occluders) box.expandByObject(m);
+    if (!box.isEmpty()) {
+      box.getCenter(this._sunCenter);
+      this._sunR = Math.max(30, box.getSize(new THREE.Vector3()).length() * 2);
+    }
+    this._placeSun();
   }
 
   // ------------------------------------------------------------------ Ebenen, Geräte, Auswahl
@@ -684,6 +753,7 @@ export class HouseScene {
       const seg = segById.get(placed.segment);
       const item = this._buildOpening(seg, placed, elev, seg.height ?? height);
       item.group.userData.layer = "openings";
+      item.roomId = placed.opening.room_id ?? null;
       group.add(item.group);
       entry.openings.set(placed.opening.id, item);
     }
@@ -1460,8 +1530,17 @@ export class HouseScene {
         }
         // Cyberpunk: Boden glimmt leicht in seiner Farbe, damit er sich deutlich vom Hintergrund abhebt
         const idle = this.style === "cyber" && !s.tempMode ? r.base : new THREE.Color(0x000000);
+        // echtes Licht: Farbe und Helligkeit der Lampen (sonst warmweiß)
+        const look = lit ? s.lights?.get(key) : null;
         r.mesh.material.emissive.copy(lit && !s.tempMode ? WARM : idle);
-        r.mesh.material.emissiveIntensity = lit ? (this.style === "night" ? 0.9 : 0.45) : this.style === "cyber" ? 0.3 : 0;
+        if (look && !s.tempMode) r.mesh.material.emissive.setRGB(...look.color, THREE.SRGBColorSpace);
+        r.mesh.material.emissiveIntensity = lit ? (this.style === "night" ? 0.9 : 0.45) * (look ? 0.4 + 0.6 * look.level : 1) : this.style === "cyber" ? 0.3 : 0;
+        if (look) {
+          r.glowMat = r.glowMat ?? this.mats.glow.clone();
+          r.glowMat.color.setRGB(...look.color, THREE.SRGBColorSpace);
+          r.glowMat.opacity = (STYLE_GLOW[this.style] ?? 0.16) * (0.35 + 0.65 * look.level);
+          r.glow.material = r.glowMat;
+        } else r.glow.material = this.mats.glow;
         // Hinweis im Raum: Boden rot (kritisch) bzw. orange (Warnung); Auswahl geht vor
         const alert = s.alerts?.get(key);
         if (alert) {
@@ -1478,7 +1557,17 @@ export class HouseScene {
         const ok = !!s.security?.closed.has(key);
         const frame = open ? this.mats.frameAlert : tilted ? this.mats.frameWarn : ok ? this.mats.frameOk : this.mats.frame;
         for (const m of item.frames) m.material = frame;
-        for (const p of item.panes) p.material = open ? this.mats.glassAlert : this.mats.glass;
+        // nachts leuchten Fenster beleuchteter Räume in der Lichtfarbe (Rollladen zu dimmt)
+        const roomKey = item.roomId ? `${floorId}:${item.roomId}` : null;
+        const litLook = !open && this.style === "night" && roomKey && s.lit.has(roomKey) && (s.covers.get(key) ?? 0) < 0.9 ? s.lights?.get(roomKey) ?? { color: [1, 0.78, 0.45], level: 1 } : null;
+        const glassLit = litLook ? this._lightMat("glass", litLook.color, () => {
+          const m = this.mats.glass.clone();
+          m.emissive.setRGB(...litLook.color, THREE.SRGBColorSpace);
+          m.emissiveIntensity = 1.1;
+          m.opacity = 0.75;
+          return m;
+        }) : null;
+        for (const p of item.panes) p.material = open ? this.mats.glassAlert : glassLit ?? this.mats.glass;
         for (const solid of item.solids) solid.material = open || tilted ? frame : solid.userData.base;
         const closed = s.covers.get(key);
         // Ziele setzen; die Bewegung macht _animate() Bild für Bild
@@ -1496,7 +1585,14 @@ export class HouseScene {
     }
     for (const [entity, bulbs] of this.lampBulbs) {
       const on = s.onEntities?.has(entity);
-      for (const b of bulbs) b.material = on ? this.furnMats.bulbOn : this.furnMats.bulb;
+      const look = on ? s.lightLooks?.get(entity) : null;
+      const mat = !on ? this.furnMats.bulb : (look && this._lightMat("bulb", look.color, () => {
+        const m = this.furnMats.bulbOn.clone();
+        m.emissive.setRGB(...look.color, THREE.SRGBColorSpace);
+        m.color.setRGB(...look.color.map((v) => 0.6 + 0.4 * v), THREE.SRGBColorSpace);
+        return m;
+      })) || this.furnMats.bulbOn;
+      for (const b of bulbs) b.material = mat;
     }
     this._applySelection();
     this._animate(1 / 60);

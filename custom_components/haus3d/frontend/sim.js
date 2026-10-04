@@ -1,5 +1,6 @@
 // Simulationsmodus: legt eine Schicht über das echte hass-Objekt. Zustände werden nur hier geändert,
 // Dienstaufrufe gehen nie an Home Assistant, Grundriss-Speichern bleibt lokal. Ohne DOM, mit node testbar.
+import { sunPosition } from "./sun.js";
 
 const now = () => new Date().toISOString();
 
@@ -21,6 +22,7 @@ export class Simulator {
     this.demo = { states: {}, entities: {} };
     this.weather = ""; // "" = wie echt
     this.daytime = ""; // "" = wie echt, "day", "night"
+    this.time = null; // Uhrzeit in Minuten (0..1440) oder null = wie echt
     this.solar = null; // Watt oder null = wie echt
     this.building = null; // lokale Kopie beim Speichern in der Simulation
     this.revision = 0;
@@ -46,6 +48,7 @@ export class Simulator {
     this.overrides.clear();
     this.weather = "";
     this.daytime = "";
+    this.time = null;
     this.solar = null;
     this.log = [];
     this._cache = null;
@@ -100,7 +103,19 @@ export class Simulator {
     const states = { ...real.states, ...this.demo.states };
     for (const [id, st] of this.overrides) states[id] = st;
     // Tageszeit
-    if (this.daytime) states["sun.sun"] = { ...(real.states["sun.sun"] ?? { entity_id: "sun.sun", attributes: {} }), state: this.daytime === "night" ? "below_horizon" : "above_horizon" };
+    const sunBase = real.states["sun.sun"] ?? { entity_id: "sun.sun", attributes: {} };
+    if (this.time !== null) {
+      // Uhrzeit: Sonnenstand heute um diese Zeit am Ort aus hass.config
+      const d = new Date();
+      d.setHours(0, 0, 0, 0);
+      const lat = Number(real.config?.latitude ?? 51);
+      const lon = Number(real.config?.longitude ?? 10);
+      const p = sunPosition(d.getTime() + this.time * 60000, Number.isFinite(lat) ? lat : 51, Number.isFinite(lon) ? lon : 10);
+      states["sun.sun"] = { ...sunBase, state: p.elevation > -0.83 ? "above_horizon" : "below_horizon", attributes: { ...sunBase.attributes, azimuth: Math.round(p.azimuth * 10) / 10, elevation: Math.round(p.elevation * 10) / 10 } };
+    } else if (this.daytime) {
+      const night = this.daytime === "night";
+      states["sun.sun"] = { ...sunBase, state: night ? "below_horizon" : "above_horizon", attributes: { ...sunBase.attributes, azimuth: night ? 0 : 180, elevation: night ? -20 : 45 } };
+    }
     // Wetter: eingestellte bzw. erste Wetter-Entität, sonst eine simulierte
     if (this.weather) {
       const wid = building?.settings?.weather && building.settings.weather !== "none" ? building.settings.weather : Object.keys(real.states).sort().find((e) => e.startsWith("weather.")) ?? "weather.simulation";

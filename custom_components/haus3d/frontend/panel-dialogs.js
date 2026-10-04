@@ -305,6 +305,8 @@ export const DialogMethods = {
         this._saveSettings();
         this._scene?.setLayers(st.layers);
         this._applyOverlayLayers();
+        if (box.dataset.layer === "sun") this._applySun();
+        if (box.dataset.layer === "lightcolor") this._updateStates();
       });
     }
     el.querySelector("[data-perfhud]").addEventListener("change", (ev) => {
@@ -339,6 +341,7 @@ export const DialogMethods = {
     const weather = this._building?.settings?.weather ?? "";
     const weathers = Object.keys(hass.states).filter((id) => id.startsWith("weather.")).sort();
     const pvItems = (roof.items ?? []).some((it) => it?.type === "pv");
+    const northNow = ((Math.round(Number(this._building?.settings?.north) || 0) % 360) + 360) % 360;
     box.innerHTML = `
       <label class="en-row"><span>Dach</span><select data-r="type">${ROOF_TYPES.map(([k, n]) => `<option value="${k}"${k === roof.type ? " selected" : ""}>${n}</option>`).join("")}</select></label>
       <label class="en-row"><span>Neigung (°)</span><input data-r="pitch" type="number" min="5" max="60" step="1" value="${roof.pitch}"></label>
@@ -362,10 +365,29 @@ export const DialogMethods = {
       <div class="pvarrays"></div>
       <div class="btns"><button class="pvadd">+ PV-Feld</button></div>
       </div>
-      <label class="en-row"><span>Norden</span><select data-north>${[[0, "oben im Plan"], [90, "rechts im Plan"], [180, "unten im Plan"], [270, "links im Plan"]].map(([v, n]) => `<option value="${v}"${Number(this._building?.settings?.north ?? 0) === v ? " selected" : ""}>${n}</option>`).join("")}${[0, 90, 180, 270].includes(Number(this._building?.settings?.north ?? 0)) ? "" : `<option value="${this._building.settings.north}" selected>${this._building.settings.north}°</option>`}</select></label>
+      <label class="en-row"><span>Norden</span><select data-northq>${[[0, "oben im Plan"], [90, "rechts im Plan"], [180, "unten im Plan"], [270, "links im Plan"], ["", "eigener Winkel"]].map(([v, n]) => `<option value="${v}"${(v === "" ? ![0, 90, 180, 270].includes(northNow) : northNow === v) ? " selected" : ""}>${n}</option>`).join("")}</select></label>
+      <div class="en-row"><span>genau (°)</span><button class="nstep" data-step="-5">−5°</button><input data-north type="number" min="0" max="359" step="1" value="${northNow}"><button class="nstep" data-step="5">+5°</button></div>
+      <p class="hint">Wichtig für Sonnenstand und PV-Ausrichtung: Grad im Uhrzeigersinn, um die Norden von „oben im Plan“ abweicht.</p>
       <p class="hint">Das Dach erscheint nur in der Ansicht „Alle“. Wählt man eine Etage, schaut man hinein. Module liegen auf den Dachflächen, die in die Richtung zeigen (L-Dach: Hauptdach und Flügel).</p>
       <div class="btns"><button class="house-save primary">Speichern</button></div>`;
     // PV-Felder: Richtung, Spalten × Reihen, hoch/quer, Abstand von links (von außen gesehen), ab Reihe
+    // Norden: Schnellwahl und genauer Winkel (±5°) halten sich gegenseitig aktuell
+    const northIn = box.querySelector("[data-north]");
+    const northQ = box.querySelector("[data-northq]");
+    const syncNorth = () => {
+      const v = ((Math.round(Number(northIn.value) || 0) % 360) + 360) % 360;
+      northIn.value = v;
+      northQ.value = [0, 90, 180, 270].includes(v) ? String(v) : "";
+    };
+    northQ.addEventListener("change", () => {
+      if (northQ.value !== "") northIn.value = northQ.value;
+      syncNorth();
+    });
+    northIn.addEventListener("change", syncNorth);
+    box.querySelectorAll(".nstep").forEach((b) => b.addEventListener("click", () => {
+      northIn.value = Number(northIn.value || 0) + Number(b.dataset.step);
+      syncNorth();
+    }));
     const arrays = structuredClone(roof.solar_arrays ?? []);
     const arrBox = box.querySelector(".pvarrays");
     const dirs = [["S", "Süd"], ["E", "Ost"], ["W", "West"], ["N", "Nord"]];
@@ -411,7 +433,7 @@ export const DialogMethods = {
       const safety = { ...(this._building?.settings?.safety ?? {}), confirm: box.querySelector("[data-safety]").checked };
       const hm = Math.round(Number(box.querySelector("[data-hummax]").value));
       const climate = { ...(this._building?.settings?.climate ?? {}), humidity_max: Number.isFinite(hm) ? Math.min(90, Math.max(40, hm)) : 65 };
-      this._saveBuildingSettings({ roof, weather: w || null, north: Number(box.querySelector("[data-north]").value) || 0, safety, climate }, "Dach und Wetter gespeichert.");
+      this._saveBuildingSettings({ roof, weather: w || null, north: ((Math.round(Number(box.querySelector("[data-north]").value) || 0) % 360) + 360) % 360, safety, climate }, "Dach und Wetter gespeichert.");
     });
   },
 

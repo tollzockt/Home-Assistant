@@ -97,6 +97,8 @@ export const LAYERS = [
   ["energy", "Energieanzeige"],
   ["status", "Statusleiste (Licht, offen, Schlösser)"],
   ["presence", "Anwesenheit (Personen, Bewegung)"],
+  ["sun", "Sonnenstand (Licht aus Richtung der echten Sonne)"],
+  ["lightcolor", "Lichtfarbe und Helligkeit übernehmen"],
 ];
 
 export const DEFAULT_SETTINGS = { style: "auto", deviceMode: "icons", quality: "auto", perfHud: false, layers: Object.fromEntries(LAYERS.map(([k]) => [k, true])) };

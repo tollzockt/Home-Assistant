@@ -106,7 +106,7 @@ export function roofSvg(ed, px) {
   const nc = [Math.min(...xs) + 0.3, Math.min(...zs) + 0.3];
   const nd = [Math.sin(north), -Math.cos(north)];
   const tip = [nc[0] + nd[0] * 0.9, nc[1] + nd[1] * 0.9];
-  parts.push(`<g pointer-events="none"><line x1="${r3(nc[0])}" y1="${r3(nc[1])}" x2="${r3(tip[0])}" y2="${r3(tip[1])}" stroke="#e53935" stroke-width="${px(3)}"/><circle cx="${r3(tip[0])}" cy="${r3(tip[1])}" r="${px(4)}" fill="#e53935"/><text x="${r3(tip[0] + nd[0] * 0.4)}" y="${r3(tip[1] + nd[1] * 0.4 + px(4))}" text-anchor="middle" font-size="${px(13)}" font-weight="700" fill="#e53935">N</text></g>`);
+  parts.push(`<g pointer-events="none"><line x1="${r3(nc[0])}" y1="${r3(nc[1])}" x2="${r3(tip[0])}" y2="${r3(tip[1])}" stroke="#e53935" stroke-width="${px(3)}"/><circle cx="${r3(tip[0])}" cy="${r3(tip[1])}" r="${px(4)}" fill="#e53935"/><text x="${r3(tip[0] + nd[0] * 0.4)}" y="${r3(tip[1] + nd[1] * 0.4 + px(4))}" text-anchor="middle" font-size="${px(13)}" font-weight="700" fill="#e53935">N${north ? ` ${Math.round((north * 180) / Math.PI)}°` : ""}</text></g>`);
   // Dinge auf dem Dach
   for (const it of roof.items ?? []) {
     const sel = ed.sel?.kind === "roofitem" && ed.sel.id === it.id;
@@ -338,7 +338,7 @@ export function roofProps(ed, el, pad, bindPad) {
     <div class="row2">${num("pitch", "Neigung (°)", roof.pitch, 1, ' min="5" max="60"')}${num("overhang", "Überstand (m)", roof.overhang, 0.05, ' min="0" max="1.5"')}</div>
     <div class="row2"><div><label>First</label><select data-rr="direction">${[["auto", "lange Seite"], ["x", "Ost–West im Plan"], ["z", "Nord–Süd im Plan"]].map(([k, n]) => `<option value="${k}"${k === roof.direction ? " selected" : ""}>${n}</option>`).join("")}</select></div>
       <div><label>Flügel-Ende</label><select data-rr="wing_end"><option value="gable"${roof.wing_end !== "hip" ? " selected" : ""}>Giebel</option><option value="hip"${roof.wing_end === "hip" ? " selected" : ""}>Walm</option></select></div></div>
-    <label>Norden im Plan</label><select data-north>${[[0, "oben"], [90, "rechts"], [180, "unten"], [270, "links"]].map(([v, n]) => `<option value="${v}"${v === (Number(ed.b.settings?.north) || 0) ? " selected" : ""}>${n}</option>`).join("")}</select>
+    <label>Norden im Plan (° im Uhrzeigersinn ab oben)</label><div class="row3"><button data-nstep="-5">−5°</button><input data-north type="number" min="0" max="359" step="1" value="${Number(ed.b.settings?.north) || 0}"><button data-nstep="5">+5°</button></div>
     ${colorField("color", "Dachfarbe", roof.color)}
     ${textureField("texture", "Dachdeckung (Textur)", roof.texture, "r")}
     ${colorField("gable_color", "Giebel: Farbe (Standard = Außenwand)", roof.gable_color)}
@@ -355,9 +355,9 @@ export function roofProps(ed, el, pad, bindPad) {
     if (Number.isFinite(v)) save((r) => (r[inp.dataset.rn] = v));
   }));
   el.querySelectorAll("[data-tex]").forEach((inp) => inp.addEventListener("change", () => save((r) => setKey(r, inp.dataset.tex, inp.value))));
-  el.querySelector("[data-north]").addEventListener("change", (ev) => {
-    ed.changeBuilding((b) => (b.settings.north = Number(ev.target.value)));
-  });
+  const setNorth = (v) => ed.changeBuilding((b) => (b.settings.north = ((Math.round(Number(v) || 0) % 360) + 360) % 360));
+  el.querySelector("[data-north]").addEventListener("change", (ev) => setNorth(ev.target.value));
+  el.querySelectorAll("[data-nstep]").forEach((b) => b.addEventListener("click", () => setNorth((Number(ed.b.settings?.north) || 0) + Number(b.dataset.nstep))));
   bindColor((r, key, v) => setKey(r, key, v));
   el.querySelector("[data-ract=legacy]")?.addEventListener("click", () => {
     const list = legacyPvItems(model, Number(ed.b.settings?.north) || 0);

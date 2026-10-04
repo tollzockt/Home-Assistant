@@ -91,6 +91,11 @@ const energy = {
   akku_leistung: st("sensor.akku_leistung", "-32", { unit_of_measurement: "W" }),
   ertrag_heute: st("sensor.pv_ertrag_heute", "1.234", { unit_of_measurement: "kWh" }),
 };
+// ?pvfield: Leistung eines PV-Felds (4200 W) und Gesamtleistung der Dach-PV (6000 W)
+if (params.has("pvfield")) {
+  energy.haus_pv = st("sensor.pv_dach", "6000", { unit_of_measurement: "W", device_class: "power" });
+  add(st("sensor.pv_feld_test", "4200", { unit_of_measurement: "W", device_class: "power", friendly_name: "PV Süd" }), null);
+}
 // ?netz=450: Netz-Leistung (positiv = Bezug)
 if (params.has("netz")) energy.netz = st("sensor.netz_leistung", params.get("netz") || "450", { unit_of_measurement: "W", device_class: "power" });
 data.settings = { ...(data.settings ?? {}), energy: { ...(data.settings?.energy ?? {}), ...Object.fromEntries(Object.entries(energy).map(([k, v]) => [k, v.entity_id])) } };
@@ -125,6 +130,12 @@ if (params.has("moisture")) add(st("binary_sensor.waschraum_wasser", "on", { dev
 // ?lock: Haustürschloss (abgeschlossen) im Flur, ?siren: Sirene im Flur
 if (params.has("lock")) add(st("lock.haustuer", params.get("lock") || "locked", { friendly_name: "Haustür" }), "flur");
 if (params.has("siren")) add(st("siren.alarm", "off", { friendly_name: "Sirene" }), "flur");
+// ?sun=Azimut,Höhe: Sonnenstand; ?light=rgb: blaue Wohnzimmerlampe
+if (params.has("sun")) {
+  const [az, el] = (params.get("sun") || "180,45").split(",").map(Number);
+  add(st("sun.sun", el > 0 ? "above_horizon" : "below_horizon", { azimuth: az, elevation: el }), null);
+}
+if (params.get("light") === "rgb") states["light.wohnzimmer_decke"].attributes = { ...states["light.wohnzimmer_decke"].attributes, rgb_color: [0, 0, 255], brightness: 255 };
 if (params.get("weather")) add(st("weather.zuhause", params.get("weather"), { friendly_name: "Zuhause" }), null);
 window.calls = [];
 window.events = [];

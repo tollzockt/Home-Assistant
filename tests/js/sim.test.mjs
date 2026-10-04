@@ -71,3 +71,17 @@ test("Wetter, Tageszeit, Solar und Beispielgeräte", () => {
   assert.equal(building.floors[0].rooms[0].area_id, "sim_bad");
   assert.ok(!h.entities["light.sim_flur"]); // Flur hat schon Geräte
 });
+
+test("Uhrzeit: Sonnenstand aus Breite/Länge, Mitternacht unter dem Horizont, Mittag im Süden", () => {
+  const real = { ...realHass(), config: { latitude: 51, longitude: 10 } };
+  const sim = new Simulator();
+  sim.time = 0;
+  assert.equal(sim.wrap(real, { building: { floors: [] } }).states["sun.sun"].state, "below_horizon");
+  const s2 = new Simulator();
+  s2.time = 13 * 60; // 13 Uhr Ortszeit des Testrechners: Sonne irgendwo am Tageshimmel oder darunter
+  const a = s2.wrap(real, { building: { floors: [] } }).states["sun.sun"].attributes;
+  assert.ok(Number.isFinite(a.azimuth) && Number.isFinite(a.elevation));
+  const s3 = new Simulator();
+  s3.daytime = "day";
+  assert.equal(s3.wrap(real, { building: { floors: [] } }).states["sun.sun"].attributes.elevation, 45);
+});

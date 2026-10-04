@@ -344,7 +344,7 @@ await sm.waitForTimeout(300);
 const simDialog = await sm.evaluate(() => !!window.panel.shadowRoot.querySelector(".simdlg"));
 await sm.locator("haus3d-panel .simdlg button[data-set=on]").click();
 await sm.locator("haus3d-panel .simbar select[data-sim=weather]").selectOption("snowy");
-await sm.locator("haus3d-panel .simbar select[data-sim=daytime]").selectOption("night");
+await sm.locator("haus3d-panel .simbar input[data-sim=time]").fill("0");
 await sm.locator("haus3d-panel .simbar input[data-sim=demo]").check();
 await sm.waitForTimeout(1500);
 await sm.screenshot({ path: `${out}/simulation.png` });
@@ -434,7 +434,7 @@ await hud.evaluate(async () => {
   await p._saveBuildingSettings({ north: 180, roof: { type: "gable", pitch: 35, overhang: 0.4, wing_end: "hip", solar_arrays: [{ dir: "S", cols: 3, rows: 2, orient: "landscape", left: 0.3, row: 0 }, { dir: "W", cols: 2, rows: 2, orient: "portrait", left: 0.5, row: 0 }] } }, "ok");
 });
 await hud.waitForTimeout(1200);
-const pv = await hud.evaluate(() => { let n = 0; window.panel._scene.roofHolder?.traverse((o) => { if (o.isMesh && o.geometry?.parameters?.depth !== undefined && o.geometry.parameters.height === 0.04) n++; }); return n; });
+const pv = await hud.evaluate(() => { let n = 0; window.panel._scene.roofHolder?.traverse((o) => { if (o.isMesh && o.geometry?.parameters?.depth !== undefined && o.geometry.parameters.height === 0.04) n += o.isInstancedMesh ? o.count : 1; }); return n; });
 await hud.screenshot({ path: `${out}/hud-pv.png` });
 const cardTxt = await hud.evaluate(() => [...window.panel.shadowRoot.querySelectorAll(".cards .card")].map((c) => c.innerText.replace(/\s+/g, " ")));
 console.log(JSON.stringify({ hud: { cardTxt, wheel1, wheel2, wheelR, fnCustom, leftClosed, quickCall, gridOff, styleNow, floorNow, pv } }));
@@ -517,7 +517,7 @@ await rf.screenshot({ path: `${out}/dach-kante.png` });
 await rf.locator("haus3d-panel .ed-bar button[data-act=save]").click();
 await rf.waitForTimeout(1200);
 const savedItems = await rf.evaluate(() => (window.panel._building.settings.roof.items ?? []).length);
-const roof3d = await rf.evaluate(() => { let pv = 0; let n = 0; window.panel._scene.roofHolder?.traverse((o) => { if (!o.isMesh) return; n++; if (o.geometry?.parameters?.height === 0.04) pv++; }); return { pv, n }; });
+const roof3d = await rf.evaluate(() => { let pv = 0; let n = 0; window.panel._scene.roofHolder?.traverse((o) => { if (!o.isMesh) return; n++; if (o.geometry?.parameters?.height === 0.04) pv += o.isInstancedMesh ? o.count : 1; }); return { pv, n }; });
 await rf.screenshot({ path: `${out}/dach-3d.png` });
 // Raumdach (Schuppen) verschwindet mit der Etagenwahl samt Modulen
 await rf.locator("haus3d-panel .floorbar button[data-floor='eg']").click();

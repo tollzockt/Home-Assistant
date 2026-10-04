@@ -39,6 +39,8 @@ import { entityPlaces, houseStatus, openState, statusChips } from "./status.js";
 import { ALERT_DEFAULTS, evaluateAlerts, exteriorOpenings, normalizeAlerts, visibleAlerts } from "./alerts.js";
 import { QUALITY_CHOICES, adaptDpr, resolveQuality } from "./perf.js";
 import { batteryState, batteryText, ema, formatPower, gridState, gridText, surplus } from "./energy.js";
+import { sunFromHass } from "./sun.js";
+import { lightLook, roomLight } from "./light.js";
 import { HouseScene } from "./scene.js";
 import { closeGaps } from "./walls.js";
 import { EDITOR_STYLE, FloorEditor } from "./editor.js";
@@ -46,6 +48,9 @@ import { PANEL_STYLE } from "./panel-style.js";
 
 import { LONG_PRESS_MS, esc, plural, ENERGY_CORE, energyRows, LAYERS, DEFAULT_SETTINGS, loadSettings, fmt, ICONS, CONTACT_ICONS, DOMAIN_ICONS, SENSOR_ICONS, fmtPower, setText, iconFor, isActive } from "./panel-util.js";
 import { DialogMethods } from "./panel-dialogs.js";
+
+/** Uhrzeit der Simulation („echt“ oder HH:MM). */
+const simTime = (min) => (min === null || min === undefined ? "echt" : `${String(Math.floor(min / 60)).padStart(2, "0")}:${String(min % 60).padStart(2, "0")}`);
 
 class Haus3DPanel extends HTMLElement {
   constructor() {
@@ -78,7 +83,10 @@ class Haus3DPanel extends HTMLElement {
     this._hass = hass;
     if (!this._built) return;
     if (!prev || prev.themes?.darkMode !== hass.themes?.darkMode) this._applyTheme();
-    if (!prev || prev.states?.["sun.sun"] !== hass.states?.["sun.sun"]) this._applyStyle();
+    if (!prev || prev.states?.["sun.sun"] !== hass.states?.["sun.sun"]) {
+      this._applyStyle();
+      this._applySun();
+    }
     if (!prev || prev.user?.is_admin !== hass.user?.is_admin) this._renderToolbar();
     if (!this._building) return;
     if (!prev || prev.entities !== hass.entities || prev.devices !== hass.devices) {
@@ -235,7 +243,7 @@ class Haus3DPanel extends HTMLElement {
     el.className = "simbar";
     el.innerHTML = `<b>SIMULATION</b>
       <label>Wetter <select data-sim="weather">${SIM_WEATHER.map(([k, n]) => `<option value="${k}"${k === sim.weather ? " selected" : ""}>${n}</option>`).join("")}</select></label>
-      <label>Tageszeit <select data-sim="daytime">${[["", "wie echt"], ["day", "Tag"], ["night", "Nacht"]].map(([k, n]) => `<option value="${k}"${k === sim.daytime ? " selected" : ""}>${n}</option>`).join("")}</select></label>
+      <label>Uhrzeit <input type="range" min="-15" max="1440" step="15" data-sim="time" value="${sim.time ?? -15}"><span class="tv">${simTime(sim.time)}</span></label>
       <label>Solar <input type="range" min="0" max="1600" step="20" data-sim="solar" value="${sim.solar ?? 0}"><span class="sv">${sim.solar === null ? "echt" : `${sim.solar} W`}</span></label>
       <label><input type="checkbox" data-sim="demo"${this._settings.simDemo ? " checked" : ""}> Beispielgeräte</label>
       <button data-sim="reset">Zurücksetzen</button><button data-sim="stop">Beenden</button>`;
@@ -244,9 +252,11 @@ class Haus3DPanel extends HTMLElement {
       sim._cache = null;
       this._simChanged();
     });
-    el.querySelector("[data-sim=daytime]").addEventListener("change", (ev) => {
-      sim.daytime = ev.target.value;
+    el.querySelector("[data-sim=time]").addEventListener("input", (ev) => {
+      const v = Number(ev.target.value);
+      sim.time = v < 0 ? null : Math.min(1439, v);
       sim._cache = null;
+      el.querySelector(".tv").textContent = simTime(sim.time);
       this._simChanged();
     });
     el.querySelector("[data-sim=solar]").addEventListener("input", (ev) => {
@@ -428,6 +438,7 @@ class Haus3DPanel extends HTMLElement {
     if (this._scene) {
       this._scene.filter = this._filter; // wird in setBuilding gegen die Etagen geprüft
       this._scene.setBuilding(this._building, { keepCamera });
+      this._applySun();
       if (this._scene.warnings.length) console.warn("Haus 3D:", this._scene.warnings);
       if (!this._editor) this._scene.start();
       this._weatherRef = undefined;
@@ -813,6 +824,8 @@ class Haus3DPanel extends HTMLElement {
     const hass = this._hass;
     if (!hass || !this._building || !this._byArea) return;
     const lit = new Set();
+    const lights = new Map(); // Raum → {color, level} (echtes Licht)
+    const lightColors = this._settings.layers.lightcolor !== false;
     const temps = new Map();
     const open = new Set();
     const covers = new Map();
@@ -851,7 +864,11 @@ class Haus3DPanel extends HTMLElement {
       }
       for (const room of placesOf(floor)) {
         const key = `${floor.id}:${room.id}`;
-        if (roomLit(room, hass, this._byArea)) lit.add(key);
+        if (roomLit(room, hass, this._byArea)) {
+          lit.add(key);
+          const look = lightColors ? roomLight(room, hass, this._byArea) : null;
+          if (look) lights.set(key, look);
+        }
         const climate = roomClimate(room, hass, this._byArea);
         const th = roomHeating(room, hass, this._byArea);
         if (th?.action === "heating") heatRooms.add(key);
@@ -882,10 +899,12 @@ class Haus3DPanel extends HTMLElement {
     }
     const energy = energyValues(this._building.settings, hass);
     const onEntities = new Set(this._watched.filter((id) => hass.states[id]?.state === "on"));
+    const lightLooks = new Map();
+    if (lightColors) for (const id of onEntities) if (id.startsWith("light.")) lightLooks.set(id, lightLook(hass.states[id]));
     const heating = new Set(this._watched.filter((id) => id.startsWith("climate.") && hass.states[id]?.attributes?.hvac_action === "heating"));
     const alertRooms = this._evalAlerts(energy);
     if (this._securityView) temps.clear(); // Böden neutral grau
-    this._scene?.applyStates({ security, lit, temps, tempMode: view !== "none" || this._securityView, tempColor: (v) => viewColor(view, v) ?? [0.6, 0.6, 0.6], open, covers, feedIn: energy.einspeisung, onEntities, heating, heatRooms, alerts: alertRooms });
+    this._scene?.applyStates({ security, lit, temps, tempMode: view !== "none" || this._securityView, tempColor: (v) => viewColor(view, v) ?? [0.6, 0.6, 0.6], open, covers, feedIn: energy.einspeisung, onEntities, heating, heatRooms, alerts: alertRooms, lights, lightLooks });
     this._renderRoomPanel();
 
     for (const { el, icon } of this._iconEls) {
@@ -1219,6 +1238,13 @@ class Haus3DPanel extends HTMLElement {
     const st = this._settings.style;
     if (st !== "auto") return st;
     return this._hass?.states?.["sun.sun"]?.state === "below_horizon" ? "night" : "day";
+  }
+
+  /** Licht aus Richtung der echten Sonne (sun.sun bzw. Breite/Länge), Ebene „Sonnenstand“. */
+  _applySun() {
+    if (!this._scene) return;
+    const on = this._settings.layers.sun !== false;
+    this._scene.setSun(on ? sunFromHass(this._hass) : null, Number(this._building?.settings?.north) || 0);
   }
 
   _applyStyle() {

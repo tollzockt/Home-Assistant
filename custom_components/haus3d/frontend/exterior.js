@@ -489,11 +489,57 @@ export function autoHeights(building, floorId, areaId, tol = 0.5) {
  * @returns {"N"|"E"|"S"|"W"}
  */
 export function compassOf(dir, north = 0) {
+  return ["N", "E", "S", "W"][Math.round(azimuthOf(dir, north) / 90) % 4];
+}
+
+/** Richtung im Grundriss [x, z] als Azimut in Grad (0 = Norden, im Uhrzeigersinn). */
+export function azimuthOf(dir, north = 0) {
   const n = (north * Math.PI) / 180;
   const N = [Math.sin(n), -Math.cos(n)];
   const E = [Math.cos(n), Math.sin(n)];
-  const az = ((Math.atan2(dir[0] * E[0] + dir[1] * E[1], dir[0] * N[0] + dir[1] * N[1]) * 180) / Math.PI + 360) % 360;
-  return ["N", "E", "S", "W"][Math.round(az / 90) % 4];
+  return ((Math.atan2(dir[0] * E[0] + dir[1] * E[1], dir[0] * N[0] + dir[1] * N[1]) * 180) / Math.PI + 360) % 360;
+}
+
+/** Himmelsrichtung in 16 Stufen („SSW“). */
+export function compass16(az) {
+  return ["N", "NNO", "NO", "ONO", "O", "OSO", "SO", "SSO", "S", "SSW", "SW", "WSW", "W", "WNW", "NW", "NNW"][Math.round((((az % 360) + 360) % 360) / 22.5) % 16];
+}
+
+/**
+ * Achsen eines Moduls flach auf der Dachfläche: U entlang der Traufe, N Flächennormale (nach oben),
+ * Z die Neigung hinauf. out: Richtung hangabwärts im Grundriss (null = Flachdach, dann along).
+ * @returns {{U: number[], N: number[], Z: number[]}}
+ */
+export function panelBasis(out, tan, along = null) {
+  const o = out ?? [-(along?.[1] ?? 0), along?.[0] ?? 1];
+  const U = [o[1], 0, -o[0]];
+  const norm = (v) => {
+    const l = Math.hypot(...v) || 1;
+    return v.map((x) => x / l);
+  };
+  const cross = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+  const down = out ? norm([out[0], -tan, out[1]]) : [o[0], 0, o[1]];
+  let N = norm(cross(down, U));
+  if (N[1] < 0) N = N.map((x) => -x);
+  return { U, N, Z: cross(U, N) };
+}
+
+/** Standard-Modulleistung, wenn am PV-Feld keine angegeben ist. */
+export const DEFAULT_WP = 400;
+
+/**
+ * Kenndaten eines PV-Felds: Azimut (null = flach), Neigung, Anzahl passender Module, kWp.
+ */
+export function fieldInfo(model, item, north = 0) {
+  const lay = pvLayout(model, item);
+  const wp = Number(item.wp) > 0 ? Number(item.wp) : DEFAULT_WP;
+  return {
+    azimuth: lay.out ? azimuthOf(lay.out, north) : null,
+    tilt: lay.out ? (Math.atan(model.tan) * 180) / Math.PI : 0,
+    count: lay.count,
+    wp,
+    kwp: (lay.count * wp) / 1000,
+  };
 }
 
 /**

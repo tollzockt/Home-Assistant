@@ -161,5 +161,45 @@ export function gridText(g, lang) {
   return g.dir === "idle" ? "ruht" : `${g.dir === "import" ? "Bezug" : "Einspeisung"} ${formatPower(g.w, lang)}`;
 }
 
+/**
+ * Anteil der Sonne, der auf eine geneigte Fläche fällt (Kosinus des Einfallswinkels, 0 wenn die Sonne
+ * hinter der Fläche oder unter dem Horizont steht). azimuth null = flach.
+ */
+export function poaFactor(sun, azimuth, tiltDeg) {
+  if (!sun || !Number.isFinite(sun.elevation) || sun.elevation <= 0) return 0;
+  const R = Math.PI / 180;
+  const t = (Number(tiltDeg) || 0) * R;
+  const a = (Number(azimuth) || 0) * R;
+  const el = sun.elevation * R;
+  const az = sun.azimuth * R;
+  const n = [Math.sin(t) * Math.sin(a), Math.sin(t) * Math.cos(a), Math.cos(t)];
+  const s = [Math.cos(el) * Math.sin(az), Math.cos(el) * Math.cos(az), Math.sin(el)];
+  return Math.max(0, n[0] * s[0] + n[1] * s[1] + n[2] * s[2]);
+}
+
+/**
+ * Leistung je PV-Feld: eigener Sensor gilt; der Rest der Gesamtleistung (haus_pv) wird nach kWp ×
+ * Sonneneinfall verteilt und als geschätzt markiert (ohne Sonnenstand nur nach kWp).
+ * @param {{id: string, kwp: number, azimuth: number|null, tilt: number, w?: number|null}[]} fields
+ * @returns {Map<string, {w: number|null, estimated: boolean}>}
+ */
+export function fieldPower(fields, totalW, sun = null) {
+  const out = new Map();
+  const own = fields.filter((f) => Number.isFinite(f.w));
+  for (const f of own) out.set(f.id, { w: f.w, estimated: false });
+  const rest = fields.filter((f) => !Number.isFinite(f.w));
+  if (!rest.length) return out;
+  if (!Number.isFinite(totalW)) {
+    for (const f of rest) out.set(f.id, { w: null, estimated: true });
+    return out;
+  }
+  const left = Math.max(0, totalW - own.reduce((s, f) => s + f.w, 0));
+  let weights = rest.map((f) => (Number(f.kwp) || 0) * (sun ? poaFactor(sun, f.azimuth, f.tilt) : 1));
+  if (!weights.some((x) => x > 0)) weights = rest.map((f) => Number(f.kwp) || 0);
+  const sum = weights.reduce((s, x) => s + x, 0);
+  rest.forEach((f, i) => out.set(f.id, { w: sum > 0 ? (left * weights[i]) / sum : 0, estimated: true }));
+  return out;
+}
+
 /** Auswahl „Eingeklappt zeigen“. */
 export const SHORT_CHOICES = [["", "erster Wert"], ["akku", "Akku"], ["solar", "Solar"], ["netz", "Netz"], ["verbrauch", "Verbrauch"], ["ueberschuss", "Überschuss"]];

@@ -39,6 +39,7 @@ export const PANEL_STYLE = `
 .dialog .btns { display: flex; gap: 8px; margin-top: 10px; }
 .dialog .btns button { flex: 1; font: inherit; padding: 9px; border-radius: 8px; border: 1px solid var(--divider-color, rgba(127,127,127,.4)); background: none; color: inherit; cursor: pointer; }
 .dialog .btns .primary { background: var(--primary-color, #03a9f4); color: #fff; border-color: transparent; }
+.en-row .nstep { flex: none; min-width: 48px; min-height: 40px; font: inherit; border-radius: 8px; border: 1px solid var(--divider-color, rgba(127,127,127,.4)); background: none; color: inherit; cursor: pointer; }
 .btns.left { justify-content: flex-start; }
 .btns.left button { display: inline-flex; align-items: center; gap: 6px; }
 .energy-cfg .row3 { display: flex; gap: 8px; }
