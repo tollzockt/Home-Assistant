@@ -583,3 +583,200 @@ export function panelArraySlots(part, { tan, cols = 1, rows = 1, orient = "portr
   }
   return out;
 }
+
+// ------------------------------------------------------------------ Dach-Ebene: Kamin, Dachfenster, PV-Felder
+
+/** Dinge auf dem Dach (roof.items): Typ, Name, Standardmaße. */
+export const ROOF_ITEMS = {
+  chimney: { name: "Kamin", w: 0.5, d: 0.5, h: 0.9 },
+  skylight: { name: "Dachfenster", w: 0.78, l: 1.18 },
+  pv: { name: "PV-Feld", cols: 3, rows: 2, orient: "portrait" },
+};
+
+/** Walmenden eines Dachteils: [Anfang, Ende]. */
+export function partHipEnds(fr, roof) {
+  const [openLo, openHi] = fr.open ?? [false, false];
+  const wingHip = roof.type === "gable" && roof.wing_end === "hip" && (openLo || openHi);
+  return [!openLo && (roof.type === "hip" || (wingHip && openHi)), !openHi && (roof.type === "hip" || (wingHip && openLo))];
+}
+
+/**
+ * Hausdach als Modell ohne 3D: Teile, Traufhöhe, Neigung. null ohne Dach.
+ * @returns {{roof:object, floor:object, rooms:object[], parts:object[], top:number, eave:number, tan:number}|null}
+ */
+export function roofModel(building) {
+  const roof = roofSettings(building?.settings);
+  if (roof.type === "none") return null;
+  const floor = roofFloor(building, roof);
+  const rooms = roofRooms(floor, roof);
+  if (!rooms.length) return null;
+  const wall = building.settings?.wall_exterior ?? 0.24;
+  const parts = roofParts(rooms, { wall, overhang: roof.overhang, direction: roof.direction });
+  const tan = Math.tan((roof.pitch * Math.PI) / 180);
+  const top = (floor.elevation ?? 0) + (floor.height ?? 2.5);
+  for (const fr of parts) fr.hipEnds = partHipEnds(fr, roof);
+  return { roof, floor, rooms, parts, top, eave: top - roof.overhang * tan, tan };
+}
+
+/**
+ * Dachfläche an einem Punkt des Grundrisses: Höhe y und Richtung hangabwärts (out, im Grundriss,
+ * Länge 1; null beim Flachdach). Bei mehreren Dachteilen gilt das höchste. null außerhalb des Dachs.
+ */
+export function roofSurfaceAt(model, [x, z]) {
+  if (!model) return null;
+  const { roof, parts, eave, tan, top } = model;
+  let best = null;
+  for (const fr of parts) {
+    const dx = x - fr.center[0];
+    const dz = z - fr.center[1];
+    const s = dx * fr.u[0] + dz * fr.u[1];
+    const t = dx * fr.v[0] + dz * fr.v[1];
+    const L = fr.length / 2;
+    const W = fr.width / 2;
+    if (Math.abs(s) > L + 1e-6 || Math.abs(t) > W + 1e-6) continue;
+    let hit;
+    if (roof.type === "flat") hit = { y: top + 0.25, out: null };
+    else if (roof.type === "shed") hit = { y: eave + (t + W) * tan, out: [-fr.v[0], -fr.v[1]] };
+    else {
+      const sg = t >= 0 ? 1 : -1;
+      hit = { y: eave + (W - Math.abs(t)) * tan, out: [sg * fr.v[0], sg * fr.v[1]] };
+      const [hipLo, hipHi] = fr.hipEnds ?? partHipEnds(fr, roof);
+      if (hipLo && eave + (s + L) * tan < hit.y) hit = { y: eave + (s + L) * tan, out: [-fr.u[0], -fr.u[1]] };
+      if (hipHi && eave + (L - s) * tan < hit.y) hit = { y: eave + (L - s) * tan, out: [fr.u[0], fr.u[1]] };
+    }
+    if (!best || hit.y > best.y) best = { ...hit, part: fr };
+  }
+  return best;
+}
+
+/**
+ * PV-Feld auf dem Dach (roof.items, type "pv"): Lage der Module im Grundriss. Das Feld richtet sich
+ * nach der Dachfläche unter seiner Mitte (Reihen die Neigung hinauf); auf dem Flachdach nach rotation.
+ * @returns {{center:number[], along:number[], out:number[]|null, w:number, l:number, cos:number, panels:number[][], fits:boolean[], count:number, size:number[]}}
+ */
+export function pvLayout(model, item) {
+  const cols = Math.max(1, Math.min(30, Math.round(Number(item.cols) || 1)));
+  const rows = Math.max(1, Math.min(15, Math.round(Number(item.rows) || 1)));
+  const w = item.orient === "landscape" ? 1.7 : 1.0; // entlang der Traufe
+  const l = item.orient === "landscape" ? 1.0 : 1.7; // die Neigung hinauf
+  const gap = 0.03;
+  const hit = roofSurfaceAt(model, [item.x, item.z]);
+  const out = hit?.out ?? null;
+  if (!out) {
+    // Flachdach (oder außerhalb): nach rotation ausgerichtet, flach
+    const a = ((item.rotation || 0) * Math.PI) / 180;
+    const along = [Math.cos(a), Math.sin(a)];
+    const down = [-along[1], along[0]];
+    return finish(along, down, 1);
+  }
+  const cos = Math.cos(Math.atan(model.tan));
+  return finish([out[1], -out[0]], out, cos);
+
+  function finish(along, down, c) {
+    const panels = [];
+    for (let r = 0; r < rows; r++) {
+      for (let k = 0; k < cols; k++) {
+        const a = (k - (cols - 1) / 2) * (w + gap);
+        const d = ((rows - 1) / 2 - r) * (l + gap) * c; // Reihe 0 unten an der Traufe
+        panels.push([item.x + along[0] * a + down[0] * d, item.z + along[1] * a + down[1] * d]);
+      }
+    }
+    // passt ein Modul nicht auf dieselbe Dachfläche (über First, Kehle oder Rand hinaus), fällt es weg
+    const fits = panels.map((p) => {
+      // alle vier Ecken (knapp innen) auf derselben Fläche
+      const hw = w / 2 - 0.02;
+      const hd = (l * c) / 2 - 0.02;
+      return [[-1, -1], [1, -1], [1, 1], [-1, 1]].every(([i, k]) => {
+        const h = roofSurfaceAt(model, [p[0] + along[0] * i * hw + down[0] * k * hd, p[1] + along[1] * i * hw + down[1] * k * hd]);
+        if (!h) return false;
+        if (!out) return !h.out;
+        return !!h.out && h.out[0] * out[0] + h.out[1] * out[1] > 0.95;
+      });
+    });
+    return { center: [item.x, item.z], along, out, w, l, cos: c, panels, fits, count: fits.filter(Boolean).length, size: [cols * (w + gap) - gap, (rows * (l + gap) - gap) * c] };
+  }
+}
+
+/**
+ * Dachflächen mit Himmelsrichtung, gesperrten Bereichen (Flügel) und Leserichtung „von links“.
+ * Für die bisherigen PV-Angaben je Richtung (roof.solar, roof.solar_arrays).
+ */
+export function roofFaces(model, north = 0) {
+  const { roof, parts } = model;
+  const faces = [];
+  for (const fr of parts) {
+    const sides = roof.type === "shed" ? [0] : [-1, 1];
+    for (const sg of sides) {
+      const out = roof.type === "shed" ? [-fr.v[0], -fr.v[1]] : [sg * fr.v[0], sg * fr.v[1]];
+      faces.push({ fr, sg, out, dir: compassOf(out, north) });
+    }
+  }
+  for (const f of faces) {
+    const { fr, sg } = f;
+    const W = fr.width / 2;
+    const blocked = [];
+    const tr = roof.type === "shed" ? [-W, W] : sg > 0 ? [0, W] : [-W, 0];
+    for (const q of parts) {
+      if (q === fr) continue;
+      const corners = [-1, 1].flatMap((a) => [-1, 1].map((b) => [q.center[0] + (a * q.length * q.u[0] + b * q.width * q.v[0]) / 2, q.center[1] + (a * q.length * q.u[1] + b * q.width * q.v[1]) / 2]));
+      const loc = corners.map(([x, z]) => [(x - fr.center[0]) * fr.u[0] + (z - fr.center[1]) * fr.u[1], (x - fr.center[0]) * fr.v[0] + (z - fr.center[1]) * fr.v[1]]);
+      const ts = loc.map((p) => p[1]);
+      if (Math.max(...ts) <= tr[0] + 0.05 || Math.min(...ts) >= tr[1] - 0.05) continue;
+      const ss = loc.map((p) => p[0]);
+      // Flügel quer zum First: nur die Kehle ist bedeckt (wird zum First hin schmaler)
+      if (Math.abs(q.u[0] * fr.u[0] + q.u[1] * fr.u[1]) < 0.5) blocked.push({ c: (Math.min(...ss) + Math.max(...ss)) / 2, hw: q.width / 2 });
+      else blocked.push([Math.min(...ss) - 0.05, Math.max(...ss) + 0.05]);
+    }
+    f.blocked = blocked;
+    f.fr = blocked.some((x) => !Array.isArray(x)) ? { ...fr, inner: [0, 0], hipEnds: fr.hipEnds } : fr;
+    // „links“ von außen gesehen: Blick zur Fläche, rechte Hand = (out.z, -out.x)
+    f.flip = f.out[1] * fr.u[0] - f.out[0] * fr.u[1] > 0 ? 1 : -1;
+  }
+  return faces;
+}
+
+/** Modulplätze (s, x auf einer Fläche) in den Grundriss umrechnen. */
+export function faceSlotPoint(model, f, { s, x }) {
+  const fr = f.fr;
+  const t = model.roof.type === "shed" ? -fr.width / 2 + x : f.sg * (fr.width / 2 - x);
+  return [fr.center[0] + s * fr.u[0] + t * fr.v[0], fr.center[1] + s * fr.u[1] + t * fr.v[1]];
+}
+
+/**
+ * Bisherige PV-Angaben (roof.solar je Richtung, roof.solar_arrays) als verschiebbare PV-Felder.
+ * Zusammenhängende Module einer Fläche werden je Angabe ein Feld (Mitte = Mittelpunkt der Module).
+ */
+export function legacyPvItems(model, north = 0) {
+  if (!model || !["gable", "hip", "shed"].includes(model.roof.type)) return [];
+  const { roof, tan } = model;
+  const faces = roofFaces(model, north);
+  const items = [];
+  const add = (f, slots, orient) => {
+    if (!slots.length) return;
+    const pts = slots.map((sl) => faceSlotPoint(model, f, sl));
+    const cols = new Set(slots.map((sl) => sl.s)).size;
+    const rows = new Set(slots.map((sl) => sl.x)).size;
+    const c = [pts.reduce((a, p) => a + p[0], 0) / pts.length, pts.reduce((a, p) => a + p[1], 0) / pts.length];
+    items.push({ type: "pv", x: r3(c[0]), z: r3(c[1]), cols, rows, orient });
+  };
+  if (roof.solar_arrays?.length) {
+    for (const a of roof.solar_arrays) {
+      const f = faces.filter((x) => x.dir === a.dir).sort((p, q) => q.fr.length - p.fr.length)[0];
+      if (!f) continue;
+      const orient = a.orient === "landscape" ? "landscape" : "portrait";
+      add(f, panelArraySlots(f.fr, { tan, type: roof.type, cols: Math.max(1, Number(a.cols) || 1), rows: Math.max(1, Number(a.rows) || 1), orient, left: Math.max(0, Number(a.left) || 0), row: Math.max(0, Number(a.row) || 0), flip: f.flip, hipEnds: f.fr.hipEnds ?? [false, false], blocked: f.blocked }), orient);
+    }
+    return items;
+  }
+  for (const dir of ["S", "E", "W", "N"]) {
+    let left = Math.max(0, Math.round(Number(roof.solar?.[dir]) || 0));
+    for (const f of faces.filter((x) => x.dir === dir).sort((a, b) => b.fr.length - a.fr.length)) {
+      if (left <= 0) break;
+      const slots = panelSlots(f.fr, { tan, count: left, type: roof.type, hipEnds: f.fr.hipEnds ?? [false, false], blocked: f.blocked });
+      left -= slots.length;
+      // je Reihe ein Feld (Reihen können unterschiedlich lang sein)
+      for (const x of [...new Set(slots.map((sl) => sl.x))]) add(f, slots.filter((sl) => sl.x === x), "portrait");
+    }
+  }
+  return items;
+}

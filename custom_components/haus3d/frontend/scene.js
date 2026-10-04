@@ -4,8 +4,9 @@
 import * as THREE from "./vendor/three.module.min.js";
 import { OrbitControls } from "./vendor/OrbitControls.js";
 import { buildDevice, buildFurniture, furnitureMaterials } from "./furniture.js";
-import { floorColor } from "./model.js";
-import { compassOf, freeEdges, panelArraySlots, panelSlots, roofFloor, roofParts, roofRooms, roofSettings, roomRoofGroups, scatter, seeded } from "./exterior.js";
+import { floorColor, textureFor } from "./model.js";
+import { getTexture, planarUVs } from "./textures.js";
+import { ROOF_ITEMS, freeEdges, panelArraySlots, panelSlots, pvLayout, roofFaces, roofFloor, roofParts, roofRooms, roofSettings, roofSurfaceAt, roomRoofGroups, scatter, seeded } from "./exterior.js";
 import { centroid, computeWalls, labelPoint, pieceFootprint, pointInPolygon, wallPieces } from "./walls.js";
 
 const OUTDOOR = {
@@ -42,9 +43,7 @@ function flatOrExtruded(points, height) {
 /** Sammelt Prismen (Wandstücke) in einem einzigen BufferGeometry. */
 class PrismBuilder {
   constructor() {
-    this.pos = [];
-    this.nor = [];
-    this.col = [];
+    this.buckets = new Map(); // Textur-Schlüssel ("" = glatt) -> {pos, nor, col}
   }
 
   quad(a, b, c, d, outward, color) {
@@ -57,10 +56,14 @@ class PrismBuilder {
       n.negate();
     }
     n.normalize();
+    // Farbe trägt optional ihre Textur (color.tex)
+    const key = color.tex ?? "";
+    if (!this.buckets.has(key)) this.buckets.set(key, { pos: [], nor: [], col: [] });
+    const bk = this.buckets.get(key);
     for (const v of [a, b, c, a, c, d]) {
-      this.pos.push(v.x, v.y, v.z);
-      this.nor.push(n.x, n.y, n.z);
-      this.col.push(color.r, color.g, color.b);
+      bk.pos.push(v.x, v.y, v.z);
+      bk.nor.push(n.x, n.y, n.z);
+      bk.col.push(color.r, color.g, color.b);
     }
   }
 
@@ -80,35 +83,20 @@ class PrismBuilder {
     this.quad(bottom[0], bottom[1], bottom[2], bottom[3], new THREE.Vector3(0, -1, 0), Array.isArray(side) ? side[0] : side);
   }
 
-  geometry() {
-    const geo = new THREE.BufferGeometry();
-    geo.setAttribute("position", new THREE.Float32BufferAttribute(this.pos, 3));
-    geo.setAttribute("normal", new THREE.Float32BufferAttribute(this.nor, 3));
-    geo.setAttribute("color", new THREE.Float32BufferAttribute(this.col, 3));
-    geo.computeBoundingSphere();
-    return geo;
-  }
-}
-
-function pavingTexture() {
-  const c = document.createElement("canvas");
-  c.width = c.height = 128;
-  const g = c.getContext("2d");
-  g.fillStyle = "#8b847a";
-  g.fillRect(0, 0, 128, 128);
-  // Verbundpflaster 25 × 12,5 cm, versetzt
-  for (let r = 0; r < 8; r++) {
-    for (let k = -1; k < 4; k++) {
-      const x = k * 32 + (r % 2 ? 16 : 0);
-      const shade = 150 + ((r * 7 + k * 13) % 5) * 8;
-      g.fillStyle = `rgb(${shade},${shade - 8},${shade - 18})`;
-      g.fillRect(x + 1, r * 16 + 1, 30, 14);
+  /** Je Textur ein BufferGeometry (mit UVs in Metern). */
+  geometries() {
+    const out = [];
+    for (const [key, bk] of this.buckets) {
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute("position", new THREE.Float32BufferAttribute(bk.pos, 3));
+      geo.setAttribute("normal", new THREE.Float32BufferAttribute(bk.nor, 3));
+      geo.setAttribute("color", new THREE.Float32BufferAttribute(bk.col, 3));
+      if (key) planarUVs(geo);
+      geo.computeBoundingSphere();
+      out.push({ key, geo });
     }
+    return out;
   }
-  const t = new THREE.CanvasTexture(c);
-  t.wrapS = t.wrapT = THREE.RepeatWrapping;
-  t.colorSpace = THREE.SRGBColorSpace;
-  return t;
 }
 
 function solarTexture() {
@@ -291,17 +279,35 @@ export class HouseScene {
     this.outdoorMats = Object.fromEntries(
       Object.keys(OUTDOOR).map((k) => [k, std(cyber ? { color: garden[k], emissive: garden[k], emissiveIntensity: 0.35, roughness: 1 } : { color: garden[k], roughness: 1 })]),
     );
-    // Pflaster: Fugenraster (Textur je Meter; Flächen-UVs sind Plan-Meter)
-    if (!cyber) {
-      this.outdoorMats.paving.map = pavingTexture();
-      this.outdoorMats.paving.color.set(0xffffff);
+    this.texMats = new Map(); // Materialien mit Textur, je Grundmaterial und Schlüssel
+  }
+
+  /**
+   * Material mit Textur (Kopie von base, je Art, Textur und Farbe einmal). Ohne Textur base selbst;
+   * own = base ist eine Wegwerf-Kopie (eigene Farbe): sie wird entsorgt, die geteilte Kopie bleibt.
+   */
+  _texMat(base, key, tag, own = false) {
+    if (this.style === "cyber") key = null;
+    if (!key && !own) return base;
+    const k = `${tag}:${key ?? ""}:${base.color.getHexString()}`;
+    let m = this.texMats.get(k);
+    if (!m) {
+      m = base.clone();
+      m.map = key ? getTexture(key, this.renderer) : null;
+      m.needsUpdate = true;
+      this.texMats.set(k, m);
     }
+    if (own && m !== base) base.dispose();
+    return m;
   }
 
   _disposeMats() {
+    // Texturen sind geteilt (textures.js) und werden nicht entsorgt
+    for (const m of this.texMats?.values() ?? []) m.dispose();
     for (const m of [...Object.values(this.mats ?? {}).flat(), ...Object.values(this.outdoorMats ?? {}), ...Object.values(this.furnMats ?? {}).flat()]) {
       if (!m) continue;
-      m.map?.dispose();
+      if (m !== this.mats?.solar) m.map = null;
+      else m.map?.dispose();
       m.dispose();
     }
   }
@@ -451,7 +457,7 @@ export class HouseScene {
     };
     this.devicesGroup.traverse((o) => o.isMesh && targets.push(o));
     for (const entry of this.floors.values()) {
-      if (!entry.group.visible) continue;
+      if (!this.isFloorVisible(entry.floor.id)) continue; // Etagen darunter nur zur Ansicht
       entry.group.traverse((o) => o.isMesh && (o.userData.entity || o.userData.room || (furniture && o.userData.furniture)) && targets.push(o));
       if (furniture) entry.garden.traverse((o) => o.isMesh && o.userData.furniture && targets.push(o));
     }
@@ -537,7 +543,8 @@ export class HouseScene {
       // Cyberpunk: Bodenbelag dunkel getönt, aber deckend und klar vom Hintergrund abgesetzt
       const base = new THREE.Color(floorColor(room));
       if (this.style === "cyber") base.lerp(new THREE.Color(0x3a2470), 0.45);
-      const mat = new THREE.MeshStandardMaterial({ color: base.clone(), roughness: 0.85, emissive: 0x000000 });
+      const ftex = this.style === "cyber" ? null : getTexture(textureFor("floor", room.floor_texture, room.floor_material), this.renderer);
+      const mat = new THREE.MeshStandardMaterial({ color: base.clone(), roughness: 0.85, emissive: 0x000000, map: ftex });
       const mesh = new THREE.Mesh(geo, mat);
       mesh.userData.layer = "floors";
       mesh.userData.room = { floorId: floor.id, roomId: room.id };
@@ -573,17 +580,21 @@ export class HouseScene {
     // eigene Farben: settings.wall_colors {exterior, interior}, je Raum wall_color (Innenseite); nicht im Cyberpunk-Stil
     const hex = (v) => /^#[0-9a-f]{6}$/i.test(v ?? "");
     const custom = (v, fallback) => (!cyber && hex(v) ? new THREE.Color(v) : fallback);
-    const extCol = custom(settings.wall_colors?.exterior, colors.exterior);
-    const intCol = custom(settings.wall_colors?.interior, colors.interior);
-    const roomCols = new Map((floor.rooms ?? []).map((r) => [r.id, custom(r.wall_color, intCol)]));
+    // Textur hängt an der Farbe (color.tex): settings.wall_textures {exterior, interior}, je Raum wall_texture/exterior_texture
+    const tex = (c, chosen, fallback) => Object.assign(c.clone(), { tex: cyber ? null : textureFor("wall", chosen || fallback || "") });
+    const wt = settings.wall_textures ?? {};
+    const extCol = tex(custom(settings.wall_colors?.exterior, colors.exterior), wt.exterior);
+    const intCol = tex(custom(settings.wall_colors?.interior, colors.interior), wt.interior);
+    const roomCols = new Map((floor.rooms ?? []).map((r) => [r.id, tex(custom(r.wall_color, intCol), r.wall_texture, wt.interior)]));
     // Außenseite: Farbe des Raums dahinter (room.exterior_color, z. B. Holzschuppen), sonst Hausfarbe
-    const extCols = new Map((floor.rooms ?? []).map((r) => [r.id, custom(r.exterior_color, extCol)]));
+    const extCols = new Map((floor.rooms ?? []).map((r) => [r.id, tex(custom(r.exterior_color, extCol), r.exterior_texture, wt.exterior)]));
     for (const seg of segments) {
       const outside = extCols.get(seg.roomLeft ?? seg.roomRight) ?? extCol;
       const face = (roomId) => (roomId ? roomCols.get(roomId) ?? intCol : outside);
       const h = seg.height ?? height;
       const end = seg.kind === "exterior" ? outside : intCol;
-      const freeCol = seg.kind === "free" ? custom((floor.walls ?? []).find((w) => w.id === seg.freeId)?.color, intCol) : null;
+      const fw = seg.kind === "free" ? (floor.walls ?? []).find((w) => w.id === seg.freeId) : null;
+      const freeCol = fw ? tex(custom(fw.color, intCol), fw.texture, wt.interior) : null;
       const sides = seg.kind === "free" ? freeCol : [end, face(seg.roomRight), end, face(seg.roomLeft)];
       // Wandfuß unter dem Boden: schließt die Fuge zur Etage darunter (Deckenstärke)
       prisms.prism(pieceFootprint(seg, 0, seg.length), elev - base, elev, sides, colors.cap);
@@ -592,14 +603,19 @@ export class HouseScene {
         prisms.prism(foot, elev + piece.y0, elev + piece.y1, sides, colors.cap);
       }
     }
-    const walls = new THREE.Mesh(prisms.geometry(), this.mats.wall);
-    walls.userData.layer = "walls";
-    group.add(walls);
+    const wallMeshes = prisms.geometries().map(({ key, geo }) => {
+      const m = new THREE.Mesh(geo, this._texMat(this.mats.wall, key, "wall"));
+      m.userData.layer = "walls";
+      group.add(m);
+      return m;
+    });
     if (cyber) {
       // Neonkanten an allen Wandkanten, Raumumrisse in Magenta knapp über dem Boden
-      const edges = new THREE.LineSegments(new THREE.EdgesGeometry(walls.geometry, 25), this.mats.edge);
-      edges.userData.layer = "walls";
-      group.add(edges);
+      for (const walls of wallMeshes) {
+        const edges = new THREE.LineSegments(new THREE.EdgesGeometry(walls.geometry, 25), this.mats.edge);
+        edges.userData.layer = "walls";
+        group.add(edges);
+      }
       for (const room of floor.rooms ?? []) {
         const line = outline(room.points, elev + 0.015, this.mats.outline);
         line.userData.layer = "floors";
@@ -627,7 +643,7 @@ export class HouseScene {
     }
     group.add(furn);
     garden.add(gardenFurn);
-    entry.occluders.push(walls);
+    entry.occluders.push(...wallMeshes);
 
     // Öffnungen
     const segById = new Map(segments.map((s) => [s.id, s]));
@@ -795,7 +811,7 @@ export class HouseScene {
     let geo;
     if (area.type === "balcony") {
       // Platte unter Fußbodenhöhe der Etage, Oberkante = Boden
-      const slab = new THREE.Mesh(flatOrExtruded(area.points, 0.2), this.outdoorMats.balcony);
+      const slab = new THREE.Mesh(flatOrExtruded(area.points, 0.2), this._texMat(this.outdoorMats.balcony, textureFor("ground", area.texture, "balcony"), "ground:balcony"));
       slab.position.y = elev - 0.2;
       group.add(slab);
       if (this.mats.gardenLine) group.add(outline(area.points, elev + 0.01, this.mats.gardenLine));
@@ -804,13 +820,14 @@ export class HouseScene {
     }
     if (heights && look.h === 0) {
       // schräge Fläche (Hang, Böschung): Höhe je Eckpunkt
-      geo = slopedSurface(area.points, heights);
+      geo = planarUVs(slopedSurface(area.points, heights));
     } else {
       geo = flatOrExtruded(area.points, look.h);
       if (heights) geo.translate(0, heights.reduce((a, b) => a + b, 0) / heights.length, 0);
     }
     geo.translate(0, elev + look.y, 0);
-    const mesh = new THREE.Mesh(geo, this.outdoorMats[area.type] ?? this.outdoorMats.lawn);
+    const gmat = this.outdoorMats[area.type] ?? this.outdoorMats.lawn;
+    const mesh = new THREE.Mesh(geo, this._texMat(gmat, textureFor("ground", area.texture, area.type), `ground:${area.type}`));
     group.add(mesh);
     if (this.mats.gardenLine) {
       const hs = Array.isArray(area.heights) && area.heights.length === area.points.length ? area.heights : null;
@@ -955,8 +972,12 @@ export class HouseScene {
         inner.userData.layer = "roof";
         holder.add(inner);
         const top = (floor.elevation ?? 0) + (floor.height ?? 2.5);
-        const res = this._roofGeometry(rooms, roof, top, wall, inner);
-        this._roofPanels(inner, res, roof.solar, building.settings?.north ?? 0, roof.solar_arrays);
+        const res = this._roofGeometry(rooms, roof, top, wall, inner, { settings: building.settings });
+        const model = { roof, parts: res.parts, top, eave: res.eave, tan: res.tan };
+        const items = Array.isArray(roof.items) ? roof.items : [];
+        // verschiebbare PV-Felder (Dach-Ebene im Editor) ersetzen die Angaben je Richtung
+        if (!items.some((it) => it.type === "pv")) this._roofPanels(inner, model, building.settings?.north ?? 0);
+        this._roofItems(inner, model, items);
         this.roofMeshes.push(...res.meshes);
         for (const m of res.meshes) m.userData.roof = true;
         this.roofHolder = holder;
@@ -978,94 +999,117 @@ export class HouseScene {
     }
   }
 
+  /** Ein PV-Modul (oder Dachfenster) flach auf der Dachfläche: Mitte p (Grundriss), Höhe y, Richtung hangabwärts out. */
+  _panelOnRoof(group, p, y, out, tan, w, l, mats, along = null) {
+    const o = out ?? [-(along?.[1] ?? 0), along?.[0] ?? 1];
+    const U = new THREE.Vector3(o[1], 0, -o[0]);
+    const down = out ? new THREE.Vector3(out[0], -tan, out[1]).normalize() : new THREE.Vector3(o[0], 0, o[1]);
+    const N = new THREE.Vector3().crossVectors(down, U).normalize();
+    if (N.y < 0) N.negate();
+    const Z = new THREE.Vector3().crossVectors(U, N);
+    const panel = new THREE.Mesh(new THREE.BoxGeometry(w, 0.04, l), mats);
+    panel.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(U, N, Z));
+    panel.position.set(p[0], y, p[1]).addScaledVector(N, 0.07);
+    group.add(panel);
+    return panel;
+  }
+
   /**
-   * PV-Module auf dem Hausdach nach Himmelsrichtung: solar = {N, E, S, W} (Anzahl je Richtung).
-   * Je Richtung werden die passenden Dachflächen (größte zuerst) von der Traufe aufwärts belegt.
+   * PV-Module nach Himmelsrichtung (roof.solar = {N, E, S, W} Anzahl) bzw. PV-Felder je Richtung
+   * (roof.solar_arrays). Ältere Angaben; die Dach-Ebene im Editor nutzt roof.items.
    */
-  _roofPanels(parent, res, solar, north, arrays = []) {
-    if ((!solar && !arrays?.length) || !["gable", "hip", "shed"].includes(res.type)) return;
+  _roofPanels(parent, model, north) {
+    const { roof, tan } = model;
+    const arrays = roof.solar_arrays;
+    if ((!roof.solar && !arrays?.length) || !["gable", "hip", "shed"].includes(roof.type)) return;
     const group = new THREE.Group();
     group.userData.layer = "solar";
-    const faces = [];
-    for (const fr of res.parts) {
-      const sides = res.type === "shed" ? [0] : [-1, 1];
-      for (const sg of sides) {
-        const out = res.type === "shed" ? [-fr.v[0], -fr.v[1]] : [sg * fr.v[0], sg * fr.v[1]];
-        faces.push({ fr, sg, out, dir: compassOf(out, north) });
-      }
-    }
-    // je Fläche: gesperrte Bereiche (anderes Dachteil darüber) und Lage im Raum
-    for (const f of faces) {
-      const { fr, sg } = f;
-      const W = fr.width / 2;
-      const blocked = [];
-      const tr = res.type === "shed" ? [-W, W] : sg > 0 ? [0, W] : [-W, 0];
-      for (const q of res.parts) {
-        if (q === fr) continue;
-        const corners = [-1, 1].flatMap((a) => [-1, 1].map((b) => [q.center[0] + (a * q.length * q.u[0] + b * q.width * q.v[0]) / 2, q.center[1] + (a * q.length * q.u[1] + b * q.width * q.v[1]) / 2]));
-        const loc = corners.map(([x, z]) => [(x - fr.center[0]) * fr.u[0] + (z - fr.center[1]) * fr.u[1], (x - fr.center[0]) * fr.v[0] + (z - fr.center[1]) * fr.v[1]]);
-        const ts = loc.map((p) => p[1]);
-        if (Math.max(...ts) <= tr[0] + 0.05 || Math.min(...ts) >= tr[1] - 0.05) continue;
-        const ss = loc.map((p) => p[0]);
-        // Flügel quer zum First: nur die Kehle ist bedeckt (wird zum First hin schmaler)
-        if (Math.abs(q.u[0] * fr.u[0] + q.u[1] * fr.u[1]) < 0.5) blocked.push({ c: (Math.min(...ss) + Math.max(...ss)) / 2, hw: q.width / 2 });
-        else blocked.push([Math.min(...ss) - 0.05, Math.max(...ss) + 0.05]);
-      }
-      f.blocked = blocked;
-      // Flügel: das Stück im Hauptdach regelt die Kehle (blocked), nicht die harte Grenze inner
-      if (blocked.some((x) => !Array.isArray(x))) f.fr = { ...fr, inner: [0, 0], hipEnds: fr.hipEnds };
-      // „links“ von außen gesehen: Blick zur Fläche, rechte Hand = (out.z, -out.x)
-      f.flip = f.out[1] * fr.u[0] - f.out[0] * fr.u[1] > 0 ? 1 : -1;
-    }
+    const faces = roofFaces(model, north);
+    const mats = [this.mats.solarFrame, this.mats.solarFrame, this.mats.solar, this.mats.solarFrame, this.mats.solarFrame, this.mats.solarFrame];
     const place = (f, slots) => {
-      const { sg, out } = f;
       const fr = f.fr;
-      const W = fr.width / 2;
-      const U = new THREE.Vector3(fr.u[0], 0, fr.u[1]);
-      const down = new THREE.Vector3(out[0], -res.tan, out[1]).normalize();
-      const N = new THREE.Vector3().crossVectors(down, U).normalize();
-      if (N.y < 0) N.negate();
-      const Z = new THREE.Vector3().crossVectors(U, N);
-      const q = new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().makeBasis(U, N, Z));
       for (const { s, x, w = 1.0, l = 1.7 } of slots) {
-        const t = res.type === "shed" ? -fr.width / 2 + x : sg * (W - x);
-        const y = res.eave + x * res.tan;
-        const panel = new THREE.Mesh(new THREE.BoxGeometry(w, 0.04, l), [this.mats.solarFrame, this.mats.solarFrame, this.mats.solar, this.mats.solarFrame, this.mats.solarFrame, this.mats.solarFrame]);
-        panel.quaternion.copy(q);
-        panel.position.set(fr.center[0] + s * fr.u[0] + t * fr.v[0], y, fr.center[1] + s * fr.u[1] + t * fr.v[1]).addScaledVector(N, 0.07);
-        group.add(panel);
+        const t = roof.type === "shed" ? -fr.width / 2 + x : f.sg * (fr.width / 2 - x);
+        const p = [fr.center[0] + s * fr.u[0] + t * fr.v[0], fr.center[1] + s * fr.u[1] + t * fr.v[1]];
+        this._panelOnRoof(group, p, model.eave + x * tan, f.out, tan, w, l, mats);
       }
     };
-    // PV-Felder (genaue Anordnung) haben Vorrang vor der Anzahl je Richtung
     if (arrays?.length) {
       for (const a of arrays) {
         const f = faces.filter((x) => x.dir === a.dir).sort((p, q) => q.fr.length - p.fr.length)[0];
         if (!f) continue;
-        const slots = panelArraySlots(f.fr, { tan: res.tan, type: res.type, cols: Math.max(1, Number(a.cols) || 1), rows: Math.max(1, Number(a.rows) || 1), orient: a.orient === "landscape" ? "landscape" : "portrait", left: Math.max(0, Number(a.left) || 0), row: Math.max(0, Number(a.row) || 0), flip: f.flip, hipEnds: f.fr.hipEnds ?? [false, false], blocked: f.blocked });
-        place(f, slots);
+        place(f, panelArraySlots(f.fr, { tan, type: roof.type, cols: Math.max(1, Number(a.cols) || 1), rows: Math.max(1, Number(a.rows) || 1), orient: a.orient === "landscape" ? "landscape" : "portrait", left: Math.max(0, Number(a.left) || 0), row: Math.max(0, Number(a.row) || 0), flip: f.flip, hipEnds: f.fr.hipEnds ?? [false, false], blocked: f.blocked }));
       }
-      if (group.children.length) parent.add(group);
-      return;
-    }
-    for (const dir of ["S", "E", "W", "N"]) {
-      let left = Math.max(0, Math.round(Number(solar[dir]) || 0));
-      for (const f of faces.filter((x) => x.dir === dir).sort((a, b) => b.fr.length - a.fr.length)) {
-        if (left <= 0) break;
-        const { fr } = f;
-        const [openLo, openHi] = fr.open ?? [false, false];
-        const slots = panelSlots(fr, { tan: res.tan, count: left, type: res.type, hipEnds: fr.hipEnds ?? [!openLo && res.type === "hip", !openHi && res.type === "hip"], blocked: f.blocked });
-        left -= slots.length;
-        place(f, slots);
+    } else {
+      for (const dir of ["S", "E", "W", "N"]) {
+        let left = Math.max(0, Math.round(Number(roof.solar[dir]) || 0));
+        for (const f of faces.filter((x) => x.dir === dir).sort((a, b) => b.fr.length - a.fr.length)) {
+          if (left <= 0) break;
+          const slots = panelSlots(f.fr, { tan, count: left, type: roof.type, hipEnds: f.fr.hipEnds ?? [false, false], blocked: f.blocked });
+          left -= slots.length;
+          place(f, slots);
+        }
       }
     }
     if (group.children.length) parent.add(group);
+  }
+
+  /** Dinge auf dem Dach (roof.items): Kamin, Dachfenster, PV-Felder; Lage im Grundriss, Höhe aus der Dachfläche. */
+  _roofItems(parent, model, items) {
+    const solar = new THREE.Group();
+    solar.userData.layer = "solar";
+    const other = new THREE.Group();
+    other.userData.layer = "roof";
+    const cyber = this.style === "cyber";
+    const pvMats = [this.mats.solarFrame, this.mats.solarFrame, this.mats.solar, this.mats.solarFrame, this.mats.solarFrame, this.mats.solarFrame];
+    const skyMats = [this.mats.frame, this.mats.frame, this.mats.glass, this.mats.frame, this.mats.frame, this.mats.frame];
+    for (const it of items) {
+      if (!Number.isFinite(it?.x) || !Number.isFinite(it?.z)) continue;
+      if (it.type === "pv") {
+        const lay = pvLayout(model, it);
+        for (const [i, p] of lay.panels.entries()) {
+          const hit = roofSurfaceAt(model, p);
+          if (!hit || !lay.fits[i]) continue;
+          this._panelOnRoof(solar, p, hit.y, hit.out ? lay.out : null, model.tan, lay.w, lay.l, pvMats, lay.along);
+        }
+      } else if (it.type === "skylight") {
+        const hit = roofSurfaceAt(model, [it.x, it.z]);
+        if (!hit) continue;
+        const w = Number(it.w) || ROOF_ITEMS.skylight.w;
+        const l = Number(it.l) || ROOF_ITEMS.skylight.l;
+        this._panelOnRoof(other, [it.x, it.z], hit.y, hit.out, model.tan, w, l, skyMats, [1, 0]);
+      } else if (it.type === "chimney") {
+        const w = Number(it.w) || ROOF_ITEMS.chimney.w;
+        const d = Number(it.d) || ROOF_ITEMS.chimney.d;
+        const above = Number.isFinite(Number(it.h)) && it.h !== null ? Number(it.h) : ROOF_ITEMS.chimney.h;
+        const a = ((it.rotation || 0) * Math.PI) / 180;
+        const corners = [[-1, -1], [1, -1], [1, 1], [-1, 1]].map(([i, k]) => [it.x + (i * w * Math.cos(a)) / 2 - (k * d * Math.sin(a)) / 2, it.z + (i * w * Math.sin(a)) / 2 + (k * d * Math.cos(a)) / 2]);
+        const ys = corners.map((c) => roofSurfaceAt(model, c)?.y).filter(Number.isFinite);
+        if (!ys.length) continue;
+        const y0 = model.top - 0.3;
+        const y1 = Math.max(...ys) + above;
+        const base = new THREE.MeshStandardMaterial(cyber ? { color: 0x1b0f33, emissive: 0xff2bd6, emissiveIntensity: 0.3 } : { color: /^#[0-9a-f]{6}$/i.test(it.color ?? "") ? it.color : 0x9c5a44, roughness: 0.9 });
+        const mat = this._texMat(base, textureFor("wall", it.texture || "brick"), "chimney", true);
+        const geo = planarUVs(new THREE.BoxGeometry(w, y1 - y0, d).toNonIndexed());
+        const body = new THREE.Mesh(geo, mat);
+        body.position.set(it.x, (y0 + y1) / 2, it.z);
+        body.rotation.y = -a;
+        other.add(body);
+        const cap = new THREE.Mesh(new THREE.BoxGeometry(w + 0.1, 0.08, d + 0.1), this.mats.solarFrame);
+        cap.position.set(it.x, y1 + 0.04, it.z);
+        cap.rotation.y = -a;
+        other.add(cap);
+      }
+    }
+    if (solar.children.length) parent.add(solar);
+    if (other.children.length) parent.add(other);
   }
 
   /**
    * Dachflächen und Giebel für eine Gruppe von Räumen bauen und in parent hängen.
    * @returns {{meshes: THREE.Mesh[], parts: object[], eave: number, tan: number, type: string, top: number}}
    */
-  _roofGeometry(rooms, roof, top, wall, parent, { roomRoof = false } = {}) {
+  _roofGeometry(rooms, roof, top, wall, parent, { roomRoof = false, settings = {} } = {}) {
     const ov = roof.overhang;
     const parts = roofParts(rooms, { wall, overhang: ov, direction: roof.direction });
     const tan = Math.tan(THREE.MathUtils.degToRad(roof.pitch));
@@ -1077,8 +1121,9 @@ export class HouseScene {
     const meshes = [];
     // eigene Dachfarbe (roof.color), sonst Standard des Stils
     const custom = /^#[0-9a-f]{6}$/i.test(roof.color ?? "") && this.style !== "cyber";
-    const roofMat = custom ? this.mats.roof.clone() : this.mats.roof;
+    let roofMat = custom ? this.mats.roof.clone() : this.mats.roof;
     if (custom) roofMat.color.set(roof.color);
+    roofMat = this._texMat(roofMat, textureFor("roof", roof.texture, roof.type), "roof", custom);
     // L-/T-Häuser: mehrere Teile; ein Flügel steckt mit einem Ende (open) im Hauptdach
     for (const fr of parts) {
       const L = fr.length / 2;
@@ -1089,7 +1134,7 @@ export class HouseScene {
       const Lhi = openHi ? L : Math.max(0.1, L - ov);
       const P = (s, t, y) => [fr.center[0] + s * fr.u[0] + t * fr.v[0], y, fr.center[1] + s * fr.u[1] + t * fr.v[1]];
       if (roof.type === "flat") {
-        const slab = new THREE.Mesh(new THREE.BoxGeometry(2 * L, 0.25, 2 * W), roofMat);
+        const slab = new THREE.Mesh(planarUVs(new THREE.BoxGeometry(2 * L, 0.25, 2 * W).toNonIndexed()), roofMat);
         slab.position.set(fr.center[0], top + 0.125, fr.center[1]);
         slab.rotation.y = -Math.atan2(fr.u[1], fr.u[0]);
         parent.add(slab);
@@ -1130,15 +1175,20 @@ export class HouseScene {
       const geo = new THREE.BufferGeometry();
       geo.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
       geo.computeVertexNormals();
+      planarUVs(geo);
       const m = new THREE.Mesh(geo, mat);
       parent.add(m);
       meshes.push(m);
     };
     mesh(roofPos, roofMat);
-    // Giebel in der Wandfarbe des Raums (außen), bei Raumdächern
-    const ext = roomRoof && /^#[0-9a-f]{6}$/i.test(rooms[0]?.exterior_color ?? "") && this.style !== "cyber";
-    const gableMat = ext ? this.mats.gable.clone() : this.mats.gable;
-    if (ext) gableMat.color.set(rooms[0].exterior_color);
+    // Giebel: eigene Farbe/Textur (roof.gable_color/gable_texture), bei Raumdächern die Außenwand des Raums,
+    // sonst die Außenwände des Hauses
+    const hex = (v) => /^#[0-9a-f]{6}$/i.test(v ?? "") && this.style !== "cyber";
+    const gCol = hex(roof.gable_color) ? roof.gable_color : roomRoof && hex(rooms[0]?.exterior_color) ? rooms[0].exterior_color : !roomRoof && hex(settings.wall_colors?.exterior) ? settings.wall_colors.exterior : null;
+    let gableMat = gCol ? this.mats.gable.clone() : this.mats.gable;
+    if (gCol) gableMat.color.set(gCol);
+    const gTex = textureFor("wall", roof.gable_texture || (roomRoof ? rooms[0]?.exterior_texture : settings.wall_textures?.exterior) || "");
+    gableMat = this._texMat(gableMat, gTex, "gable", !!gCol);
     mesh(gablePos, gableMat);
     // Cyberpunk: Neonkanten (als Kind des Dachs, damit sie dessen Lage übernehmen)
     if (this.mats.roofEdge) for (const m of meshes) m.add(new THREE.LineSegments(new THREE.EdgesGeometry(m.geometry, 20), this.mats.roofEdge));
@@ -1291,7 +1341,9 @@ export class HouseScene {
   /** "all" oder eine Etagen-ID. */
   setFilter(filter, { fit = false } = {}) {
     this.filter = this.floors.has(filter) ? filter : "all";
-    for (const [id, entry] of this.floors) entry.group.visible = this.filter === "all" || this.filter === id;
+    // gewählte Etage und alle darunter (Außenwände bleiben stehen, man schaut nur von oben hinein)
+    const elev = this.floors.get(this.filter)?.floor.elevation ?? Infinity;
+    for (const [id, entry] of this.floors) entry.group.visible = this.filter === "all" || this.filter === id || (entry.floor.elevation ?? 0) < elev;
     // Dach nur in der Gesamtansicht; mit Etagenwahl schaut man hinein
     if (this.roofHolder) this.roofHolder.visible = this.filter === "all";
     this._syncDeviceVisibility();
@@ -1306,7 +1358,7 @@ export class HouseScene {
   fitCamera() {
     const box = new THREE.Box3();
     for (const entry of this.floors.values()) {
-      if (!entry.group.visible) continue;
+      if (!this.isFloorVisible(entry.floor.id)) continue;
       // Gartenflächen nicht mitzählen, sonst wird das Haus zu klein
       for (const m of entry.occluders) box.expandByObject(m);
     }

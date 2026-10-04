@@ -217,6 +217,7 @@ outside.savedRoof = await schnee.evaluate(() => { const r = window.calls.filter(
 await schnee.locator("haus3d-panel .dialog .close").click();
 await schnee.waitForTimeout(800);
 await schnee.screenshot({ path: `${out}/pultdach-schnee.png` });
+for (const p of [dach, schnee]) await p.close(); // Rechenzeit freigeben (Wetter animiert)
 const cyberDach = await shot("cyber-dach", "?roof=gable&garden&weather=rainy", { width: 1280, height: 800 });
 await cyberDach.locator("haus3d-panel .gear").click();
 await cyberDach.locator("haus3d-panel .seg[data-key=style] button", { hasText: "Cyberpunk" }).click();
@@ -437,6 +438,64 @@ const cardTxt = await hud.evaluate(() => [...window.panel.shadowRoot.querySelect
 console.log(JSON.stringify({ hud: { cardTxt, wheel1, wheel2, wheelR, fnCustom, leftClosed, quickCall, gridOff, styleNow, floorNow, pv } }));
 if (fnCustom?.entity !== "script.garage") errors.push(`Eigene Funktion fehlt: ${JSON.stringify(fnCustom)}`);
 if (wheel1.length !== 4 || wheel1.join() === wheel2.join()) errors.push(`Rad dreht nicht: ${wheel1} / ${wheel2}`);
+// Dach-Ebene im Editor: Kamin, Dachfenster, PV-Feld; Texturen; untere Etagen bleiben sichtbar
+for (const p of browser.contexts().flatMap((c) => c.pages())) await p.close();
+const rf = await shot("textur", "?roof=gable&lhaus&garden", { width: 1280, height: 800 });
+await rf.evaluate(async () => {
+  const p = window.panel;
+  await p._saveBuildingSettings({ wall_textures: { exterior: "brick" }, wall_colors: { exterior: "#e9c99a" } }, "ok");
+});
+await rf.waitForTimeout(800);
+await rf.screenshot({ path: `${out}/textur-haus.png` });
+const texMats = await rf.evaluate(() => [...window.panel._scene.texMats.keys()]);
+await rf.locator("haus3d-panel .floorbar button[data-floor='eg']").click();
+await rf.waitForTimeout(600);
+const lowerVisible = await rf.evaluate(() => { const sc = window.panel._scene; return [...sc.floors.entries()].filter(([, e]) => e.group.visible).map(([id]) => id); });
+await rf.screenshot({ path: `${out}/etage-eg-mit-kg.png` });
+await rf.locator("haus3d-panel .floorbar button[data-floor='all']").click();
+await rf.locator("haus3d-panel .edit").click();
+await rf.waitForTimeout(400);
+await rf.locator("haus3d-panel .floorsel").selectOption("__roof");
+await rf.locator("haus3d-panel .ed-bar button[data-view='split']").click();
+await rf.waitForTimeout(800);
+const rplan = (x, z) => rf.evaluate(([x, z]) => {
+  const e = window.panel._editor; const r = e.svg.getBoundingClientRect();
+  return [r.left + e.tx + x * e.scale, r.top + e.tz + z * e.scale];
+}, [x, z]);
+const roofTools = await rf.evaluate(() => [...window.panel._editor.root.querySelectorAll(".ed-bar [data-tool]")].map((b) => b.dataset.tool));
+await rf.locator("haus3d-panel .ed-bar button[data-tool=pv]").click();
+await rf.mouse.click(...(await rplan(3, 6.8)));
+await rf.locator("haus3d-panel .ed-props [data-rn=cols]").fill("4");
+await rf.locator("haus3d-panel .ed-props [data-rn=cols]").dispatchEvent("change");
+await rf.locator("haus3d-panel .ed-bar button[data-tool=chimney]").click();
+await rf.mouse.click(...(await rplan(5.5, 2)));
+await rf.locator("haus3d-panel .ed-bar button[data-tool=skylight]").click();
+await rf.mouse.click(...(await rplan(2, 1.5)));
+// PV-Feld ziehen
+await rf.locator("haus3d-panel .ed-bar button[data-tool=select]").click();
+const pvBefore = await rf.evaluate(() => window.panel._editor.b.settings.roof.items.find((x) => x.type === "pv"));
+const a0 = await rplan(pvBefore.x, pvBefore.z);
+await rf.mouse.move(a0[0], a0[1]);
+await rf.mouse.down();
+await rf.mouse.move(a0[0] + 40, a0[1], { steps: 4 });
+await rf.mouse.up();
+await rf.waitForTimeout(900);
+await rf.screenshot({ path: `${out}/dach-ebene.png` });
+const roofItems = await rf.evaluate(() => window.panel._editor.b.settings.roof.items.map((x) => ({ type: x.type, x: x.x, z: x.z, cols: x.cols })));
+// Textur-Auswahl am Raum
+await rf.locator("haus3d-panel .floorsel").selectOption("eg");
+await rf.waitForTimeout(300);
+const texSelects = await rf.evaluate(() => window.panel._editor.props.querySelectorAll("[data-tex]").length);
+await rf.locator("haus3d-panel .ed-bar button[data-act=save]").click();
+await rf.waitForTimeout(1200);
+const savedItems = await rf.evaluate(() => (window.panel._building.settings.roof.items ?? []).length);
+const roof3d = await rf.evaluate(() => { let pv = 0; let n = 0; window.panel._scene.roofHolder?.traverse((o) => { if (!o.isMesh) return; n++; if (o.geometry?.parameters?.height === 0.04) pv++; }); return { pv, n }; });
+await rf.screenshot({ path: `${out}/dach-3d.png` });
+console.log(JSON.stringify({ roofLayer: { texMats, lowerVisible, roofTools, roofItems, texSelects, savedItems, roof3d, moved: roofItems.find((x) => x.type === "pv").x - pvBefore.x } }));
+if (savedItems !== 3) errors.push(`Dach-Elemente nicht gespeichert: ${savedItems}`);
+if (roof3d.pv < 3) errors.push(`PV-Feld und Dachfenster fehlen in 3D: ${roof3d.pv}`);
+if (!lowerVisible.includes("kg")) errors.push(`KG unter EG nicht sichtbar: ${lowerVisible}`);
+if (!texMats.some((k) => k.startsWith("wall:brick"))) errors.push(`Klinker fehlt: ${texMats}`);
 console.log(JSON.stringify({ info, calls, hidpi, roomPanel, saved, moved: { x: Math.round(moved.x), y: Math.round(moved.y) }, hiddenSaved, anim, errors: errors.filter((e) => !e.includes("404")) }, null, 1));
 await browser.close();
 server.close();

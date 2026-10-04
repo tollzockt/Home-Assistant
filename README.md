@@ -24,7 +24,8 @@ dort lassen sich direkt einlesen, und Exporte von Haus 3D kann NeonPlan wieder �
   oder links im Plan). **PV-Felder** für die genaue Anordnung: je Feld Richtung, Spalten × Reihen, hoch
   oder quer, Abstand von links in Metern (von außen auf die Dachfläche gesehen) und Startreihe ab der
   Traufe; Felder ersetzen die Anzahl je Richtung. **Flügel-Ende** beim L-Dach: Giebel oder Walm. Sichtbar nur in der Ansicht
-  „Alle“; wählt man eine Etage, schaut man hinein.
+  „Alle“; wählt man eine Etage, schaut man hinein – die Etagen darunter bleiben dabei stehen (z. B. EG
+  gewählt: KG mit seinen Außenwänden bleibt sichtbar). Genauer geht es im Editor auf der **Dach-Ebene**.
 - **Balkon und Geländer**: Gartenfläche der Art „Balkon“ wird als Platte auf Höhe der Etage gebaut, mit
   Geländer an allen Kanten, die nicht am Haus liegen (Glas, Stäbe oder Holz, Höhe einstellbar). Auch
   Terrassen und andere Flächen können so ein Geländer oder einen Zaun bekommen.
@@ -87,6 +88,19 @@ dort lassen sich direkt einlesen, und Exporte von Haus 3D kann NeonPlan wieder �
 Über den Stift in der Kopfzeile öffnet sich der Editor für die gewählte Etage. Oben rechts wählt man die
 Ansicht **2D**, **2D + 3D** (nebeneinander, auf schmalen Geräten untereinander) oder **3D**.
 
+- **Dach-Ebene** (Etagenauswahl → „Dach“): das Hausdach von oben mit Flächen, First und Nordpfeil.
+  Werkzeuge **Kamin**, **Dachfenster** und **PV-Feld**: aufs Dach tippen, dann ziehen oder mit den
+  Pfeilen schieben. PV-Felder (Spalten × Reihen, hochkant oder quer) richten sich nach der Dachfläche
+  unter ihrer Mitte, Reihe 1 liegt an der Traufe; Module, die über First, Kehle oder Rand hinausragen,
+  werden rot angezeigt und in 3D weggelassen. Rechts: Dachform, Neigung, Überstand, First, Flügel-Ende,
+  Norden, Dachfarbe, **Dachdeckung** (Ziegel, Schiefer, Blech, Schindeln) sowie Farbe und Textur der
+  **Giebel**. Kamin: Maße, Höhe über Dach, Drehung, Farbe, Textur. „Bisherige PV hier verschiebbar
+  machen“ übernimmt die PV nach Himmelsrichtung als einzelne Felder.
+- **Texturen** (nur Bild, kein Relief – schont Tablets): Auswahl neben jeder Farbe. Wände außen und innen
+  (Putz, Klinker, Naturstein, Holz senkrecht/waagerecht, Fassadenpaneele, Beton, Fliesen, Schiefer),
+  Böden (nach Belag automatisch: Dielen, Fliesen, Teppich, Stein, Beton), Gartenflächen (Rasen, Kies,
+  Pflaster, Platten, Holzdeck, Asphalt, Erde) und Dach. „Standard“ wählt passend, „glatt“ schaltet ab.
+  Die Farbe tönt die Textur. Im Cyberpunk-Stil bleibt alles glatt.
 - **Räume zeichnen**: Rechteck ziehen oder freie Form Punkt für Punkt. Eckpunkte rasten am Raster
   und an vorhandenen Ecken ein. Ecken ziehen, über „+“ neue Ecken einfügen.
 - **Einzelne Wände** (Werkzeug „Wand“): Anfang antippen, Ende antippen – fertig ist eine gerade Wand,
@@ -140,8 +154,8 @@ Damit HACS sie als Update anbietet, braucht es ein **Release**:
 
 1. Auf GitHub im Repository rechts **Releases → Draft a new release** (bzw. „Create a new release“).
 2. **Choose a tag** → neuen Tag eintippen, genau wie die Version in `manifest.json` mit „v“ davor,
-   z. B. `v0.12.1` → „Create new tag“. Ziel-Zweig: `main`.
-3. Titel z. B. `0.12.1`, kurze Beschreibung, bei „Release label“ **None** (nicht Pre-release),
+   z. B. `v0.13.0` → „Create new tag“. Ziel-Zweig: `main`.
+3. Titel z. B. `0.13.0`, kurze Beschreibung, bei „Release label“ **None** (nicht Pre-release),
    **Publish release**.
 4. In Home Assistant: **HACS → Haus 3D** (ggf. ⋮ → „Informationen aktualisieren“) → **Herunterladen**/
    **Aktualisieren** → Home Assistant **neu starten**.
@@ -180,20 +194,23 @@ Das Format entspricht NeonPlan 3D (`version: 1`):
 floors[]          id, name, elevation, height, ha_floor
   rooms[]         id, name, area_id, points [[x, z], …] in Metern, floor_material,
                   floor_color, wall_color, exterior_color ("#rrggbb", optional),
+                  floor_texture, wall_texture, exterior_texture (Textur, "none" = glatt),
                   roof {type, pitch, overhang, color}, solar_panels (eigenes Dach je Raum)
   openings[]      id, room_id, edge, offset, width, type (window|door|garage), sill, height,
                   hinge, swing, style (passage|glass|front_glass|…), contact, cover
   outdoor[]       id, type (lawn|terrace|path|driveway|pool|bed|hedge|fence|balcony|gravel|paving|
                   rockery), points,
-                  railing (glass|bars|wood|none), railing_height
+                  railing (glass|bars|wood|none), railing_height, texture
   placements[]    entity_id, x, z, y
-  walls[]         id, a [x, z], b [x, z], thickness, height, color (freistehende Wände)
+  walls[]         id, a [x, z], b [x, z], thickness, height, color, texture (freistehende Wände)
   furniture[]     id, type, x, z, rotation, w, d, h, mount_y, entity, color, name
 settings          wall_exterior (0.24), wall_interior (0.12), wall_colors {exterior, interior},
+                  wall_textures {exterior, interior},
                   energy {…, extra: [{entity, name}]},
                   roof {type (none|flat|gable|hip|shed), pitch, overhang, direction (auto|x|z),
                         color, solar {N, E, S, W}, solar_arrays [{dir, cols, rows, orient, left, row}],
-                        wing_end (gable|hip), floor, rooms}, north (Grad),
+                        wing_end (gable|hip), floor, rooms, texture, gable_color, gable_texture,
+                        items [{id, type (chimney|skylight|pv), x, z, …}] (Dach-Ebene)}, north (Grad),
                   cards [{id, title, icon, entities [{entity, name}]}] (bis 5), quick [{entity, name}],
                   weather (Entität oder "none")
 ```

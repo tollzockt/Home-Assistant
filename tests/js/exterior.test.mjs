@@ -160,3 +160,63 @@ test("PV-Felder: Spalten × Reihen, quer, von links, Kehle", async () => {
   const v = panelArraySlots(part, { tan, cols: 1, rows: 4, orient: "landscape", left: 8.5, blocked: [{ c: 0, hw: 3.75 }] });
   assert.ok(v.length > 0 && v.length < 4); // unten gesperrt, oben frei
 });
+
+test("Dach-Ebene: Höhe und Richtung der Dachfläche an einem Punkt", async () => {
+  const { roofModel, roofSurfaceAt } = await import("../../custom_components/haus3d/frontend/exterior.js");
+  const b = { settings: { wall_exterior: 0, roof: { type: "gable", pitch: 45, overhang: 0 } }, floors: [{ id: "eg", elevation: 0, height: 2.5, rooms: [rect(0, 0, 10, 6)] }] };
+  const m = roofModel(b);
+  assert.equal(m.parts.length, 1);
+  // First entlang x bei z = 3; an der Traufe Höhe 2,5, am First 2,5 + 3
+  const eave = roofSurfaceAt(m, [5, 0]);
+  assert.ok(Math.abs(eave.y - 2.5) < 1e-9);
+  assert.deepEqual(eave.out.map((v) => Math.round(v) + 0), [0, -1]);
+  const ridge = roofSurfaceAt(m, [5, 3]);
+  assert.ok(Math.abs(ridge.y - 5.5) < 1e-9);
+  assert.deepEqual(roofSurfaceAt(m, [5, 5]).out.map((v) => Math.round(v) + 0), [0, 1]);
+  assert.equal(roofSurfaceAt(m, [20, 3]), null);
+  // Walm: an der Stirnseite zeigt die Fläche nach außen
+  const hip = roofModel({ ...b, settings: { ...b.settings, roof: { type: "hip", pitch: 45, overhang: 0 } } });
+  assert.deepEqual(roofSurfaceAt(hip, [0.5, 3]).out.map((v) => Math.round(v) + 0), [-1, 0]);
+  assert.equal(roofModel({ settings: {}, floors: [] }), null);
+});
+
+test("Dach-Ebene: PV-Feld richtet sich nach der Fläche, Reihe 1 an der Traufe", async () => {
+  const { roofModel, pvLayout, legacyPvItems } = await import("../../custom_components/haus3d/frontend/exterior.js");
+  const b = { settings: { wall_exterior: 0, roof: { type: "gable", pitch: 30, overhang: 0 } }, floors: [{ id: "eg", elevation: 0, height: 2.5, rooms: [rect(0, 0, 10, 6)] }] };
+  const m = roofModel(b);
+  // Südseite (z > 3): Reihen laufen in z, Spalten in x
+  const lay = pvLayout(m, { x: 5, z: 4.5, cols: 3, rows: 2, orient: "portrait" });
+  assert.equal(lay.panels.length, 6);
+  const xs = [...new Set(lay.panels.map((p) => p[0].toFixed(3)))];
+  const zs = [...new Set(lay.panels.map((p) => p[1].toFixed(3)))];
+  assert.equal(xs.length, 3);
+  assert.equal(zs.length, 2);
+  // erste Reihe (Index 0) liegt weiter unten (größeres z = näher an der Südtraufe)
+  assert.ok(lay.panels[0][1] > lay.panels[3][1]);
+  // Abstand der Reihen im Grundriss: (1,7 + Fuge) · cos 30°
+  assert.ok(Math.abs(lay.panels[0][1] - lay.panels[3][1] - 1.73 * Math.cos(Math.PI / 6)) < 1e-6);
+  assert.equal(lay.count, 6);
+  // Feld über dem First: obere Reihe liegt auf der Nordseite und fällt weg
+  const over = pvLayout(m, { x: 5, z: 3.9, cols: 2, rows: 2 });
+  assert.equal(over.count, 2);
+  assert.deepEqual(over.fits, [true, true, false, false]);
+  // bisherige Angabe „8 nach Süden“ wird zu verschiebbaren Feldern
+  b.settings.roof.solar = { S: 8 };
+  const items = legacyPvItems(roofModel(b), 0);
+  assert.ok(items.length >= 1);
+  assert.equal(items.reduce((a, it) => a + it.cols * it.rows, 0), 8);
+  assert.ok(items.every((it) => it.z > 3));
+});
+
+test("Texturen: Standard je Fläche, eigene Wahl, glatt", async () => {
+  const { textureFor, textureOptions } = await import("../../custom_components/haus3d/frontend/model.js");
+  assert.equal(textureFor("wall"), "plaster");
+  assert.equal(textureFor("wall", "brick"), "brick");
+  assert.equal(textureFor("wall", "none"), null);
+  assert.equal(textureFor("wall", "quatsch"), "plaster");
+  assert.equal(textureFor("floor", "", "tiles_dark"), "tiles");
+  assert.equal(textureFor("roof", null, "flat"), "gravel");
+  assert.equal(textureFor("ground", undefined, "lawn"), "grass");
+  assert.ok(textureOptions("r").some(([k]) => k === "roof_tiles"));
+  assert.ok(!textureOptions("r").some(([k]) => k === "parquet"));
+});

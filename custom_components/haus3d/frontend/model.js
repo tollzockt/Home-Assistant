@@ -79,3 +79,60 @@ export function floorColor(room) {
   if (/^#[0-9a-f]{6}$/i.test(room?.floor_color ?? "")) return room.floor_color;
   return (FLOOR_MATERIALS.find((m) => m[0] === room?.floor_material) ?? FLOOR_MATERIALS[0])[2];
 }
+
+/**
+ * Texturen (nur Bild, keine Struktur/Relief): Schlüssel, Name, Flächenarten (w = Wand, f = Boden,
+ * r = Dach, g = Gelände). Die Farbe der Fläche tönt die Textur.
+ */
+export const TEXTURES = [
+  ["plaster", "Putz", "wg"],
+  ["brick", "Klinker", "wg"],
+  ["stone", "Naturstein", "wfg"],
+  ["wood_v", "Holz senkrecht (Schalung)", "w"],
+  ["wood_h", "Holz waagerecht", "w"],
+  ["panel", "Fassadenpaneele", "wr"],
+  ["concrete", "Beton", "wfg"],
+  ["tiles", "Fliesen", "wf"],
+  ["tiles_large", "Fliesen groß", "fg"],
+  ["parquet", "Dielen / Parkett", "f"],
+  ["carpet", "Teppich", "f"],
+  ["roof_tiles", "Dachziegel", "r"],
+  ["roof_slate", "Schiefer", "rw"],
+  ["roof_metal", "Blech (Stehfalz)", "r"],
+  ["roof_shingle", "Bitumenschindeln", "r"],
+  ["grass", "Rasen", "g"],
+  ["gravel", "Kies", "gr"],
+  ["paving", "Pflaster", "g"],
+  ["slabs", "Platten", "gf"],
+  ["deck", "Holzdeck", "gf"],
+  ["asphalt", "Asphalt", "g"],
+  ["soil", "Erde", "g"],
+];
+
+/** Auswahl für eine Flächenart: [Schlüssel, Name]; "" = Standard, "none" = glatt. */
+export function textureOptions(kind) {
+  return [["", "Standard"], ["none", "glatt (keine)"], ...TEXTURES.filter((t) => t[2].includes(kind)).map(([k, n]) => [k, n])];
+}
+
+const FLOOR_TEXTURE = {
+  wood: "parquet", oak: "parquet", laminate_light: "parquet", walnut: "parquet", parquet_grey: "parquet", vinyl_grey: "parquet",
+  tiles: "tiles", tiles_dark: "tiles", tiles_white: "tiles", marble: "tiles_large", terracotta: "tiles", slate: "tiles_large",
+  carpet: "carpet", carpet_beige: "carpet", carpet_red: "carpet", stone: "stone", concrete: "concrete", epoxy: "concrete",
+};
+const GROUND_TEXTURE = { lawn: "grass", terrace: "slabs", path: "paving", driveway: "asphalt", pool: "tiles", bed: "soil", hedge: "grass", fence: "wood_v", balcony: "slabs", gravel: "gravel", paving: "paving", rockery: "gravel" };
+
+/**
+ * Textur einer Fläche: eigene Wahl vor Standard. null = glatt.
+ * @param {"wall"|"floor"|"roof"|"ground"} kind
+ * @param {string|null|undefined} chosen eigene Wahl ("" = Standard, "none" = glatt)
+ * @param {string} [base] Bodenbelag bzw. Art der Gartenfläche / Dachform für den Standard
+ */
+export function textureFor(kind, chosen, base) {
+  if (chosen === "none") return null;
+  if (chosen && TEXTURES.some((t) => t[0] === chosen)) return chosen;
+  if (kind === "wall") return "plaster";
+  if (kind === "floor") return FLOOR_TEXTURE[base] ?? "parquet";
+  if (kind === "roof") return base === "flat" ? "gravel" : "roof_tiles";
+  if (kind === "ground") return GROUND_TEXTURE[base] ?? null;
+  return null;
+}
