@@ -637,3 +637,159 @@ export function alignToFloor(floor, ref, settings = {}, tol = 0.15) {
   const moved = [...[...map.x].map(([f, t]) => `x ${r3(f)} → ${r3(t)}`), ...[...map.z].map(([f, t]) => `z ${r3(f)} → ${r3(t)}`)];
   return { floor: next, moved };
 }
+
+/**
+ * Gesicherter Entwurf des Editors gegen den gespeicherten Stand.
+ * @returns {"none"|"resume"|"stale"} none: kein/kaputter/gleicher Entwurf; resume: auf demselben Stand
+ *   begonnen; stale: inzwischen wurde ein neuerer Stand gespeichert
+ */
+export function draftState(raw, building, revision) {
+  let d = raw;
+  if (typeof raw === "string") {
+    try {
+      d = JSON.parse(raw);
+    } catch {
+      return "none";
+    }
+  }
+  if (!d || typeof d !== "object" || d.v !== 1 || !d.building || !Array.isArray(d.building.floors)) return "none";
+  if (JSON.stringify(d.building) === JSON.stringify(building)) return "none";
+  return d.base_revision === revision ? "resume" : "stale";
+}
+
+/** Umriss der Auswahl im Grundriss [[x0, z0], [x1, z1]] oder null. */
+export function selectionBounds(floor, sel) {
+  if (!floor || !sel) return null;
+  let pts = [];
+  if (sel.kind === "room") pts = floor.rooms?.find((r) => r.id === sel.id)?.points ?? [];
+  else if (sel.kind === "outdoor") pts = floor.outdoor?.find((o) => o.id === sel.id)?.points ?? [];
+  else if (sel.kind === "wall") {
+    const w = floor.walls?.find((x) => x.id === sel.id);
+    if (w) pts = [w.a, w.b];
+  } else if (sel.kind === "furniture") {
+    const m = floor.furniture?.find((x) => x.id === sel.id);
+    if (m) {
+      const r = Math.hypot(Number(m.w) || 1, Number(m.d) || 1) / 2;
+      pts = [[m.x - r, m.z - r], [m.x + r, m.z + r]];
+    }
+  } else if (sel.kind === "opening") {
+    const o = floor.openings?.find((x) => x.id === sel.id);
+    const g = o && openingGeometry(floor, o);
+    if (g) pts = [g.p0, g.p1];
+  }
+  if (!pts.length) return null;
+  const xs = pts.map((p) => p[0]);
+  const zs = pts.map((p) => p[1]);
+  return [[Math.min(...xs), Math.min(...zs)], [Math.max(...xs), Math.max(...zs)]];
+}
+
+/** Längen der Kanten mit Mitte und Normale nach außen (für Maße am Plan). */
+export function edgeDimensions(points) {
+  const n = points.length;
+  return points.map((a, i) => {
+    const b = points[(i + 1) % n];
+    const len = Math.hypot(b[0] - a[0], b[1] - a[1]);
+    const u = len ? [(b[0] - a[0]) / len, (b[1] - a[1]) / len] : [1, 0];
+    const mid = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
+    let nOut = [u[1], -u[0]];
+    if (pointInPolygon([mid[0] + nOut[0] * 0.01, mid[1] + nOut[1] * 0.01], points)) nOut = [-nOut[0], -nOut[1]];
+    return { i, len, mid, nOut };
+  });
+}
+
+/**
+ * Kante i auf eine Länge bringen: die folgende Kante wandert parallel (moveEdge, Rechtecke bleiben
+ * rechtwinklig, verbundene Räume folgen); ist sie fast parallel, wandert nur der Endpunkt.
+ */
+export function setEdgeLength(floor, roomId, i, len, { linked = true } = {}) {
+  const room = floor.rooms.find((r) => r.id === roomId);
+  if (!room || !(len > 0.05)) return floor;
+  const pts = room.points;
+  const n = pts.length;
+  const a = pts[i];
+  const b = pts[(i + 1) % n];
+  const c = pts[(i + 2) % n];
+  const cur = Math.hypot(b[0] - a[0], b[1] - a[1]);
+  if (cur < 1e-6) return floor;
+  const delta = len - cur;
+  const u = [(b[0] - a[0]) / cur, (b[1] - a[1]) / cur];
+  const l1 = Math.hypot(c[0] - b[0], c[1] - b[1]) || 1;
+  const u1 = [(c[0] - b[0]) / l1, (c[1] - b[1]) / l1];
+  const nrm = [-u1[1], u1[0]];
+  const dot = u[0] * nrm[0] + u[1] * nrm[1];
+  if (Math.abs(dot) < 0.2) return moveVertex(floor, roomId, (i + 1) % n, [b[0] + u[0] * delta, b[1] + u[1] * delta], { linked });
+  return moveEdge(floor, roomId, (i + 1) % n, delta / dot, { linked });
+}
+
+/** Achsparalleles Rechteck (4 Ecken)? */
+export function isAxisRect(points) {
+  if (points?.length !== 4) return false;
+  return points.every((a, i) => {
+    const b = points[(i + 1) % 4];
+    return Math.abs(a[0] - b[0]) < 1e-3 || Math.abs(a[1] - b[1]) < 1e-3;
+  });
+}
+
+/** Breite (x) bzw. Tiefe (z) eines achsparallelen Rechtecks setzen; die erste Ecke bleibt stehen. */
+export function setRectSize(floor, roomId, { w = null, d = null } = {}, o = {}) {
+  let f = floor;
+  const room = () => f.rooms.find((r) => r.id === roomId);
+  if (!room() || !isAxisRect(room().points)) return floor;
+  for (const [want, axis] of [[w, 0], [d, 1]]) {
+    if (!(want > 0.05)) continue;
+    const p = room().points;
+    // Kante 0 oder 1 entlang der Achse: es wandert die folgende Kante, Ecke 0 bleibt stehen
+    const i = Math.abs(p[0][1 - axis] - p[1][1 - axis]) < 1e-3 ? 0 : 1;
+    f = setEdgeLength(f, roomId, i, want, o);
+  }
+  return f;
+}
+
+/** Länge einer Linie (Summe der Abschnitte). */
+export function polylineLength(points) {
+  let l = 0;
+  for (let i = 1; i < (points?.length ?? 0); i++) l += Math.hypot(points[i][0] - points[i - 1][0], points[i][1] - points[i - 1][1]);
+  return l;
+}
+
+/**
+ * Fläche aus einer Mittellinie mit Breite: Gehrung an den Knicken (über miterLimit × halbe Breite
+ * abgeschrägt), gerade Enden. Gibt ein geschlossenes Polygon zurück (links hin, rechts zurück).
+ */
+export function offsetPolyline(points, width, { miterLimit = 2 } = {}) {
+  const pts = (points ?? []).filter((p, i, a) => !i || Math.hypot(p[0] - a[i - 1][0], p[1] - a[i - 1][1]) > 1e-6);
+  if (pts.length < 2 || !(width > 0)) return [];
+  const hw = width / 2;
+  const nrm = (a, b) => {
+    const l = Math.hypot(b[0] - a[0], b[1] - a[1]);
+    return [-(b[1] - a[1]) / l, (b[0] - a[0]) / l];
+  };
+  const left = [];
+  const right = [];
+  for (let i = 0; i < pts.length; i++) {
+    const p = pts[i];
+    const n1 = i > 0 ? nrm(pts[i - 1], p) : null;
+    const n2 = i < pts.length - 1 ? nrm(p, pts[i + 1]) : null;
+    if (!n1 || !n2) {
+      const n = n1 ?? n2;
+      left.push([r3(p[0] + n[0] * hw), r3(p[1] + n[1] * hw)]);
+      right.push([r3(p[0] - n[0] * hw), r3(p[1] - n[1] * hw)]);
+      continue;
+    }
+    const m = [n1[0] + n2[0], n1[1] + n2[1]];
+    const ml = Math.hypot(...m);
+    const dot = ml > 1e-9 ? (m[0] * n1[0] + m[1] * n1[1]) / ml : 0;
+    if (ml < 1e-9 || 1 / dot > miterLimit) {
+      // spitzer Knick: abschrägen
+      for (const n of [n1, n2]) {
+        left.push([r3(p[0] + n[0] * hw), r3(p[1] + n[1] * hw)]);
+        right.push([r3(p[0] - n[0] * hw), r3(p[1] - n[1] * hw)]);
+      }
+      continue;
+    }
+    const k = hw / dot / ml;
+    left.push([r3(p[0] + m[0] * k), r3(p[1] + m[1] * k)]);
+    right.push([r3(p[0] - m[0] * k), r3(p[1] - m[1] * k)]);
+  }
+  return [...left, ...right.reverse()];
+}

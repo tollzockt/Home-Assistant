@@ -10,7 +10,7 @@ import { colorKey } from "./light.js";
 import { floorColor, textureFor } from "./model.js";
 import { getTexture, planarUVs } from "./textures.js";
 import { ambientInterval, lodState, resolveQuality, shouldRender } from "./perf.js";
-import { ROOF_ITEMS, adjustRoofParts, findPvShed, freeEdges, panelArraySlots, panelSlots, pvLayout, roofFaces, roofFloor, roofParts, roofRooms, roofSettings, roofSurfaceAt, roomRoofGroups, scatter, seeded, panelBasis } from "./exterior.js";
+import { ROOF_ITEMS, adjustRoofParts, findPvShed, freeEdges, panelArraySlots, panelSlots, pvLayout, roofFaces, roofFloor, roofParts, roofRooms, roofSettings, roofSurfaceAt, roomRoofGroups, scatter, seeded, panelBasis, roofObstacles } from "./exterior.js";
 import { centroid, computeWalls, labelPoint, pieceFootprint, pointInPolygon, wallPieces } from "./walls.js";
 
 const OUTDOOR = {
@@ -1260,10 +1260,11 @@ export class HouseScene {
     const cyber = this.style === "cyber";
     const pvMats = [this.mats.solarFrame, this.mats.solarFrame, this.mats.solar, this.mats.solarFrame, this.mats.solarFrame, this.mats.solarFrame];
     const skyMats = [this.mats.frame, this.mats.frame, this.mats.glass, this.mats.frame, this.mats.frame, this.mats.frame];
+    const obstacles = roofObstacles(model, items); // Kamin und Dachfenster: dort keine Module
     for (const it of items) {
       if (!Number.isFinite(it?.x) || !Number.isFinite(it?.z)) continue;
       if (it.type === "pv") {
-        const lay = pvLayout(model, it);
+        const lay = pvLayout(model, it, { obstacles });
         const batch = new PanelBatch(this._pvMats(), { pvField: it.id ?? null });
         for (const [i, p] of lay.panels.entries()) {
           const hit = roofSurfaceAt(model, p);

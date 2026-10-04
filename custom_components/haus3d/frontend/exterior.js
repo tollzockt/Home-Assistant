@@ -530,13 +530,14 @@ export const DEFAULT_WP = 400;
 /**
  * Kenndaten eines PV-Felds: Azimut (null = flach), Neigung, Anzahl passender Module, kWp.
  */
-export function fieldInfo(model, item, north = 0) {
-  const lay = pvLayout(model, item);
+export function fieldInfo(model, item, north = 0, items = []) {
+  const lay = pvLayout(model, item, { obstacles: roofObstacles(model, items) });
   const wp = Number(item.wp) > 0 ? Number(item.wp) : DEFAULT_WP;
   return {
     azimuth: lay.out ? azimuthOf(lay.out, north) : null,
     tilt: lay.out ? (Math.atan(model.tan) * 180) / Math.PI : 0,
     count: lay.count,
+    blocked: lay.blockedCount,
     wp,
     kwp: (lay.count * wp) / 1000,
   };
@@ -716,7 +717,7 @@ export function roofSurfaceAt(model, [x, z]) {
  * nach der Dachfläche unter seiner Mitte (Reihen die Neigung hinauf); auf dem Flachdach nach rotation.
  * @returns {{center:number[], along:number[], out:number[]|null, w:number, l:number, cos:number, panels:number[][], fits:boolean[], count:number, size:number[]}}
  */
-export function pvLayout(model, item) {
+export function pvLayout(model, item, { obstacles = [] } = {}) {
   const cols = Math.max(1, Math.min(30, Math.round(Number(item.cols) || 1)));
   const rows = Math.max(1, Math.min(15, Math.round(Number(item.rows) || 1)));
   const w = item.orient === "landscape" ? 1.7 : 1.0; // entlang der Traufe
@@ -755,7 +756,16 @@ export function pvLayout(model, item) {
         return !!h.out && h.out[0] * out[0] + h.out[1] * out[1] > 0.95;
       });
     });
-    return { center: [item.x, item.z], along, out, w, l, cos: c, panels, fits, count: fits.filter(Boolean).length, size: [cols * (w + gap) - gap, (rows * (l + gap) - gap) * c] };
+    // von Kamin oder Dachfenster verdeckt (obstacles aus roofObstacles)
+    const blocked = panels.map((p) => {
+      if (!obstacles.length) return false;
+      const hw = w / 2;
+      const hd = (l * c) / 2;
+      const rect = [[-1, -1], [1, -1], [1, 1], [-1, 1]].map(([i, k]) => [p[0] + along[0] * i * hw + down[0] * k * hd, p[1] + along[1] * i * hw + down[1] * k * hd]);
+      return obstacles.some((o) => polygonsOverlap(rect, o.poly));
+    });
+    const ok = fits.map((f, i) => f && !blocked[i]);
+    return { center: [item.x, item.z], along, out, w, l, cos: c, panels, fits: ok, blocked, blockedCount: blocked.filter((b, i) => b && fits[i]).length, count: ok.filter(Boolean).length, size: [cols * (w + gap) - gap, (rows * (l + gap) - gap) * c] };
   }
 }
 
@@ -871,4 +881,41 @@ export function adjustRoofParts(parts, adjust, flip = false) {
       center: [fr.center[0] + fr.u[0] * ds + fr.v[0] * dt, fr.center[1] + fr.u[1] * ds + fr.v[1] * dt],
     };
   });
+}
+
+/** Grundfläche eines Kamins oder Dachfensters (4 Ecken im Grundriss), sonst null. */
+export function roofItemFootprint(model, it, grow = 0) {
+  const def = ROOF_ITEMS[it?.type];
+  if (!def || it.type === "pv" || !Number.isFinite(it.x) || !Number.isFinite(it.z)) return null;
+  const a = ((it.rotation || 0) * Math.PI) / 180;
+  let along = [Math.cos(a), Math.sin(a)];
+  let d = Number(it.d) || def.d;
+  if (it.type === "skylight") {
+    const out = roofSurfaceAt(model, [it.x, it.z])?.out;
+    if (out) along = [out[1], -out[0]];
+    d = (Number(it.l) || def.l) * (model ? Math.cos(Math.atan(model.tan)) : 1);
+  }
+  const w = (Number(it.w) || def.w) + 2 * grow;
+  d += 2 * grow;
+  const n = [-along[1], along[0]];
+  return [[-1, -1], [1, -1], [1, 1], [-1, 1]].map(([i, k]) => [it.x + (along[0] * i * w) / 2 + (n[0] * k * d) / 2, it.z + (along[1] * i * w) / 2 + (n[1] * k * d) / 2]);
+}
+
+/** Hindernisse für PV-Module (Kamine, Dachfenster) mit Abstand clearance. */
+export function roofObstacles(model, items, clearance = 0.15) {
+  return (items ?? []).map((it) => ({ type: it?.type, poly: roofItemFootprint(model, it, clearance) })).filter((o) => o.poly);
+}
+
+/** Überlappen sich zwei konvexe Vierecke? (Ecke innen oder Kanten schneiden sich) */
+export function polygonsOverlap(a, b) {
+  if (a.some((p) => pointInPolygon(p, b)) || b.some((p) => pointInPolygon(p, a))) return true;
+  const cross = (p, q, r) => (q[0] - p[0]) * (r[1] - p[1]) - (q[1] - p[1]) * (r[0] - p[0]);
+  for (let i = 0; i < a.length; i++) {
+    const [p1, p2] = [a[i], a[(i + 1) % a.length]];
+    for (let k = 0; k < b.length; k++) {
+      const [q1, q2] = [b[k], b[(k + 1) % b.length]];
+      if (cross(p1, p2, q1) * cross(p1, p2, q2) < 0 && cross(q1, q2, p1) * cross(q1, q2, p2) < 0) return true;
+    }
+  }
+  return false;
 }

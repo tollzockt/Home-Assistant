@@ -2,7 +2,7 @@
 // Dachfenster, PV-Felder) setzen und verschieben, Dach-Einstellungen. Wird von FloorEditor benutzt.
 
 import { allIds, newId } from "./edit-ops.js";
-import { ROOF_ITEMS, ROOF_TYPES, compass16, fieldInfo, legacyPvItems, pvLayout, roofModel, roofSettings, roofSurfaceAt } from "./exterior.js";
+import { ROOF_ITEMS, ROOF_TYPES, compass16, fieldInfo, legacyPvItems, pvLayout, roofModel, roofObstacles, roofSettings, roofSurfaceAt } from "./exterior.js";
 import { COLOR_SWATCHES, textureOptions } from "./model.js";
 
 export const ROOF_TOOLS = [
@@ -126,9 +126,10 @@ export function roofSvg(ed, px) {
     const sel = ed.sel?.kind === "roofitem" && ed.sel.id === it.id;
     const stroke = sel ? "#03a9f4" : "#fff";
     if (it.type === "pv") {
-      const lay = pvLayout(model, it);
+      const lay = pvLayout(model, it, { obstacles: roofObstacles(model, roof.items) });
       // Module, die nicht auf die Fläche passen (über First/Kehle/Rand), rot
-      const cell = lay.panels.map((p, i) => `<polygon points="${rectCorners(p, lay.along, lay.w, lay.l * lay.cos).map(P).join(" ")}" fill="${lay.fits[i] ? "#1c3a6b" : "#e53935"}" fill-opacity="${lay.fits[i] ? 1 : 0.45}" stroke="#8fb3e8" stroke-width="${px(0.8)}"/>`).join("");
+      // rot: passt nicht auf die Fläche; rot schraffiert: von Kamin/Dachfenster verdeckt
+      const cell = lay.panels.map((p, i) => `<polygon${lay.blocked[i] ? ' data-blocked="1"' : ""} points="${rectCorners(p, lay.along, lay.w, lay.l * lay.cos).map(P).join(" ")}" fill="${lay.fits[i] ? "#1c3a6b" : lay.blocked[i] ? "url(#pvblock)" : "#e53935"}" fill-opacity="${lay.fits[i] ? 1 : 0.6}" stroke="${lay.blocked[i] ? "#e53935" : "#8fb3e8"}" stroke-width="${px(0.8)}"/>`).join("");
       parts.push(`<g data-kind="roofitem" data-id="${esc(it.id)}" style="cursor:move">${cell}<polygon points="${rectCorners(lay.center, lay.along, lay.size[0] + 0.1, lay.size[1] + 0.1).map(P).join(" ")}" fill="transparent" stroke="${stroke}" stroke-opacity="${sel ? 1 : 0.5}" stroke-width="${px(sel ? 3 : 1)}"/></g>`);
       if (sel) parts.push(`<text x="${r3(it.x)}" y="${r3(it.z - lay.size[1] / 2 - px(8))}" text-anchor="middle" font-size="${px(12)}" fill="#03a9f4">${lay.count} von ${lay.panels.length} Modulen passen</text>`);
     } else {
@@ -305,8 +306,8 @@ export function roofProps(ed, el, pad, bindPad) {
     const flat = !roofSurfaceAt(model, [sel.x, sel.z])?.out;
     let body = "";
     if (sel.type === "pv") {
-      const lay = pvLayout(model, sel);
-      const n = lay.count < lay.panels.length ? `${lay.count} von ${lay.panels.length} Modulen passen (rot = über First, Kehle oder Rand – Feld verschieben)` : `${lay.count} Module`;
+      const lay = pvLayout(model, sel, { obstacles: roofObstacles(model, raw.items) });
+      const n = lay.count < lay.panels.length ? `${lay.count} von ${lay.panels.length} Modulen passen${lay.blockedCount ? ` – ${lay.blockedCount} verdeckt durch Kamin/Dachfenster` : ""} (rot = über First, Kehle oder Rand – Feld verschieben)` : `${lay.count} Module`;
       body = `<div class="row2">${num("cols", "Spalten (nebeneinander)", sel.cols ?? 1, 1, ' min="1" max="30"')}${num("rows", "Reihen (die Neigung hinauf)", sel.rows ?? 1, 1, ' min="1" max="15"')}</div>
         <label>Module</label><select data-rs="orient"><option value="portrait"${sel.orient !== "landscape" ? " selected" : ""}>hochkant (1,0 × 1,7 m)</option><option value="landscape"${sel.orient === "landscape" ? " selected" : ""}>quer (1,7 × 1,0 m)</option></select>
         ${flat ? num("rotation", "Drehung (°) auf dem Flachdach", sel.rotation ?? 0, 15) : ""}
@@ -316,7 +317,7 @@ export function roofProps(ed, el, pad, bindPad) {
         <label>Ertrag heute (Entität)</label><input data-rt="energy_entity" list="dl_pve" value="${esc(sel.energy_entity ?? "")}" placeholder="– keine –">
         ${num("wp", "Modulleistung (Wp)", sel.wp ?? "", 5, ' min="50" max="1000" placeholder="400"')}
         ${pvDatalists(ed.hass)}
-        <p class="muted pvinfo">${pvInfoLine(fieldInfo(model, sel, Number(ed.b.settings?.north) || 0))}</p>`;
+        <p class="muted pvinfo">${pvInfoLine(fieldInfo(model, sel, Number(ed.b.settings?.north) || 0, raw.items))}</p>`;
     } else if (sel.type === "chimney") {
       body = `<div class="row3">${num("w", "Breite", sel.w)}${num("d", "Tiefe", sel.d)}${num("h", "über Dach", sel.h ?? ROOF_ITEMS.chimney.h)}</div>
         ${num("rotation", "Drehung (°)", sel.rotation ?? 0, 15)}

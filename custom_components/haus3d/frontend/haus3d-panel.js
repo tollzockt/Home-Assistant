@@ -1027,7 +1027,7 @@ class Haus3DPanel extends HTMLElement {
     if (!model) return out;
     const north = Number(this._building.settings?.north) || 0;
     items.forEach((it, i) => {
-      const f = fieldInfo(model, it, north);
+      const f = fieldInfo(model, it, north, this._building.settings.roof.items);
       const dir = f.azimuth === null ? "flach" : compass16(f.azimuth);
       out.set(it.id, { ...f, id: it.id, name: it.name || `PV ${dir}`, short: it.name || dir, dir, entity: it.entity || null, energy: it.energy_entity || null, index: i });
     });
@@ -1374,11 +1374,13 @@ class Haus3DPanel extends HTMLElement {
       floorId,
       sceneStyle: this._appliedStyle === "cyber" ? "cyber" : this._appliedStyle === "night" ? "night" : "standard",
       dark: !!this._hass.themes?.darkMode,
-      onSave: async (building) => {
+      revision: this._revision,
+      onSave: async (building, { keepOpen = false } = {}) => {
         try {
           const res = await this._hass.callWS({ type: "haus3d/building/save", building, revision: this._revision });
           this._setBuilding(res.building, res.revision, { keepCamera: true });
-          this._toast("Gespeichert.");
+          if (!keepOpen) this._toast("Gespeichert.");
+          return res.revision;
         } catch (err) {
           if (err.code === "conflict") throw new Error("Der Stand wurde inzwischen woanders geändert. Bitte Seite neu laden.");
           throw err;
