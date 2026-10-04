@@ -35,6 +35,9 @@ async function shot(name, query, viewport, deviceScaleFactor = 1) {
 // Funktionsrad unten rechts: aufklappen, Eintrag antippen, zuklappen
 async function fnToggle(page, name) {
   await page.locator("haus3d-panel .wheel.right .fab").click();
+  // ggf. durchdrehen, bis der Eintrag sichtbar ist
+  for (let k = 0; k < 12 && !(await page.locator(`haus3d-panel .wheel.right .bub.vis[title="${name}"]`).count()); k++) await page.locator("haus3d-panel .wheel.right .spin.down").click();
+  await page.waitForTimeout(300);
   await page.locator(`haus3d-panel .wheel.right .bub[title="${name}"]`).click();
   await page.locator("haus3d-panel .wheel.right .fab").click();
 }
@@ -382,25 +385,42 @@ await hud.evaluate(async () => {
 await hud.waitForTimeout(500);
 await hud.locator("haus3d-panel .wheel.left .fab").click();
 await hud.waitForTimeout(400);
-const wheel1 = await hud.evaluate(() => [...window.panel.shadowRoot.querySelectorAll(".wheel.left .bub.vis")].map((b) => b.title));
-await hud.locator("haus3d-panel .wheel.left .bub.vis").first().click();
+const wheel1 = await hud.evaluate(() => [...window.panel.shadowRoot.querySelectorAll(".wheel.left .bub.vis[data-i]")].map((b) => b.title));
+await hud.locator("haus3d-panel .wheel.left .bub.vis[data-i]").first().click();
 await hud.waitForTimeout(300);
 const quickCall = await hud.evaluate(() => window.calls.filter((c) => c.service).at(-1));
 await hud.mouse.move(150, 650);
 await hud.mouse.wheel(0, 120);
 await hud.waitForTimeout(400);
-const wheel2 = await hud.evaluate(() => [...window.panel.shadowRoot.querySelectorAll(".wheel.left .bub.vis")].map((b) => b.title));
+const wheel2 = await hud.evaluate(() => [...window.panel.shadowRoot.querySelectorAll(".wheel.left .bub.vis[data-i]")].map((b) => b.title));
 await hud.locator("haus3d-panel .wheel.right .fab").click();
 await hud.waitForTimeout(400);
 await hud.screenshot({ path: `${out}/hud-offen.png` });
+const leftClosed = await hud.evaluate(() => !window.panel.shadowRoot.querySelector(".wheel.left").classList.contains("open"));
 // Funktionsrad: Raster aus, Stil durchschalten
+for (let k = 0; k < 12 && !(await hud.locator('haus3d-panel .wheel.right .bub.vis[title="Raster"]').count()); k++) await hud.locator("haus3d-panel .wheel.right .spin.down").click();
+await hud.waitForTimeout(300);
+const wheelR = await hud.evaluate(() => [...window.panel.shadowRoot.querySelectorAll(".wheel.right .bub.vis")].map((b) => b.title));
+await hud.screenshot({ path: `${out}/hud-rad-gedreht.png` });
 await hud.locator('haus3d-panel .wheel.right .bub[title="Raster"]').click();
 const gridOff = await hud.evaluate(() => window.panel._settings.layers.grid === false);
+for (let k = 0; k < 12 && !(await hud.locator("haus3d-panel .wheel.right .bub.vis[title^='Stil']").count()); k++) await hud.locator("haus3d-panel .wheel.right .spin.down").click();
+await hud.waitForTimeout(300);
 await hud.locator("haus3d-panel .wheel.right .bub[title^='Stil']").click();
 const styleNow = await hud.evaluate(() => window.panel._settings.style);
+for (let k = 0; k < 12 && !(await hud.locator('haus3d-panel .wheel.right .bub.vis[title="Raster"]').count()); k++) await hud.locator("haus3d-panel .wheel.right .spin.down").click();
+await hud.waitForTimeout(300);
 await hud.locator('haus3d-panel .wheel.right .bub[title="Raster"]').click();
+// + öffnet „Funktionen anpassen“: eigenen Eintrag hinzufügen
+await hud.locator("haus3d-panel .wheel.right .bub.plus").click();
+await hud.locator("haus3d-panel .qedit .addq").click();
+await hud.locator("haus3d-panel .qedit input[data-ent]").last().fill("script.garage");
+await hud.locator("haus3d-panel .qedit input[data-name]").last().fill("Garage");
+await hud.screenshot({ path: `${out}/hud-funktionen.png` });
+await hud.locator("haus3d-panel .qedit .save").click();
+await hud.waitForTimeout(600);
+const fnCustom = await hud.evaluate(() => (window.panel._building.settings.functions ?? []).at(-1));
 await hud.locator("haus3d-panel .wheel.right .fab").click();
-await hud.locator("haus3d-panel .wheel.left .fab").click();
 // Etagen-Leiste: Pfeil runter von „Alle“
 await hud.locator("haus3d-panel .floorbar button[data-step='1']").click();
 const floorNow = await hud.evaluate(() => window.panel._filter);
@@ -414,8 +434,9 @@ await hud.waitForTimeout(1200);
 const pv = await hud.evaluate(() => { let n = 0; window.panel._scene.roofHolder?.traverse((o) => { if (o.isMesh && o.geometry?.parameters?.depth !== undefined && o.geometry.parameters.height === 0.04) n++; }); return n; });
 await hud.screenshot({ path: `${out}/hud-pv.png` });
 const cardTxt = await hud.evaluate(() => [...window.panel.shadowRoot.querySelectorAll(".cards .card")].map((c) => c.innerText.replace(/\s+/g, " ")));
-console.log(JSON.stringify({ hud: { cardTxt, wheel1, wheel2, quickCall, gridOff, styleNow, floorNow, pv } }));
-if (wheel1.length !== 5 || wheel1.join() === wheel2.join()) errors.push(`Rad dreht nicht: ${wheel1} / ${wheel2}`);
+console.log(JSON.stringify({ hud: { cardTxt, wheel1, wheel2, wheelR, fnCustom, leftClosed, quickCall, gridOff, styleNow, floorNow, pv } }));
+if (fnCustom?.entity !== "script.garage") errors.push(`Eigene Funktion fehlt: ${JSON.stringify(fnCustom)}`);
+if (wheel1.length !== 4 || wheel1.join() === wheel2.join()) errors.push(`Rad dreht nicht: ${wheel1} / ${wheel2}`);
 console.log(JSON.stringify({ info, calls, hidpi, roomPanel, saved, moved: { x: Math.round(moved.x), y: Math.round(moved.y) }, hiddenSaved, anim, errors: errors.filter((e) => !e.includes("404")) }, null, 1));
 await browser.close();
 server.close();

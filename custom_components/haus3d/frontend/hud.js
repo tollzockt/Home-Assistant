@@ -2,32 +2,70 @@
 
 /** Höchstens so viele Zusatzkarten neben „Energie“. */
 export const MAX_CARDS = 5;
-/** Sichtbare Bubbles je Rad-Menü; mehr lassen sich durchdrehen. */
-export const WHEEL_VISIBLE = 5;
+/** Sichtbare Einträge je Rad-Menü; mehr lassen sich durchdrehen. Dahinter sitzt fest der „+“-Knopf. */
+export const WHEEL_VISIBLE = 4;
 
 /**
- * Lage der Bubbles eines Rad-Menüs in der Ecke: Viertelkreis über dem Knopf.
- * @param {number} n Anzahl Einträge
+ * Lage der Bubbles eines Rad-Menüs in der Ecke: Viertelkreis über dem Knopf. Die sichtbaren Einträge
+ * stehen auf den ersten Plätzen, der letzte Platz (90°) gehört dem „+“. Ausgeblendete Einträge warten
+ * vor dem ersten bzw. hinter dem letzten Platz, damit sie beim Drehen hinein- und hinausgleiten.
+ * @param {number} n Anzahl Einträge (ohne „+“)
  * @param {number} offset Drehung (Einträge)
  * @returns {{i:number, angle:number, visible:boolean}[]} angle in Grad, 0 = senkrecht über dem Knopf, 90 = waagerecht
  */
 export function wheelLayout(n, offset = 0, visible = WHEEL_VISIBLE) {
   const shown = Math.min(n, visible);
-  const step = shown > 1 ? 90 / (shown - 1) : 0;
+  const step = 90 / visible;
   const out = [];
   for (let i = 0; i < n; i++) {
-    // Position relativ zur Drehung, ringförmig (bei mehr Einträgen als Plätzen)
     let k = i - offset;
     if (n > visible) k = ((k % n) + n) % n;
-    out.push({ i, angle: k * step, visible: k >= 0 && k < shown });
+    const vis = k >= 0 && k < shown;
+    out.push({ i, angle: vis ? k * step : k === n - 1 ? -step : visible * step, visible: vis });
   }
   return out;
+}
+
+/** Platz des „+“-Knopfs: direkt hinter dem letzten sichtbaren Eintrag. */
+export function wheelPlusAngle(n, visible = WHEEL_VISIBLE) {
+  return (Math.min(n, visible) * 90) / visible;
 }
 
 /** Drehung eines Rads um delta Einträge (ringförmig). */
 export function rotateWheel(offset, delta, n, visible = WHEEL_VISIBLE) {
   if (n <= visible) return 0;
   return (((offset + delta) % n) + n) % n;
+}
+
+/**
+ * Lage der Beschriftung einer Bubble: immer nach außen (weg vom Knopf), damit sie keine Nachbar-Bubble
+ * verdeckt: ganz oben darüber, ganz waagerecht zur Seite, dazwischen schräg nach außen.
+ */
+export function labelPlace(angle) {
+  if (angle < 5) return "top";
+  if (angle > 80) return "side";
+  return "diag";
+}
+
+/** Eingebaute Funktionen des Funktionsrads (Reihenfolge = Standard). */
+export const FUNCTION_KEYS = ["flow", "temp", "style", "roof", "grid", "weather", "labels", "devices", "furniture", "fit"];
+
+/** Einträge des Funktionsrads aus den Einstellungen: eingebaute (key) und eigene (entity), ohne Doppelte. */
+export function normalizeFunctions(list) {
+  if (!Array.isArray(list)) return FUNCTION_KEYS.map((key) => ({ key }));
+  const seen = new Set();
+  const out = [];
+  for (const f of list) {
+    if (!f || typeof f !== "object") continue;
+    if (FUNCTION_KEYS.includes(f.key)) {
+      if (seen.has(f.key)) continue;
+      seen.add(f.key);
+      out.push({ key: f.key });
+    } else if (typeof f.entity === "string" && f.entity.includes(".")) {
+      out.push({ entity: f.entity, ...(f.name ? { name: String(f.name) } : {}) });
+    }
+  }
+  return out;
 }
 
 /** Dienst für einen Kurzwahl-Eintrag: Automation auslösen, Skript/Szene starten, Taster drücken, sonst umschalten. */

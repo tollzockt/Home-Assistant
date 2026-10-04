@@ -40,11 +40,13 @@ dort lassen sich direkt einlesen, und Exporte von Haus 3D kann NeonPlan wieder �
   - **Karten oben rechts**: „Energie“ plus bis zu **5 eigene Karten** (Stift: Titel, Symbol, Werte;
     „+“ legt eine neue an). Jede Karte klappt einzeln auf und zu, eingeklappt zeigt sie einen Kurzwert.
   - **Weißer Punkt unten links – Kurzwahl**: Automationen (werden ausgelöst), Skripte, Szenen, Taster,
-    Schalter, Lichter. Antippen führt aus, lange drücken zeigt Details. Bearbeiten über den Stift-Eintrag.
+    Schalter, Lichter. Antippen führt aus, lange drücken zeigt Details. Hinzufügen über das „+“.
   - **Weißer Punkt unten rechts – Funktionen**: Energiefluss, Temperaturansicht, Stil durchschalten
     (Auto → Tag → Nacht → Cyberpunk), Dach, Raster, Wetter, Raumnamen, Geräte, Möbel, Ansicht einpassen.
-  - Beide Menüs zeigen bis zu 5 Einträge im Viertelkreis; sind es mehr, dreht man sie wie ein Rad
-    (Mausrad oder wischen).
+    Über das „+“ lassen sich Funktionen ausblenden, umsortieren und eigene Einträge (Skripte,
+    Automationen, Schalter …) hinzufügen.
+  - Beide Menüs zeigen **4 Einträge** im Viertelkreis, dahinter fest das **„+“**. Sind es mehr, dreht man
+    sie wie ein Rad (Mausrad, wischen oder die kleinen Pfeile). Beschriftungen stehen immer nach außen.
   - **Raster im Hintergrund** in allen Stilen (abschaltbar).
 - Kamera drehen, zoomen und verschieben mit Maus oder Fingern.
   Auf schmalen Bildschirmen gibt es einen Menü-Knopf für die HA-Seitenleiste. Hell/Dunkel folgt HA.
@@ -138,8 +140,8 @@ Damit HACS sie als Update anbietet, braucht es ein **Release**:
 
 1. Auf GitHub im Repository rechts **Releases → Draft a new release** (bzw. „Create a new release“).
 2. **Choose a tag** → neuen Tag eintippen, genau wie die Version in `manifest.json` mit „v“ davor,
-   z. B. `v0.12.0` → „Create new tag“. Ziel-Zweig: `main`.
-3. Titel z. B. `0.12.0`, kurze Beschreibung, bei „Release label“ **None** (nicht Pre-release),
+   z. B. `v0.12.1` → „Create new tag“. Ziel-Zweig: `main`.
+3. Titel z. B. `0.12.1`, kurze Beschreibung, bei „Release label“ **None** (nicht Pre-release),
    **Publish release**.
 4. In Home Assistant: **HACS → Haus 3D** (ggf. ⋮ → „Informationen aktualisieren“) → **Herunterladen**/
    **Aktualisieren** → Home Assistant **neu starten**.

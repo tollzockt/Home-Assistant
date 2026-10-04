@@ -22,7 +22,7 @@ import {
 import { ROOF_TYPES, roofSettings, weatherEntity, weatherKind } from "./exterior.js";
 import { exportFile, normalize, parseImport } from "./model.js";
 import { SIM_WEATHER, Simulator } from "./sim.js";
-import { MAX_CARDS, WHEEL_VISIBLE, nextStyle, normalizeCards, quickService, rotateWheel, wheelLayout } from "./hud.js";
+import { FUNCTION_KEYS, MAX_CARDS, WHEEL_VISIBLE, labelPlace, nextStyle, normalizeCards, normalizeFunctions, quickService, rotateWheel, wheelLayout, wheelPlusAngle } from "./hud.js";
 import { HouseScene } from "./scene.js";
 import { closeGaps } from "./walls.js";
 import { EDITOR_STYLE, FloorEditor } from "./editor.js";
@@ -270,11 +270,20 @@ header .floors, header .temp, header .fit { display: none; }
 .wheel .bub { position: absolute; width: 48px; height: 48px; margin: 4px; border-radius: 50%; border: none; cursor: pointer; display: flex; align-items: center; justify-content: center; background: var(--card-background-color, #fff); color: var(--primary-text-color); box-shadow: 0 3px 10px rgba(0,0,0,.3); --mdc-icon-size: 22px; transition: left .25s, right .25s, bottom .25s, opacity .25s, transform .25s; opacity: 0; transform: scale(.4); pointer-events: none; }
 .wheel.open .bub.vis { opacity: 1; transform: scale(1); pointer-events: auto; }
 .wheel .bub.on { background: var(--primary-color, #03a9f4); color: #fff; }
-.wheel .bub .lab { position: absolute; top: 14px; white-space: nowrap; font-size: 11px; padding: 2px 7px; border-radius: 8px; background: rgba(0,0,0,.72); color: #fff; pointer-events: none; }
-.wheel.left .bub .lab { left: 54px; } .wheel.right .bub .lab { right: 54px; }
-.wheel .more { position: absolute; bottom: 62px; font-size: 11px; color: var(--secondary-text-color); white-space: nowrap; opacity: 0; transition: opacity .2s; pointer-events: none; }
-.wheel.left .more { left: 2px; } .wheel.right .more { right: 2px; }
-.wheel.open .more { opacity: .9; }
+.wheel .bub .lab { position: absolute; white-space: nowrap; font-size: 11px; padding: 2px 7px; border-radius: 8px; background: rgba(0,0,0,.72); color: #fff; pointer-events: none; z-index: 1; }
+.wheel .bub .lab.top { bottom: 52px; }
+.wheel.left .bub .lab.top { left: 0; } .wheel.right .bub .lab.top { right: 0; }
+.wheel .bub .lab.diag { bottom: 44px; }
+.wheel.left .bub .lab.diag { left: 36px; } .wheel.right .bub .lab.diag { right: 36px; }
+.wheel .bub .lab.side { top: 14px; }
+.wheel.left .bub .lab.side { left: 54px; } .wheel.right .bub .lab.side { right: 54px; }
+.wheel .bub.plus { border: 2px dashed var(--primary-color, #03a9f4); background: var(--card-background-color, #fff); color: var(--primary-color, #03a9f4); }
+.wheel .spin { position: absolute; bottom: 64px; width: 26px; height: 26px; padding: 0; border-radius: 50%; border: none; cursor: pointer; display: flex; align-items: center; justify-content: center; background: rgba(0,0,0,.55); color: #fff; --mdc-icon-size: 18px; opacity: 0; pointer-events: none; transition: opacity .2s; }
+.wheel.open .spin { opacity: .9; pointer-events: auto; }
+.wheel.left .spin.up { left: 70px; bottom: 70px; } .wheel.left .spin.down { left: 100px; bottom: 40px; }
+.wheel.right .spin.up { right: 70px; bottom: 70px; } .wheel.right .spin.down { right: 100px; bottom: 40px; }
+.qedit .qrow .fixed { flex: 1; font-size: 13px; }
+.qedit select.addkey { flex: 1; font: inherit; font-size: 13px; padding: 7px; border-radius: 8px; border: 1px solid var(--divider-color, rgba(127,127,127,.4)); background: var(--primary-background-color, #fff); color: inherit; }
 .legend { left: 50% !important; transform: translateX(-50%); bottom: 80px !important; }
 .qedit .qrow { display: flex; gap: 6px; align-items: center; margin: 4px 0; }
 .qedit .qrow input { flex: 1; min-width: 0; font: inherit; font-size: 13px; padding: 7px; border-radius: 8px; border: 1px solid var(--divider-color, rgba(127,127,127,.4)); background: var(--primary-background-color, #fff); color: inherit; }
@@ -1684,8 +1693,8 @@ class Haus3DPanel extends HTMLElement {
     bar.querySelectorAll("[data-step]").forEach((b) => b.addEventListener("click", () => this._setFilter(order[Math.min(order.length - 1, Math.max(0, idx + Number(b.dataset.step)))])));
   }
 
-  /** Einträge des Funktionsrads (unten rechts): Umschalter der Ansicht. */
-  _functionItems() {
+  /** Eingebaute Funktionen (Umschalter der Ansicht), nach Schlüssel. */
+  _builtinFunctions() {
     const l = this._settings.layers;
     const styleName = { auto: "Auto", day: "Tag", night: "Nacht", cyber: "Cyberpunk" }[this._settings.style] ?? "Auto";
     const layer = (key, icon, name) => ({ icon, name, on: l[key] !== false, run: () => {
@@ -1694,43 +1703,54 @@ class Haus3DPanel extends HTMLElement {
       this._scene?.setLayers(l);
       this._applyOverlayLayers();
     } });
-    return [
-      layer("flow", "mdi:transmission-tower-export", "Energiefluss"),
-      { icon: "mdi:thermometer", name: "Temperatur", on: this._tempMode, run: () => {
+    return {
+      flow: layer("flow", "mdi:transmission-tower-export", "Energiefluss"),
+      temp: { icon: "mdi:thermometer", name: "Temperatur", on: this._tempMode, run: () => {
         this._tempMode = !this._tempMode;
         this._store("haus3d.temp", this._tempMode ? "1" : "0");
         this._renderToolbar();
         this._updateStates();
       } },
-      { icon: { auto: "mdi:theme-light-dark", day: "mdi:white-balance-sunny", night: "mdi:weather-night", cyber: "mdi:robot" }[this._settings.style] ?? "mdi:theme-light-dark", name: `Stil: ${styleName}`, on: false, run: () => {
+      style: { icon: { auto: "mdi:theme-light-dark", day: "mdi:white-balance-sunny", night: "mdi:weather-night", cyber: "mdi:robot" }[this._settings.style] ?? "mdi:theme-light-dark", name: `Stil: ${styleName}`, on: false, run: () => {
         this._settings.style = nextStyle(this._settings.style);
         this._saveSettings();
         this._applyStyle();
       } },
-      layer("roof", "mdi:home-roof", "Dach"),
-      layer("grid", "mdi:grid", "Raster"),
-      layer("weather", "mdi:weather-pouring", "Wetter"),
-      layer("labels", "mdi:label-outline", "Raumnamen"),
-      layer("devices", "mdi:lightbulb-group-outline", "Geräte"),
-      layer("furniture", "mdi:sofa-outline", "Möbel"),
-      { icon: "mdi:fit-to-screen-outline", name: "Ansicht einpassen", on: false, run: () => this._scene?.fitCamera() },
-    ];
+      roof: layer("roof", "mdi:home-roof", "Dach"),
+      grid: layer("grid", "mdi:grid", "Raster"),
+      weather: layer("weather", "mdi:weather-pouring", "Wetter"),
+      labels: layer("labels", "mdi:label-outline", "Raumnamen"),
+      devices: layer("devices", "mdi:lightbulb-group-outline", "Geräte"),
+      furniture: layer("furniture", "mdi:sofa-outline", "Möbel"),
+      fit: { icon: "mdi:fit-to-screen-outline", name: "Ansicht einpassen", on: false, run: () => this._scene?.fitCamera() },
+    };
+  }
+
+  /** Einträge des Funktionsrads (unten rechts): eingebaute Umschalter und eigene Einträge aus settings.functions. */
+  _functionItems() {
+    const builtin = this._builtinFunctions();
+    const items = normalizeFunctions(this._building?.settings?.functions).map((f) => (f.key ? builtin[f.key] : this._entityItem(f)));
+    if (this._hass?.user?.is_admin) items.push({ plus: true, icon: "mdi:plus", name: "Funktionen anpassen", run: () => this._functionDialog() });
+    return items;
+  }
+
+  /** Bubble für eine Entität (Kurzwahl oder eigene Funktion): Automation auslösen, Skript starten, sonst umschalten. */
+  _entityItem(q) {
+    const hass = this._hass;
+    const st = hass?.states[q.entity];
+    const domain = q.entity.split(".")[0];
+    const icon = q.icon || st?.attributes?.icon || { automation: "mdi:robot", script: "mdi:script-text-play", scene: "mdi:palette", button: "mdi:gesture-tap-button", input_button: "mdi:gesture-tap-button", light: "mdi:lightbulb", switch: "mdi:toggle-switch", cover: "mdi:window-shutter", lock: "mdi:lock", fan: "mdi:fan", input_boolean: "mdi:toggle-switch-outline" }[domain] || "mdi:flash";
+    const name = q.name || st?.attributes?.friendly_name || q.entity;
+    return { icon, name, entity: q.entity, on: ["on", "open", "unlocked", "playing"].includes(st?.state) && domain !== "automation", run: () => {
+      const [d, svc] = quickService(q.entity, hass?.states[q.entity]);
+      hass.callService(d, svc, { entity_id: q.entity }).then(() => this._toast(`${name}: ausgeführt`)).catch((err) => this._toast(`Fehlgeschlagen: ${err.message ?? err}`));
+    } };
   }
 
   /** Einträge der Kurzwahl (unten links): Automationen, Skripte, Szenen … aus settings.quick. */
   _quickItems() {
-    const hass = this._hass;
-    const items = (this._building?.settings?.quick ?? []).filter((q) => q?.entity).map((q) => {
-      const st = hass?.states[q.entity];
-      const domain = q.entity.split(".")[0];
-      const icon = q.icon || st?.attributes?.icon || { automation: "mdi:robot", script: "mdi:script-text-play", scene: "mdi:palette", button: "mdi:gesture-tap-button", input_button: "mdi:gesture-tap-button", light: "mdi:lightbulb", switch: "mdi:toggle-switch", cover: "mdi:window-shutter", lock: "mdi:lock" }[domain] || "mdi:flash";
-      const name = q.name || st?.attributes?.friendly_name || q.entity;
-      return { icon, name, entity: q.entity, on: st?.state === "on" && !["automation"].includes(domain), run: () => {
-        const [d, svc] = quickService(q.entity, st);
-        hass.callService(d, svc, { entity_id: q.entity }).then(() => this._toast(`${name}: ausgeführt`)).catch((err) => this._toast(`Fehlgeschlagen: ${err.message ?? err}`));
-      } };
-    });
-    if (hass?.user?.is_admin) items.push({ icon: items.length ? "mdi:pencil-outline" : "mdi:plus", name: items.length ? "Kurzwahl bearbeiten" : "Kurzwahl anlegen", on: false, run: () => this._quickDialog() });
+    const items = (this._building?.settings?.quick ?? []).filter((q) => q?.entity).map((q) => this._entityItem(q));
+    if (this._hass?.user?.is_admin) items.push({ plus: true, icon: "mdi:plus", name: "Kurzwahl hinzufügen", run: () => this._quickDialog() });
     return items;
   }
 
@@ -1741,32 +1761,49 @@ class Haus3DPanel extends HTMLElement {
   }
 
   _updateWheelStates() {
-    // Zustände (an/aus) der Kurzwahl ändern sich mit HA: nur neu zeichnen, wenn das Rad offen ist
+    // Zustände (an/aus) ändern sich mit HA: nur neu zeichnen, wenn das Rad offen ist
     if (this._els?.wheelL?.classList.contains("open")) this._wheel(this._els.wheelL, "left", this._quickItems(), "mdi:gesture-tap", "Kurzwahl");
+    if (this._els?.wheelR?.classList.contains("open")) this._wheel(this._els.wheelR, "right", this._functionItems(), "mdi:tune-variant", "Funktionen");
   }
 
-  /** Rad-Menü: weißer Knopf, darüber Bubbles im Viertelkreis; mehr als 5 lassen sich durchdrehen (Mausrad/Wischen). */
-  _wheel(box, side, items, icon, title) {
+  /**
+   * Rad-Menü: weißer Knopf, darüber 4 Bubbles im Viertelkreis und am Ende fest das „+“ zum Hinzufügen.
+   * Mehr Einträge lassen sich wie ein Rad durchdrehen (Mausrad, Wischen oder die kleinen Pfeile).
+   */
+  _wheel(box, side, all, icon, title) {
     const key = `_wheel_${side}`;
     const st = (this[key] ??= { open: false, offset: 0 });
-    st.offset = Math.min(st.offset, Math.max(0, items.length - 1));
-    const R = 150;
-    const layout = wheelLayout(items.length, st.offset);
+    const plus = all.find((it) => it.plus);
+    const items = all.filter((it) => !it.plus);
+    const n = items.length;
+    st.offset = n > WHEEL_VISIBLE ? ((st.offset % n) + n) % n : 0;
+    const R = 170;
+    const pos = (angle) => {
+      const a = (angle * Math.PI) / 180;
+      return `${side}:${(4 + Math.sin(a) * R).toFixed(1)}px; bottom:${(4 + Math.cos(a) * R).toFixed(1)}px`;
+    };
+    const layout = wheelLayout(n, st.offset);
+    const bubble = (it, attr, angle, vis) => `<button class="bub${vis ? " vis" : ""}${it.on ? " on" : ""}${it.plus ? " plus" : ""}" ${attr} title="${esc(it.name)}" style="${pos(angle)}"><ha-icon icon="${esc(it.icon)}"></ha-icon><span class="lab ${labelPlace(angle)}">${esc(it.name)}</span></button>`;
     box.classList.toggle("open", st.open);
     box.innerHTML = `<button class="fab" title="${title}"><ha-icon icon="${st.open ? "mdi:close" : icon}"></ha-icon></button>` +
-      items.map((it, i) => {
-        const p = layout[i];
-        const a = (p.angle * Math.PI) / 180;
-        const x = 4 + Math.sin(a) * R;
-        const y = 4 + Math.cos(a) * R;
-        return `<button class="bub${p.visible ? " vis" : ""}${it.on ? " on" : ""}" data-i="${i}" title="${esc(it.name)}" style="${side}:${x}px; bottom:${y}px"><ha-icon icon="${esc(it.icon)}"></ha-icon><span class="lab">${esc(it.name)}</span></button>`;
-      }).join("") +
-      (items.length > WHEEL_VISIBLE ? `<div class="more">⟳ drehen: Mausrad oder wischen (${items.length})</div>` : "");
+      items.map((it, i) => bubble(it, `data-i="${i}"`, layout[i].angle, layout[i].visible)).join("") +
+      (plus ? bubble(plus, "data-plus", wheelPlusAngle(n), true) : "") +
+      (n > WHEEL_VISIBLE ? `<button class="spin up" data-d="-1" title="zurückdrehen"><ha-icon icon="mdi:chevron-up"></ha-icon></button><button class="spin down" data-d="1" title="weiterdrehen (${n} Einträge)"><ha-icon icon="mdi:chevron-down"></ha-icon></button>` : "");
+    const redraw = () => this._wheel(box, side, side === "right" ? this._functionItems() : this._quickItems(), icon, title);
     box.querySelector(".fab").addEventListener("click", () => {
       st.open = !st.open;
-      this._wheel(box, side, items, icon, title);
+      // nur ein Rad gleichzeitig offen (auf schmalen Bildschirmen überlappen sie sonst)
+      const other = side === "left" ? "right" : "left";
+      if (st.open && this[`_wheel_${other}`]?.open) {
+        this[`_wheel_${other}`].open = false;
+        this._renderWheels();
+      } else redraw();
     });
-    box.querySelectorAll(".bub").forEach((b) => {
+    box.querySelector("[data-plus]")?.addEventListener("click", () => {
+      if (!this._wheelDragged) plus.run();
+    });
+    box.querySelectorAll(".spin").forEach((b) => b.addEventListener("click", () => box._turn?.(Number(b.dataset.d))));
+    box.querySelectorAll(".bub[data-i]").forEach((b) => {
       let longTimer = null;
       let long = false;
       b.addEventListener("pointerdown", () => {
@@ -1782,21 +1819,24 @@ class Haus3DPanel extends HTMLElement {
       b.addEventListener("click", () => {
         if (long || this._wheelDragged) return;
         items[Number(b.dataset.i)].run();
-        // Umschalter neu zeichnen (an/aus), Kurzwahl bleibt offen
-        if (side === "right") this._wheel(box, side, this._functionItems(), icon, title);
+        // Umschalter neu zeichnen (an/aus), das Rad bleibt offen
+        if (side === "right") redraw();
       });
     });
-    const turn = (d) => {
-      const next = rotateWheel(st.offset, d, items.length);
+    box._turn = (d) => {
+      const next = rotateWheel(st.offset, d, n);
       if (next === st.offset) return;
       st.offset = next;
-      this._wheel(box, side, items, icon, title);
+      redraw();
     };
     if (!box._wheelBound) {
       box._wheelBound = true;
       box.addEventListener("wheel", (ev) => {
         if (!box.classList.contains("open")) return;
         ev.preventDefault();
+        const now = performance.now();
+        if (now - (box._lastTurn ?? 0) < 120) return; // Touchpads liefern viele kleine Schritte
+        box._lastTurn = now;
         box._turn?.(ev.deltaY > 0 ? 1 : -1);
       }, { passive: false });
       // Wischen über die Bubbles dreht das Rad
@@ -1821,7 +1861,73 @@ class Haus3DPanel extends HTMLElement {
       box.addEventListener("pointerup", end);
       box.addEventListener("pointercancel", end);
     }
-    box._turn = turn;
+  }
+
+  /** Funktionsrad anpassen: eingebaute Umschalter ein-/ausblenden, sortieren, eigene Einträge (Entitäten) hinzufügen. */
+  _functionDialog() {
+    this._closeDialog();
+    const hass = this._hass;
+    const builtin = this._builtinFunctions();
+    let list = normalizeFunctions(this._building?.settings?.functions);
+    const domains = ["automation", "script", "scene", "button", "input_button", "switch", "light", "input_boolean", "cover", "lock", "fan"];
+    const el = document.createElement("div");
+    el.className = "dialog-backdrop";
+    const render = () => {
+      const missing = FUNCTION_KEYS.filter((k) => !list.some((f) => f.key === k));
+      el.innerHTML = `<div class="dialog qedit" role="dialog" aria-label="Funktionen">
+        <div class="dialog-head"><span>Funktionen anpassen</span><button class="icon close" title="Schließen"><ha-icon icon="mdi:close"></ha-icon></button></div>
+        <div class="dialog-body">
+          <p class="hint">Im Rad sind ${WHEEL_VISIBLE} Einträge zu sehen, weitere werden durchgedreht. Eigene Einträge: Automation auslösen, Skript/Szene starten, sonst umschalten.</p>
+          ${list.map((f, i) => `<div class="qrow">${f.key
+            ? `<ha-icon icon="${esc(builtin[f.key].icon)}"></ha-icon><span class="fixed">${esc(builtin[f.key].name)}</span>`
+            : `<input class="nm" data-name="${i}" value="${esc(f.name ?? "")}" placeholder="Name"><input list="fn-ents" data-ent="${i}" value="${esc(f.entity ?? "")}" placeholder="script.…">`}
+            <button class="icon" data-up="${i}" title="nach oben"><ha-icon icon="mdi:arrow-up"></ha-icon></button><button class="icon" data-rm="${i}" title="Ausblenden/Entfernen"><ha-icon icon="mdi:${f.key ? "eye-off-outline" : "delete-outline"}"></ha-icon></button></div>`).join("") || `<p class="hint">Keine Einträge.</p>`}
+          <datalist id="fn-ents">${Object.keys(hass.states).filter((x) => domains.includes(x.split(".")[0])).sort().map((x) => `<option value="${esc(x)}">${esc(hass.states[x].attributes.friendly_name ?? "")}</option>`).join("")}</datalist>
+          ${missing.length ? `<div class="qrow"><select class="addkey"><option value="">Ausgeblendete wieder zeigen …</option>${missing.map((k) => `<option value="${k}">${esc(builtin[k].name)}</option>`).join("")}</select></div>` : ""}
+          <div class="btns"><button class="reset">Standard</button><button class="addq">+ Eigener Eintrag</button><button class="save primary">Speichern</button></div>
+        </div></div>`;
+      const sync = () => {
+        el.querySelectorAll("[data-ent]").forEach((i) => (list[Number(i.dataset.ent)].entity = i.value.trim()));
+        el.querySelectorAll("[data-name]").forEach((i) => (list[Number(i.dataset.name)].name = i.value.trim() || undefined));
+      };
+      el.querySelectorAll("[data-rm]").forEach((b) => b.addEventListener("click", () => {
+        sync();
+        list.splice(Number(b.dataset.rm), 1);
+        render();
+      }));
+      el.querySelectorAll("[data-up]").forEach((b) => b.addEventListener("click", () => {
+        sync();
+        const i = Number(b.dataset.up);
+        if (i > 0) [list[i - 1], list[i]] = [list[i], list[i - 1]];
+        render();
+      }));
+      el.querySelector(".addkey")?.addEventListener("change", (ev) => {
+        sync();
+        if (ev.target.value) list.push({ key: ev.target.value });
+        render();
+      });
+      el.querySelector(".addq").addEventListener("click", () => {
+        sync();
+        list.push({ entity: "" });
+        render();
+      });
+      el.querySelector(".reset").addEventListener("click", () => {
+        list = normalizeFunctions(null);
+        render();
+      });
+      el.querySelector(".save").addEventListener("click", () => {
+        sync();
+        this._closeDialog();
+        this._saveBuildingSettings({ functions: list.filter((f) => f.key || f.entity?.includes(".")) }, "Funktionen gespeichert.");
+      });
+      el.querySelector(".close").addEventListener("click", () => this._closeDialog());
+    };
+    render();
+    el.addEventListener("click", (ev) => {
+      if (ev.target === el) this._closeDialog();
+    });
+    this._els.stage.appendChild(el);
+    this._dialog = el;
   }
 
   /** Kurzwahl bearbeiten: Automationen, Skripte, Szenen, Taster, Schalter. */
@@ -1836,7 +1942,7 @@ class Haus3DPanel extends HTMLElement {
       el.innerHTML = `<div class="dialog qedit" role="dialog" aria-label="Kurzwahl">
         <div class="dialog-head"><span>Kurzwahl</span><button class="icon close" title="Schließen"><ha-icon icon="mdi:close"></ha-icon></button></div>
         <div class="dialog-body">
-          <p class="hint">Antippen löst aus: Automation (trigger), Skript/Szene (starten), Taster (drücken), sonst umschalten. Lange drücken öffnet die Details. Mehr als 5 lassen sich im Rad durchdrehen.</p>
+          <p class="hint">Antippen löst aus: Automation (trigger), Skript/Szene (starten), Taster (drücken), sonst umschalten. Lange drücken öffnet die Details. Im Rad sind ${WHEEL_VISIBLE} zu sehen, weitere werden durchgedreht.</p>
           ${list.map((q, i) => `<div class="qrow"><input class="nm" data-name="${i}" value="${esc(q.name ?? "")}" placeholder="Name"><input list="quick-ents" data-ent="${i}" value="${esc(q.entity ?? "")}" placeholder="automation.…"><button class="icon" data-up="${i}" title="nach oben"><ha-icon icon="mdi:arrow-up"></ha-icon></button><button class="icon" data-rm="${i}" title="Entfernen"><ha-icon icon="mdi:delete-outline"></ha-icon></button></div>`).join("") || `<p class="hint">Noch keine Einträge.</p>`}
           <datalist id="quick-ents">${Object.keys(hass.states).filter((x) => domains.includes(x.split(".")[0])).sort().map((x) => `<option value="${esc(x)}">${esc(hass.states[x].attributes.friendly_name ?? "")}</option>`).join("")}</datalist>
           <div class="btns"><button class="addq">+ Eintrag</button><button class="save primary">Speichern</button></div>
