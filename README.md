@@ -16,7 +16,11 @@ dort lassen sich direkt einlesen, und Exporte von Haus 3D kann NeonPlan wieder �
 - **Dach** (Zahnrad → Haus & Wetter): Flach-, Sattel-, Walm- oder Pultdach mit Neigung, Überstand und
   Firstrichtung. Es sitzt über der obersten Etage, ausgerichtet am Haus, und deckt nur die
   zusammenhängenden Räume ab (ein abseits stehender Schuppen bleibt frei). **L-, T- und U-Häuser**
-  bekommen automatisch ein zusammengesetztes Dach: Hauptdach plus Flügel, die bis zum First laufen. Sichtbar nur in der Ansicht
+  bekommen automatisch ein zusammengesetztes Dach: Hauptdach plus Flügel, die bis zum First laufen.
+  **Dachfarbe** frei wählbar. **PV-Module auf dem Dach**: Anzahl je Himmelsrichtung (Ost, Süd, West,
+  Nord); sie liegen hochkant von der Traufe aufwärts auf den Dachflächen, die in diese Richtung zeigen
+  (beim L-Dach z. B. Süd auf dem Hauptdach, Ost und West auf dem Flügel), ohne die Bereiche, über denen
+  ein anderes Dachteil liegt. Dazu „Norden“ einstellen (oben, rechts, unten oder links im Plan). Sichtbar nur in der Ansicht
   „Alle“; wählt man eine Etage, schaut man hinein.
 - **Balkon und Geländer**: Gartenfläche der Art „Balkon“ wird als Platte auf Höhe der Etage gebaut, mit
   Geländer an allen Kanten, die nicht am Haus liegen (Glas, Stäbe oder Holz, Höhe einstellbar). Auch
@@ -120,8 +124,8 @@ Damit HACS sie als Update anbietet, braucht es ein **Release**:
 
 1. Auf GitHub im Repository rechts **Releases → Draft a new release** (bzw. „Create a new release“).
 2. **Choose a tag** → neuen Tag eintippen, genau wie die Version in `manifest.json` mit „v“ davor,
-   z. B. `v0.10.0` → „Create new tag“. Ziel-Zweig: `main`.
-3. Titel z. B. `0.10.0`, kurze Beschreibung, bei „Release label“ **None** (nicht Pre-release),
+   z. B. `v0.11.0` → „Create new tag“. Ziel-Zweig: `main`.
+3. Titel z. B. `0.11.0`, kurze Beschreibung, bei „Release label“ **None** (nicht Pre-release),
    **Publish release**.
 4. In Home Assistant: **HACS → Haus 3D** (ggf. ⋮ → „Informationen aktualisieren“) → **Herunterladen**/
    **Aktualisieren** → Home Assistant **neu starten**.
@@ -172,7 +176,8 @@ floors[]          id, name, elevation, height, ha_floor
 settings          wall_exterior (0.24), wall_interior (0.12), wall_colors {exterior, interior},
                   energy {…, extra: [{entity, name}]},
                   roof {type (none|flat|gable|hip|shed), pitch, overhang, direction (auto|x|z),
-                        floor, rooms}, weather (Entität oder "none")
+                        color, solar {N, E, S, W}, floor, rooms}, north (Grad),
+                  weather (Entität oder "none")
 ```
 
 - Räume werden auf der **Mitte der Innenwände** gezeichnet. Kanten, die zwei Räume teilen, werden zu

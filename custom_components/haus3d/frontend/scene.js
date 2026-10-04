@@ -5,7 +5,7 @@ import * as THREE from "./vendor/three.module.min.js";
 import { OrbitControls } from "./vendor/OrbitControls.js";
 import { buildDevice, buildFurniture, furnitureMaterials } from "./furniture.js";
 import { floorColor } from "./model.js";
-import { freeEdges, roofFloor, roofParts, roofRooms, roofSettings, roomRoofGroups, scatter, seeded } from "./exterior.js";
+import { compassOf, freeEdges, panelSlots, roofFloor, roofParts, roofRooms, roofSettings, roomRoofGroups, scatter, seeded } from "./exterior.js";
 import { centroid, computeWalls, labelPoint, pieceFootprint, pointInPolygon, wallPieces } from "./walls.js";
 
 const OUTDOOR = {
@@ -952,6 +952,7 @@ export class HouseScene {
         holder.add(inner);
         const top = (floor.elevation ?? 0) + (floor.height ?? 2.5);
         const res = this._roofGeometry(rooms, roof, top, wall, inner);
+        this._roofPanels(inner, res, roof.solar, building.settings?.north ?? 0);
         this.roofMeshes.push(...res.meshes);
         for (const m of res.meshes) m.userData.roof = true;
         this.roofHolder = holder;
@@ -971,6 +972,65 @@ export class HouseScene {
         entry.group.add(group);
       }
     }
+  }
+
+  /**
+   * PV-Module auf dem Hausdach nach Himmelsrichtung: solar = {N, E, S, W} (Anzahl je Richtung).
+   * Je Richtung werden die passenden Dachflächen (größte zuerst) von der Traufe aufwärts belegt.
+   */
+  _roofPanels(parent, res, solar, north) {
+    if (!solar || !["gable", "hip", "shed"].includes(res.type)) return;
+    const group = new THREE.Group();
+    group.userData.layer = "solar";
+    const faces = [];
+    for (const fr of res.parts) {
+      const sides = res.type === "shed" ? [0] : [-1, 1];
+      for (const sg of sides) {
+        const out = res.type === "shed" ? [-fr.v[0], -fr.v[1]] : [sg * fr.v[0], sg * fr.v[1]];
+        faces.push({ fr, sg, out, dir: compassOf(out, north) });
+      }
+    }
+    const pw = 1.0;
+    const pl = 1.7;
+    for (const dir of ["S", "E", "W", "N"]) {
+      let left = Math.max(0, Math.round(Number(solar[dir]) || 0));
+      for (const f of faces.filter((x) => x.dir === dir).sort((a, b) => b.fr.length - a.fr.length)) {
+        if (left <= 0) break;
+        const { fr, sg, out } = f;
+        const W = fr.width / 2;
+        const [openLo, openHi] = fr.open ?? [false, false];
+        // Bereiche dieser Fläche, über denen ein anderes Dachteil liegt (Flügel eines L-Dachs)
+        const blocked = [];
+        const tr = res.type === "shed" ? [-W, W] : sg > 0 ? [0, W] : [-W, 0];
+        for (const q of res.parts) {
+          if (q === fr) continue;
+          const corners = [-1, 1].flatMap((a) => [-1, 1].map((b) => [q.center[0] + (a * q.length * q.u[0] + b * q.width * q.v[0]) / 2, q.center[1] + (a * q.length * q.u[1] + b * q.width * q.v[1]) / 2]));
+          const loc = corners.map(([x, z]) => [(x - fr.center[0]) * fr.u[0] + (z - fr.center[1]) * fr.u[1], (x - fr.center[0]) * fr.v[0] + (z - fr.center[1]) * fr.v[1]]);
+          const ts = loc.map((p) => p[1]);
+          if (Math.max(...ts) <= tr[0] + 0.05 || Math.min(...ts) >= tr[1] - 0.05) continue;
+          const ss = loc.map((p) => p[0]);
+          blocked.push([Math.min(...ss) - 0.15, Math.max(...ss) + 0.15]);
+        }
+        const slots = panelSlots(fr, { tan: res.tan, count: left, type: res.type, hipEnds: res.type === "hip" ? [!openLo, !openHi] : [false, false], blocked });
+        left -= slots.length;
+        const U = new THREE.Vector3(fr.u[0], 0, fr.u[1]);
+        const down = new THREE.Vector3(out[0], -res.tan, out[1]).normalize();
+        const N = new THREE.Vector3().crossVectors(down, U).normalize();
+        if (N.y < 0) N.negate();
+        const Z = new THREE.Vector3().crossVectors(U, N);
+        const q = new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().makeBasis(U, N, Z));
+        for (const { s, x } of slots) {
+          // t: Abstand quer zum First (Plan), y: Höhe auf der Dachfläche
+          const t = res.type === "shed" ? -fr.width / 2 + x : sg * (W - x);
+          const y = res.eave + x * res.tan;
+          const panel = new THREE.Mesh(new THREE.BoxGeometry(pw, 0.04, pl), [this.mats.solarFrame, this.mats.solarFrame, this.mats.solar, this.mats.solarFrame, this.mats.solarFrame, this.mats.solarFrame]);
+          panel.quaternion.copy(q);
+          panel.position.set(fr.center[0] + s * fr.u[0] + t * fr.v[0], y, fr.center[1] + s * fr.u[1] + t * fr.v[1]).addScaledVector(N, 0.07);
+          group.add(panel);
+        }
+      }
+    }
+    if (group.children.length) parent.add(group);
   }
 
   /**

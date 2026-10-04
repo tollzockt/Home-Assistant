@@ -466,3 +466,59 @@ export function autoHeights(building, floorId, areaId, tol = 0.5) {
     return Math.round((hb + ((hf - hb) * back) / (back + fwd || 1)) * 1000) / 1000;
   });
 }
+
+/**
+ * Himmelsrichtung einer Richtung im Plan. north: Grad im Uhrzeigersinn, um die der Norden gegenüber
+ * „oben im Plan“ (-z) gedreht ist (settings.north, 0 = Norden oben).
+ * @returns {"N"|"E"|"S"|"W"}
+ */
+export function compassOf(dir, north = 0) {
+  const n = (north * Math.PI) / 180;
+  const N = [Math.sin(n), -Math.cos(n)];
+  const E = [Math.cos(n), Math.sin(n)];
+  const az = ((Math.atan2(dir[0] * E[0] + dir[1] * E[1], dir[0] * N[0] + dir[1] * N[1]) * 180) / Math.PI + 360) % 360;
+  return ["N", "E", "S", "W"][Math.round(az / 90) % 4];
+}
+
+/**
+ * Plätze für PV-Module (1,0 × 1,7 m hochkant) auf einer Dachfläche, von der Traufe aufwärts.
+ * @param {{length:number, width:number, inner?:number[]}} part Dachteil aus roofParts
+ * @param {object} o
+ * @param {number} o.tan Neigung (tan)
+ * @param {number} o.count gewünschte Anzahl
+ * @param {"gable"|"hip"|"shed"} o.type
+ * @param {boolean[]} [o.hipEnds] Walmenden [unten, oben] (dort wird die Fläche schmaler)
+ * @returns {{s:number, x:number}[]} s entlang des Firsts (Mitte 0), x waagerecht ab Traufe nach innen (Modulmitte)
+ */
+export function panelSlots(part, { tan, count, type = "gable", hipEnds = [false, false], blocked = [] }) {
+  if (count <= 0) return [];
+  const L = part.length / 2;
+  const W = type === "shed" ? part.width : part.width / 2; // waagerechte Tiefe der Fläche
+  const cos = Math.cos(Math.atan(tan));
+  const pw = 1.0;
+  const pl = 1.7; // entlang der Neigung
+  const gap = 0.05;
+  const margin = 0.3;
+  const [inLo, inHi] = part.inner ?? [0, 0];
+  const out = [];
+  for (let row = 0; out.length < count; row++) {
+    const x0 = margin + row * (pl + gap) * cos; // Unterkante waagerecht
+    const x1 = x0 + pl * cos;
+    if (x1 > W - 0.15) break;
+    // Walmende: Fläche wird mit der Höhe schmaler (45° im Grundriss bei gleicher Neigung)
+    const lo = -L + margin + (inLo || 0) + (hipEnds[0] ? x1 : 0);
+    const hi = L - margin - (inHi || 0) - (hipEnds[1] ? x1 : 0);
+    // freie Abschnitte der Reihe (ohne Bereiche, die von anderen Dachteilen bedeckt sind)
+    let free = [[lo, hi]];
+    for (const [b0, b1] of blocked) free = free.flatMap(([a, b]) => (b1 <= a || b0 >= b ? [[a, b]] : [[a, Math.min(b, b0)], [Math.max(a, b1), b]].filter(([c, d]) => d - c > 0)));
+    for (const [a, b] of free.sort((p, q) => q[1] - q[0] - (p[1] - p[0]))) {
+      const cols = Math.floor((b - a + gap) / (pw + gap));
+      if (cols <= 0 || out.length >= count) continue;
+      const n = Math.min(cols, count - out.length);
+      const used = n * pw + (n - 1) * gap;
+      const start = (a + b) / 2 - used / 2 + pw / 2;
+      for (let k = 0; k < n; k++) out.push({ s: Math.round((start + k * (pw + gap)) * 1000) / 1000, x: Math.round(((x0 + x1) / 2) * 1000) / 1000 });
+    }
+  }
+  return out;
+}

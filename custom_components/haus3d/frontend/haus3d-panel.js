@@ -234,6 +234,13 @@ button.icon.menu { display: none; }
 }
 .floors button.sel { background: var(--card-background-color, #fff); color: var(--primary-text-color); }
 .stage { position: relative; flex: 1; min-height: 0; overflow: hidden; }
+.house-cfg .swatches { display: flex; flex-wrap: wrap; gap: 4px; margin: 2px 0 6px 96px; }
+.house-cfg .swatches button { width: 22px; height: 22px; border-radius: 6px; border: 1px solid rgba(127,127,127,.5); padding: 0; cursor: pointer; }
+.house-cfg .rc-reset { font: inherit; font-size: 12px; padding: 5px 8px; border-radius: 8px; border: 1px solid var(--divider-color, rgba(127,127,127,.4)); background: none; color: inherit; cursor: pointer; }
+.house-cfg input[type=color] { width: 44px; height: 30px; padding: 2px; flex: none; }
+.pvrow { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+.pvrow label { display: flex; flex-direction: column; font-size: 12px; color: var(--secondary-text-color); }
+.pvrow input { font: inherit; padding: 6px; border-radius: 8px; border: 1px solid var(--divider-color, rgba(127,127,127,.4)); background: var(--primary-background-color, #fff); color: var(--primary-text-color); }
 .simbar { position: absolute; left: 50%; top: 8px; transform: translateX(-50%); z-index: 6; display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; max-width: calc(100% - 24px); padding: 6px 10px; border-radius: 12px; background: repeating-linear-gradient(135deg, #ff9800 0 12px, #fb8c00 12px 24px); color: #1b1b1b; font-size: 13px; box-shadow: 0 2px 10px rgba(0,0,0,.35); }
 .simbar b { letter-spacing: .08em; }
 .simbar select, .simbar input[type=range] { font: inherit; font-size: 12px; border-radius: 6px; border: none; padding: 3px; max-width: 130px; }
@@ -1138,21 +1145,39 @@ class Haus3DPanel extends HTMLElement {
       <label class="en-row"><span>Dach</span><select data-r="type">${ROOF_TYPES.map(([k, n]) => `<option value="${k}"${k === roof.type ? " selected" : ""}>${n}</option>`).join("")}</select></label>
       <label class="en-row"><span>Neigung (°)</span><input data-r="pitch" type="number" min="5" max="60" step="1" value="${roof.pitch}"></label>
       <label class="en-row"><span>Überstand (m)</span><input data-r="overhang" type="number" min="0" max="1.5" step="0.05" value="${roof.overhang}"></label>
+      <label class="en-row"><span>Dachfarbe</span><input type="color" data-rc value="${/^#[0-9a-f]{6}$/i.test(roof.color ?? "") ? roof.color : "#9a4a36"}"><button class="rc-reset" title="Standardfarbe">Standard</button></label>
+      <div class="swatches">${["#9a4a36", "#b5523b", "#6e2f25", "#4a3b32", "#3a3d42", "#23262b", "#5f6670", "#8c8f94", "#2f4f3f", "#3f5a78"].map((c) => `<button data-rcs="${c}" style="background:${c}" title="${c}"></button>`).join("")}</div>
       <label class="en-row"><span>First</span><select data-r="direction">${[["auto", "lange Seite"], ["x", "Ost–West im Plan"], ["z", "Nord–Süd im Plan"]].map(([k, n]) => `<option value="${k}"${k === roof.direction ? " selected" : ""}>${n}</option>`).join("")}</select></label>
       <label class="en-row"><span>Wetter</span><select data-w>
         <option value=""${weather === "" ? " selected" : ""}>automatisch${weathers[0] ? ` (${esc(weathers[0])})` : ""}</option>
         <option value="none"${weather === "none" ? " selected" : ""}>kein Wetter</option>
         ${weathers.map((id) => `<option value="${esc(id)}"${id === weather ? " selected" : ""}>${esc(hass.states[id].attributes.friendly_name ?? id)}</option>`).join("")}
       </select></label>
-      <p class="hint">Das Dach erscheint nur in der Ansicht „Alle“. Wählt man eine Etage, schaut man hinein.</p>
+      <h4>PV auf dem Dach (Anzahl Module je Richtung)</h4>
+      <div class="pvrow">${[["E", "Ost"], ["S", "Süd"], ["W", "West"], ["N", "Nord"]].map(([k, n]) => `<label><span>${n}</span><input type="number" min="0" max="60" step="1" data-pv="${k}" value="${Number(roof.solar?.[k]) || 0}"></label>`).join("")}</div>
+      <label class="en-row"><span>Norden</span><select data-north>${[[0, "oben im Plan"], [90, "rechts im Plan"], [180, "unten im Plan"], [270, "links im Plan"]].map(([v, n]) => `<option value="${v}"${Number(this._building?.settings?.north ?? 0) === v ? " selected" : ""}>${n}</option>`).join("")}${[0, 90, 180, 270].includes(Number(this._building?.settings?.north ?? 0)) ? "" : `<option value="${this._building.settings.north}" selected>${this._building.settings.north}°</option>`}</select></label>
+      <p class="hint">Das Dach erscheint nur in der Ansicht „Alle“. Wählt man eine Etage, schaut man hinein. Module liegen auf den Dachflächen, die in die Richtung zeigen (L-Dach: Hauptdach und Flügel).</p>
       <div class="btns"><button class="house-save primary">Speichern</button></div>`;
+    let roofColor = roof.color ?? null;
+    const colorInput = box.querySelector("[data-rc]");
+    colorInput.addEventListener("input", () => (roofColor = colorInput.value));
+    box.querySelector(".rc-reset").addEventListener("click", () => (roofColor = null));
+    box.querySelectorAll("[data-rcs]").forEach((b) =>
+      b.addEventListener("click", () => {
+        roofColor = b.dataset.rcs;
+        colorInput.value = roofColor;
+      }),
+    );
     box.querySelector(".house-save").addEventListener("click", () => {
       const next = { ...(this._building?.settings?.roof ?? {}) };
+      if (roofColor) next.color = roofColor;
+      else delete next.color;
+      next.solar = Object.fromEntries([...box.querySelectorAll("[data-pv]")].map((i) => [i.dataset.pv, Math.max(0, Math.round(Number(i.value) || 0))]));
       for (const inp of box.querySelectorAll("[data-r]")) next[inp.dataset.r] = inp.type === "number" ? Number(inp.value) : inp.value;
       const w = box.querySelector("[data-w]").value;
       const r = roofSettings({ roof: next }); // begrenzt Neigung und Überstand
       const roof = { ...next, type: r.type, pitch: r.pitch, overhang: r.overhang, direction: r.direction };
-      this._saveBuildingSettings({ roof, weather: w || null }, "Dach und Wetter gespeichert.");
+      this._saveBuildingSettings({ roof, weather: w || null, north: Number(box.querySelector("[data-north]").value) || 0 }, "Dach und Wetter gespeichert.");
     });
   }
 

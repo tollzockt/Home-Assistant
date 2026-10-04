@@ -197,9 +197,11 @@ const schnee = await shot("walmdach-schnee", "?roof=hip&garden&weather=snowy", {
 await schnee.locator("haus3d-panel .gear").click();
 await schnee.waitForTimeout(300);
 await schnee.locator("haus3d-panel .house-cfg select[data-r=type]").selectOption("shed");
+await schnee.locator("haus3d-panel .house-cfg input[data-pv=S]").fill("6");
+await schnee.locator("haus3d-panel .house-cfg button[data-rcs='#3a3d42']").click();
 await schnee.locator("haus3d-panel .house-save").click();
 await schnee.waitForTimeout(800);
-outside.savedRoof = await schnee.evaluate(() => window.calls.filter((c) => c.type === "haus3d/building/save").at(-1)?.building.settings.roof.type);
+outside.savedRoof = await schnee.evaluate(() => { const r = window.calls.filter((c) => c.type === "haus3d/building/save").at(-1)?.building.settings.roof; return `${r.type} ${r.color} S=${r.solar.S}`; });
 await schnee.locator("haus3d-panel .dialog .close").click();
 await schnee.waitForTimeout(800);
 await schnee.screenshot({ path: `${out}/pultdach-schnee.png` });

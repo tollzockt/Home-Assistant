@@ -112,3 +112,33 @@ test("Hang automatisch: Ecken an der oberen Gartenebene bekommen deren Höhe", a
   assert.deepEqual(groups[0].rooms.map((r) => r.id), ["s", "u"]);
   assert.equal(groups[0].roof.pitch, 20);
 });
+
+test("PV: Himmelsrichtung der Dachfläche und Modulplätze", async () => {
+  const { compassOf, panelSlots } = await import("../../custom_components/haus3d/frontend/exterior.js");
+  // Norden oben im Plan (-z)
+  assert.equal(compassOf([0, -1]), "N");
+  assert.equal(compassOf([0, 1]), "S");
+  assert.equal(compassOf([1, 0]), "E");
+  assert.equal(compassOf([-1, 0]), "W");
+  // Norden 90° gedreht (rechts im Plan): +x ist Norden, +z Osten
+  assert.equal(compassOf([1, 0], 90), "N");
+  assert.equal(compassOf([0, 1], 90), "E");
+  // Dachfläche 10 m lang, 4,5 m bis zum First, 35°: zwei Reihen, mittig
+  const slots = panelSlots({ length: 10, width: 9 }, { tan: Math.tan((35 * Math.PI) / 180), count: 10 });
+  assert.equal(slots.length, 10);
+  const rows = [...new Set(slots.map((p) => p.x))];
+  assert.equal(rows.length, 2);
+  // 9 passen in eine Reihe (9,4 m nutzbar), Rest in Reihe 2
+  assert.equal(slots.filter((p) => p.x === rows[0]).length, 9);
+  assert.ok(Math.abs(slots.filter((p) => p.x === rows[0]).reduce((a, p) => a + p.s, 0)) < 1e-6);
+  // Walm: obere Reihe schmaler
+  const hip = panelSlots({ length: 10, width: 9 }, { tan: 0.7, count: 30, type: "hip", hipEnds: [true, true] });
+  const r = [...new Set(hip.map((p) => p.x))];
+  assert.ok(hip.filter((p) => p.x === r[1]).length < hip.filter((p) => p.x === r[0]).length);
+});
+
+test("PV: belegte Bereiche (Flügel) werden ausgespart", async () => {
+  const { panelSlots } = await import("../../custom_components/haus3d/frontend/exterior.js");
+  const slots = panelSlots({ length: 10, width: 9 }, { tan: 0.7, count: 50, blocked: [[-5, 0]] });
+  assert.ok(slots.length > 0 && slots.every((p) => p.s - 0.5 >= 0 - 1e-9));
+});
