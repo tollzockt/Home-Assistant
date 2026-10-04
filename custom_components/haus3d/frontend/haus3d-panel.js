@@ -45,6 +45,7 @@ import { HouseScene } from "./scene.js";
 import { closeGaps } from "./walls.js";
 import { EDITOR_STYLE, FloorEditor } from "./editor.js";
 import { PANEL_STYLE } from "./panel-style.js";
+import { EnergyMethods } from "./panel-energy.js";
 
 import { LONG_PRESS_MS, esc, plural, ENERGY_CORE, energyRows, LAYERS, DEFAULT_SETTINGS, loadSettings, fmt, ICONS, CONTACT_ICONS, DOMAIN_ICONS, SENSOR_ICONS, fmtPower, setText, iconFor, isActive } from "./panel-util.js";
 import { DialogMethods } from "./panel-dialogs.js";
@@ -664,11 +665,17 @@ class Haus3DPanel extends HTMLElement {
       const el = document.createElement("div");
       el.className = "energy";
       el.innerHTML = `<h3><ha-icon icon="mdi:lightning-bolt-circle"></ha-icon><span>Energie</span><i class="sdot" hidden></i><ha-icon class="chev" icon="mdi:chevron-down"></ha-icon></h3>` +
-        rows.map((r, i) => `<div class="row" data-i="${i}" data-k="${r.key ?? ""}"><ha-icon icon="${r.icon}"></ha-icon><span></span><b></b>${r.key === "akku_ladestand" ? `<i class="bbar"><i></i></i>` : ""}</div>`).join("");
+        rows.map((r, i) => `<div class="row" data-i="${i}" data-k="${r.key ?? ""}"><ha-icon icon="${r.icon}"></ha-icon><span></span>${r.key === "ertrag_heute" ? "" : `<svg class="spark" viewBox="0 0 60 16" preserveAspectRatio="none" hidden><path/></svg>`}<b></b>${r.key === "akku_ladestand" ? `<i class="bbar"><i></i></i>` : ""}</div>`).join("");
       rows.forEach((r, i) => (el.querySelector(`.row[data-i="${i}"] span`).textContent = r.name));
       el.querySelector("h3").addEventListener("click", () => {
         this._energyCollapsed = el.classList.toggle("collapsed");
         this._cardState({ energie: this._energyCollapsed });
+        this._refreshSparks();
+      });
+      el.querySelector(".chev").insertAdjacentHTML("beforebegin", `<ha-icon class="chart" icon="mdi:chart-line" title="Tagesverlauf"></ha-icon>`);
+      el.querySelector(".chart").addEventListener("click", (ev) => {
+        ev.stopPropagation();
+        this._energyChart(0);
       });
       el.querySelectorAll(".row").forEach((row) => {
         row.style.cursor = "pointer";
@@ -689,6 +696,8 @@ class Haus3DPanel extends HTMLElement {
       this._els.cards.appendChild(el);
       this._energyEl = el;
       this._energyRows = rows;
+      this._sparkAt = 0;
+      setTimeout(() => this._refreshSparks(), 0);
       el.hidden = this._settings.layers.energy === false;
     }
     this._renderCards();
@@ -938,7 +947,10 @@ class Haus3DPanel extends HTMLElement {
       el.title = `${st.attributes.friendly_name ?? st.entity_id}: ${hass.formatEntityState ? hass.formatEntityState(st) : st.state}`;
     }
 
-    if (this._energyEl) this._updateEnergy(energy, hass);
+    if (this._energyEl) {
+      this._updateEnergy(energy, hass);
+      this._refreshSparks(); // höchstens alle 5 min
+    }
     this._updatePv(energy, hass);
     this._updateCards();
     this._updateWheelStates();
@@ -2006,6 +2018,6 @@ class Haus3DPanel extends HTMLElement {
 }
 
 if (!customElements.get("haus3d-panel")) // Dialoge einmischen (panel-dialogs.js)
-Object.assign(Haus3DPanel.prototype, DialogMethods);
+Object.assign(Haus3DPanel.prototype, DialogMethods, EnergyMethods);
 
 customElements.define("haus3d-panel", Haus3DPanel);

@@ -46,6 +46,26 @@ export const PANEL_STYLE = `
 .pvpop .item { display: flex; justify-content: space-between; gap: 12px; padding: 6px 12px; }
 .pvpop .item span { color: var(--secondary-text-color); }
 .pvpop .hint { padding: 0 12px 8px; }
+.energy .spark { width: 60px; height: 16px; flex: none; stroke: var(--primary-color, #03a9f4); stroke-width: 1.4; fill: none; opacity: .8; }
+.energy .spark[hidden] { display: none; }
+.energy h3 .chart { cursor: pointer; opacity: .75; --mdc-icon-size: 20px; padding: 4px; }
+.energy.collapsed h3 .chart { display: none; }
+.dialog.chart { width: min(720px, 100%); }
+.dialog.chart .dialog-head .seg { margin-left: auto; margin-right: 6px; font-size: 13px; }
+.dialog.chart .dialog-head .seg button { white-space: nowrap; padding: 6px 10px; }
+.dialog.chart .clegend { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: 12px; padding: 0; background: none; box-shadow: none; }
+.dialog.chart .clegend i { display: inline-block; width: 10px; height: 3px; border-radius: 2px; margin-right: 4px; vertical-align: middle; }
+.chartbox { position: relative; margin-top: 8px; }
+.chartsvg { width: 100%; height: 220px; display: block; touch-action: none; background: rgba(127,127,127,.06); border-radius: 8px; }
+.chartsvg path { fill: none; stroke-width: 2; vector-effect: non-scaling-stroke; }
+.chartsvg path.pct { stroke-dasharray: 4 3; }
+.chartsvg .grid { stroke: rgba(127,127,127,.25); stroke-width: 1; vector-effect: non-scaling-stroke; }
+.chartsvg .zero { stroke: rgba(127,127,127,.6); stroke-width: 1; vector-effect: non-scaling-stroke; }
+.chartsvg .cursor, .chartsvg .now { stroke: var(--primary-text-color); stroke-width: 1; vector-effect: non-scaling-stroke; opacity: .6; }
+.chartsvg .now { stroke-dasharray: 2 3; }
+.chartsvg .tick { font-size: 11px; fill: var(--secondary-text-color); }
+.chartbox .readout { margin-top: 6px; font-size: 13px; }
+.dialog.chart .sums { font-size: 13px; font-weight: 500; margin: 10px 0 0; }
 .btns.left { justify-content: flex-start; }
 .btns.left button { display: inline-flex; align-items: center; gap: 6px; }
 .energy-cfg .row3 { display: flex; gap: 8px; }

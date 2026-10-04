@@ -151,6 +151,25 @@ const hass = {
     window.calls.push(msg);
     if (msg.type === "haus3d/building/get") return { building: data, revision: 1 };
     if (msg.type === "haus3d/building/save") return { building: msg.building, revision: (msg.revision ?? 1) + 1 };
+    // Statistik: 5-min-Mittelwerte (Sonnenbogen für PV, Ladestand steigt), ?nohistory = leer
+    if (msg.type === "recorder/statistics_during_period") {
+      if (params.has("nohistory")) return {};
+      const s = Date.parse(msg.start_time);
+      const e = Date.parse(msg.end_time);
+      const out = {};
+      for (const id of msg.statistic_ids) {
+        const rows = [];
+        for (let t = s; t < e; t += 300000) {
+          const h = new Date(t).getUTCHours() + new Date(t).getUTCMinutes() / 60;
+          const sun = Math.max(0, Math.sin(((h - 5) / 14) * Math.PI));
+          const v = /ladestand/.test(id) ? 30 + 60 * sun : /akku/.test(id) ? 200 * sun - 80 : /netz/.test(id) ? 300 - 900 * sun : /einspeisung/.test(id) ? 600 * sun : 800 * sun;
+          rows.push({ start: t, end: t + 300000, mean: Math.round(v) });
+        }
+        out[id] = rows;
+      }
+      return out;
+    }
+    if (msg.type === "history/history_during_period") return {};
     if (msg.type === "energy/get_prefs") return params.has("noprefs") ? {} : structuredClone(energyPrefs);
     return {};
   },
