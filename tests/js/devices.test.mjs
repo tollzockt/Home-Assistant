@@ -254,3 +254,32 @@ test("Raumfenster: Gruppen und Schnellaktionen", async () => {
   assert.equal(stepTarget(a.climate, 21.8, 2), 22); // Grenze
   assert.equal(stepTarget(a.climate, 8, -4), 7);
 });
+
+test("Raumklima: Taupunkt, absolute Feuchte, Lüften-Rat, Thermostat, Bodenfarbe, Raumleistung", async () => {
+  const d = await import("../../custom_components/haus3d/frontend/devices.js");
+  assert.ok(Math.abs(d.dewPoint(20, 50) - 9.26) < 0.05);
+  assert.ok(Math.abs(d.absHumidity(20, 50) - 8.64) < 0.05);
+  assert.equal(d.ventAdvice({ temperature: 20, humidity: 60 }, { temperature: 5, humidity: 80 }).level, "good");
+  assert.equal(d.ventAdvice({ temperature: 18, humidity: 50 }, { temperature: 25, humidity: 80 }).level, "bad");
+  assert.equal(d.ventAdvice({ temperature: 18, humidity: 70 }, null).level, "mold");
+  assert.equal(d.ventAdvice({ temperature: 18, humidity: 50 }, null), null);
+  const s = (entity_id, state, attributes = {}) => [entity_id, { entity_id, state, attributes }];
+  const hass = { states: Object.fromEntries([
+    s("climate.hk", "heat", { temperature: 21, current_temperature: 19.5, current_humidity: 55, hvac_action: "heating" }),
+    s("sensor.plug", "320", { device_class: "power", unit_of_measurement: "W" }), s("sensor.tv", "0.1", { device_class: "power", unit_of_measurement: "kW" }),
+    s("sensor.pv", "800", { device_class: "power", unit_of_measurement: "W" }),
+  ]) };
+  const byArea = new Map([["r", ["climate.hk", "sensor.plug", "sensor.tv", "sensor.pv"]]]);
+  const h = d.roomHeating({ area_id: "r" }, hass, byArea);
+  assert.deepEqual([h.entity, h.target, h.current, h.action, h.readOnly], ["climate.hk", 21, 19.5, "heating", false]);
+  assert.equal(d.roomHeating({ area_id: "r", climate: { thermostat: "none" } }, hass, byArea), null);
+  // ohne Sensoren: Ist-Werte des Thermostats
+  assert.deepEqual(d.roomClimate({ area_id: "r" }, hass, byArea), { temperature: 19.5, humidity: 55 });
+  assert.equal(d.roomPower({ area_id: "r" }, hass, byArea, new Set(["sensor.pv"])), 420);
+  assert.equal(d.roomPower({ area_id: "r", power: "none" }, hass, byArea), null);
+  assert.equal(d.roomPower({ area_id: "r", power: "sensor.plug" }, hass, byArea), 320);
+  assert.deepEqual(d.viewColor("temp", 18), d.temperatureColor(18));
+  assert.equal(d.viewColor("humidity", null), null);
+  assert.notDeepEqual(d.viewColor("humidity", 70), d.viewColor("humidity", 50));
+  assert.ok(d.viewColor("power", 2000)[0] > d.viewColor("power", 10)[0]); // rot bei viel Leistung
+});

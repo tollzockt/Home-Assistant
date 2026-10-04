@@ -15,6 +15,12 @@ import {
   placesOf,
   roomClimate,
   roomLit,
+  roomHeating,
+  roomPower,
+  VIEW_MODES,
+  viewColor,
+  dewPoint,
+  ventAdvice,
   agoText,
   persons,
   roomPresence,
@@ -27,7 +33,7 @@ import {
 import { ROOF_TYPES, roofSettings, weatherEntity, weatherKind } from "./exterior.js";
 import { exportFile, normalize, parseImport } from "./model.js";
 import { SIM_WEATHER, Simulator } from "./sim.js";
-import { FUNCTION_KEYS, LEGACY_FUNCTION_KEYS, MAX_CARDS, WHEEL_VISIBLE, labelPlace, nextStyle, normalizeCards, normalizeFunctions, rotateWheel, wheelLayout, wheelPlusAngle } from "./hud.js";
+import { FUNCTION_KEYS, LEGACY_FUNCTION_KEYS, MAX_CARDS, WHEEL_VISIBLE, labelPlace, nextStyle, migrateView, nextView, normalizeCards, normalizeFunctions, rotateWheel, wheelLayout, wheelPlusAngle } from "./hud.js";
 import { entityAction } from "./actions.js";
 import { entityPlaces, houseStatus, statusChips } from "./status.js";
 import { QUALITY_CHOICES, adaptDpr, resolveQuality } from "./perf.js";
@@ -135,6 +141,9 @@ const DOMAIN_ICONS = {
 };
 const SENSOR_ICONS = { temperature: "mdi:thermometer", humidity: "mdi:water-percent", power: "mdi:flash", energy: "mdi:lightning-bolt", battery: "mdi:battery", illuminance: "mdi:brightness-5", motion: "mdi:motion-sensor", occupancy: "mdi:account-eye", carbon_dioxide: "mdi:molecule-co2" };
 
+/** Leistung: unter 1000 W in W, sonst kW. */
+const fmtPower = (w) => (w == null ? "–" : Math.abs(w) < 1000 ? `${fmt(w, 0)} W` : `${fmt(w / 1000, 2)} kW`);
+
 /** Text setzen und bei leerem Text verstecken (nur wenn sich etwas ändert). */
 function setText(el, text) {
   if (!el) return;
@@ -170,11 +179,11 @@ class Haus3DPanel extends HTMLElement {
     this._hass = null;
     this._building = null;
     this._revision = null;
-    this._tempMode = false;
+    this._view = "none"; // Bodenfarbe: none | temp | humidity | power
     this._filter = "all";
     try {
       this._filter = localStorage.getItem("haus3d.filter") || "all";
-      this._tempMode = localStorage.getItem("haus3d.temp") === "1";
+      this._view = migrateView(localStorage.getItem("haus3d.view"), localStorage.getItem("haus3d.temp"));
       this._settings = loadSettings(localStorage.getItem("haus3d.settings"), localStorage.getItem("haus3d.style"));
     } catch {
       /* ohne Speicher */
@@ -532,12 +541,7 @@ class Haus3DPanel extends HTMLElement {
         this._selectRoom(null);
       }
     });
-    this._els.temp.addEventListener("click", () => {
-      this._tempMode = !this._tempMode;
-      this._store("haus3d.temp", this._tempMode ? "1" : "0");
-      this._renderToolbar();
-      this._updateStates();
-    });
+    this._els.temp.addEventListener("click", () => this._cycleView());
     this._els.more.addEventListener("click", (ev) => {
       ev.stopPropagation();
       this._toggleMenu();
@@ -655,7 +659,7 @@ class Haus3DPanel extends HTMLElement {
     this._els.floors.hidden = floors.length < 2;
     this._renderFloorbar(options);
     this._renderWheels();
-    this._els.temp.classList.toggle("on", this._tempMode);
+    this._els.temp.classList.toggle("on", this._view !== "none");
     this._els.more.hidden = !this._hass?.user?.is_admin;
     this.shadowRoot.querySelector(".edit").hidden = !this._hass?.user?.is_admin || !this._scene;
   }
@@ -690,7 +694,7 @@ class Haus3DPanel extends HTMLElement {
   /** Beobachtete Entitäten neu bestimmen (eine Stelle: devices.js:watchedEntities). */
   _computeWatched() {
     const hass = this._hass;
-    this._watched = watchedEntities(this._building, hass, this._byArea, { links: this._links, extra: this._extraWatched?.() ?? [] });
+    this._watched = watchedEntities(this._building, hass, this._byArea, { links: this._links, extra: this._extraWatched?.() ?? [], power: this._view === "power" });
     this._watchedRefs = this._watched.map((id) => hass.states[id]);
   }
 
@@ -744,7 +748,7 @@ class Haus3DPanel extends HTMLElement {
         const anchor = this._scene?.anchors.find((a) => a.key === `room:${floor.id}:${room.id}`);
         const el = document.createElement("div");
         el.className = "room";
-        el.innerHTML = `<div class="label"><b></b><div class="clim" hidden></div><div class="occ" hidden></div><div class="warn" hidden></div></div><div class="devs"></div>`;
+        el.innerHTML = `<div class="label"><b></b><div class="clim" hidden></div><div class="heat" hidden></div><div class="occ" hidden></div><div class="warn" hidden></div></div><div class="devs"></div>`;
         el.querySelector("b").textContent = room.name;
         const devs = el.querySelector(".devs");
         if (!threeD) for (const icon of icons.filter((i) => i.room === room.id && !i.manual)) devs.appendChild(this._iconEl(icon));
@@ -752,7 +756,7 @@ class Haus3DPanel extends HTMLElement {
         const pos = anchor?.position.clone() ?? new THREE.Vector3(0, elev, 0);
         pos.y += 0.95; // knapp 1 m über dem Boden (bei Hängen über der Fläche)
         const label = el.firstElementChild;
-        this._overlays.set(`room:${floor.id}:${room.id}`, { el, label, parts: { clim: label.querySelector(".clim"), occ: label.querySelector(".occ"), warn: label.querySelector(".warn") }, floorId: floor.id, position: pos, room });
+        this._overlays.set(`room:${floor.id}:${room.id}`, { el, label, parts: { clim: label.querySelector(".clim"), heat: label.querySelector(".heat"), occ: label.querySelector(".occ"), warn: label.querySelector(".warn") }, floorId: floor.id, position: pos, room });
       }
       // Geräte mit manueller Position (placements) stehen frei an ihrer Stelle
       for (const icon of icons.filter((i) => i.manual && !threeD)) {
@@ -952,6 +956,11 @@ class Haus3DPanel extends HTMLElement {
     const open = new Set();
     const covers = new Map();
     const roomAlerts = new Map();
+    const view = this._view;
+    VIEW_MODES.humidity.warn = Number(this._building.settings?.climate?.humidity_max) || 65;
+    const heatRooms = new Set();
+    // Werte der Energie-Anzeige (PV, Einspeisung, Akku) zählen nicht als Raumverbrauch
+    const energyIds = new Set(Object.values(this._building.settings?.energy ?? {}).filter((v) => typeof v === "string"));
     const now = Date.now();
     const showPresence = this._settings.layers.presence !== false;
     const holdMs = Math.max(1, Number(this._building.settings?.presence?.hold_minutes) || 5) * 60000;
@@ -975,7 +984,10 @@ class Haus3DPanel extends HTMLElement {
         const key = `${floor.id}:${room.id}`;
         if (roomLit(room, hass, this._byArea)) lit.add(key);
         const climate = roomClimate(room, hass, this._byArea);
-        temps.set(key, climate.temperature);
+        const th = roomHeating(room, hass, this._byArea);
+        if (th?.action === "heating") heatRooms.add(key);
+        const value = view === "temp" ? climate.temperature : view === "humidity" ? climate.humidity : view === "power" ? roomPower(room, hass, this._byArea, energyIds) : null;
+        temps.set(key, value);
         // offene Kontakte im Bereich, die keiner Öffnung zugeordnet sind
         const unassigned = (this._byArea.get(room.area_id) ?? []).filter(
           (id) => !linkedContacts.has(id) && iconKind(hass.states[id]) === "contact" && isOpen(hass.states[id]),
@@ -987,7 +999,9 @@ class Haus3DPanel extends HTMLElement {
           const parts = [];
           if (climate.temperature != null) parts.push(`${fmt(climate.temperature)} °C`);
           if (climate.humidity != null) parts.push(`${fmt(climate.humidity, 0)} %`);
+          if (view === "power") parts.push(value != null ? fmtPower(value) : "– W");
           setText(ov.parts.clim, parts.join(" · "));
+          setText(ov.parts.heat, th?.action === "heating" ? `heizt${th.target != null ? ` → ${fmt(th.target)} °C` : ""}` : "");
           setText(ov.parts.warn, unassigned.length ? `${unassigned.length} offen` : "");
           // Anwesenheit: Bewegung jetzt oder vor kurzem
           const pr = showPresence ? roomPresence(room, hass, this._byArea, now, holdMs) : { level: null };
@@ -999,7 +1013,8 @@ class Haus3DPanel extends HTMLElement {
     }
     const energy = energyValues(this._building.settings, hass);
     const onEntities = new Set(this._watched.filter((id) => hass.states[id]?.state === "on"));
-    this._scene?.applyStates({ lit, temps, tempMode: this._tempMode, tempColor: temperatureColor, open, covers, feedIn: energy.einspeisung, onEntities });
+    const heating = new Set(this._watched.filter((id) => id.startsWith("climate.") && hass.states[id]?.attributes?.hvac_action === "heating"));
+    this._scene?.applyStates({ lit, temps, tempMode: view !== "none", tempColor: (v) => viewColor(view, v) ?? [0.6, 0.6, 0.6], open, covers, feedIn: energy.einspeisung, onEntities, heating, heatRooms });
     this._renderRoomPanel();
 
     for (const { el, icon } of this._iconEls) {
@@ -1354,6 +1369,7 @@ class Haus3DPanel extends HTMLElement {
       <div class="swatches">${["#9a4a36", "#b5523b", "#6e2f25", "#4a3b32", "#3a3d42", "#23262b", "#5f6670", "#8c8f94", "#2f4f3f", "#3f5a78"].map((c) => `<button data-rcs="${c}" style="background:${c}" title="${c}"></button>`).join("")}</div>
       <label class="en-row"><span>Flügel-Ende</span><select data-r="wing_end"><option value="gable"${roof.wing_end !== "hip" ? " selected" : ""}>Giebel</option><option value="hip"${roof.wing_end === "hip" ? " selected" : ""}>Walm (abgeschrägt)</option></select></label>
       <label class="en-row"><span>First</span><select data-r="direction">${[["auto", "lange Seite"], ["x", "Ost–West im Plan"], ["z", "Nord–Süd im Plan"]].map(([k, n]) => `<option value="${k}"${k === roof.direction ? " selected" : ""}>${n}</option>`).join("")}</select></label>
+      <label class="en-row" title="Ab dieser Luftfeuchte warnt Haus 3D (Raumfenster, Bodenfarbe, Hinweise)"><span>Feuchte-Warnung ab (%)</span><input data-hummax type="number" min="40" max="90" step="1" value="${Number(this._building?.settings?.climate?.humidity_max) || 65}"></label>
       <label class="en-row" title="Haustür aufschließen, Garagentor öffnen/schließen, Sirene einschalten"><span>Nachfragen</span><span class="chk"><input type="checkbox" data-safety${this._building?.settings?.safety?.confirm === false ? "" : " checked"}> bei Schloss, Garagentor, Sirene</span></label>
       <label class="en-row"><span>Wetter</span><select data-w>
         <option value=""${weather === "" ? " selected" : ""}>automatisch${weathers[0] ? ` (${esc(weathers[0])})` : ""}</option>
@@ -1415,7 +1431,9 @@ class Haus3DPanel extends HTMLElement {
       const r = roofSettings({ roof: next }); // begrenzt Neigung und Überstand
       const roof = { ...next, type: r.type, pitch: r.pitch, overhang: r.overhang, direction: r.direction };
       const safety = { ...(this._building?.settings?.safety ?? {}), confirm: box.querySelector("[data-safety]").checked };
-      this._saveBuildingSettings({ roof, weather: w || null, north: Number(box.querySelector("[data-north]").value) || 0, safety }, "Dach und Wetter gespeichert.");
+      const hm = Math.round(Number(box.querySelector("[data-hummax]").value));
+      const climate = { ...(this._building?.settings?.climate ?? {}), humidity_max: Number.isFinite(hm) ? Math.min(90, Math.max(40, hm)) : 65 };
+      this._saveBuildingSettings({ roof, weather: w || null, north: Number(box.querySelector("[data-north]").value) || 0, safety, climate }, "Dach und Wetter gespeichert.");
     });
   }
 
@@ -1587,7 +1605,7 @@ class Haus3DPanel extends HTMLElement {
     const hass = this._hass;
     const admin = !!hass.user?.is_admin;
     p.el.innerHTML = `<div class="rp-head"><ha-icon class="grip" icon="mdi:drag"></ha-icon><b></b>${admin ? `<button class="icon cfg" title="Geräte anpassen"><ha-icon icon="mdi:tune-variant"></ha-icon></button>` : ""}<button class="icon close" title="Schließen"><ha-icon icon="mdi:close"></ha-icon></button></div>
-      <div class="rp-sub"></div><div class="rp-actions"></div><div class="rp-list"></div>`;
+      <div class="rp-sub"></div><div class="rp-clim" hidden><span class="cv"></span><span class="vent" hidden></span></div><div class="rp-actions"></div><div class="rp-list"></div>`;
     p.el.querySelector("b").textContent = room.name;
     p.el.querySelector(".close").addEventListener("click", () => this._selectRoom({ floorId: p.floorId, roomId: p.roomId }, { toggle: true }));
     p.el.querySelector(".cfg")?.addEventListener("click", () => this._customizeRoom(p, room));
@@ -1671,6 +1689,26 @@ class Haus3DPanel extends HTMLElement {
     if (pr.level === "occupied") parts.push("Bewegung");
     else if (pr.level === "recent") parts.push(`Bewegung ${agoText(Date.now() - pr.since)}`);
     p.el.querySelector(".rp-sub").textContent = [floor.name, ...parts].join(" · ") + (room.area_id ? "" : " · kein Bereich zugeordnet");
+    // Klima: Feuchte, Taupunkt, heizt, Lüften-Ampel (Außenwerte aus der Wetter-Entität)
+    const climEl = p.el.querySelector(".rp-clim");
+    if (climEl) {
+      const bits = [];
+      if (climate.humidity != null) bits.push(`Feuchte ${fmt(climate.humidity, 0)} %`);
+      const dp = dewPoint(climate.temperature, climate.humidity);
+      if (dp != null) bits.push(`Taupunkt ${fmt(dp)} °C`);
+      const th = p.actions.climate;
+      if (th?.action === "heating") bits.push("heizt");
+      const wId = weatherEntity(hass, this._building?.settings);
+      const wa = wId ? hass.states[wId]?.attributes ?? {} : {};
+      const outside = wa.humidity != null && wa.temperature != null ? { temperature: Number(wa.temperature), humidity: Number(wa.humidity) } : null;
+      const moldRh = Number(this._building?.settings?.climate?.humidity_max) || 65;
+      const adv = ventAdvice(climate, outside, { moldRh });
+      setText(climEl.querySelector(".cv"), bits.join(" · "));
+      const vent = climEl.querySelector(".vent");
+      setText(vent, adv?.text ?? "");
+      vent.className = `vent ${adv?.level ?? ""}`;
+      climEl.hidden = !bits.length && !adv;
+    }
     const light = p.el.querySelector(".act-light span");
     if (light) {
       const on = p.actions.lights.on.length;
@@ -1941,12 +1979,7 @@ class Haus3DPanel extends HTMLElement {
     } });
     return {
       flow: layer("flow", "mdi:transmission-tower-export", "Energiefluss"),
-      temp: { icon: "mdi:thermometer", name: "Temperatur", on: this._tempMode, run: () => {
-        this._tempMode = !this._tempMode;
-        this._store("haus3d.temp", this._tempMode ? "1" : "0");
-        this._renderToolbar();
-        this._updateStates();
-      } },
+      temp: { icon: VIEW_MODES[this._view]?.icon ?? "mdi:thermometer", name: `Bodenfarbe: ${VIEW_MODES[this._view]?.label ?? "aus"}`, on: this._view !== "none", run: () => this._cycleView() },
       style: { icon: { auto: "mdi:theme-light-dark", day: "mdi:white-balance-sunny", night: "mdi:weather-night", cyber: "mdi:robot" }[this._settings.style] ?? "mdi:theme-light-dark", name: `Stil: ${styleName}`, on: false, run: () => {
         this._settings.style = nextStyle(this._settings.style);
         this._saveSettings();
@@ -2231,19 +2264,38 @@ class Haus3DPanel extends HTMLElement {
     this._dialog = el;
   }
 
-  _renderLegend() {
-    if (this._tempMode && !this._legend) {
-      const el = document.createElement("div");
-      el.className = "legend";
-      const stops = [18, 20, 22, 24, 26].map((t, i) => `rgb(${temperatureColor(t).map((c) => Math.round(c * 255)).join(",")}) ${i * 25}%`).join(",");
-      el.innerHTML = `Temperatur<div class="bar" style="background: linear-gradient(90deg, ${stops})"></div><div class="ticks"><span>18 °C</span><span>22 °C</span><span>26 °C</span></div>`;
-      this._els.stage.appendChild(el);
-      this._legend = el;
-    } else if (!this._tempMode && this._legend) {
-      this._legend.remove();
-      this._legend = null;
-    }
+  /** Bodenfarbe weiterschalten (aus → Temperatur → Feuchte → Leistung). */
+  _cycleView() {
+    const before = this._view;
+    this._view = nextView(this._view);
+    this._store("haus3d.view", this._view);
+    // Leistungssensoren nur in der Ansicht „Leistung“ beobachten
+    if ((before === "power") !== (this._view === "power")) this._rewatch();
+    this._renderToolbar();
+    this._updateStates();
   }
+
+  /** Legende der Bodenfarbe (je Ansicht neu). */
+  _renderLegend() {
+    const mode = this._view;
+    if (mode === this._legendMode && (mode === "none") === !this._legend) return;
+    this._legend?.remove();
+    this._legend = null;
+    this._legendMode = mode;
+    const def = VIEW_MODES[mode];
+    if (!def) return;
+    const [lo, hi] = def.range;
+    const vals = mode === "power" ? [10, 50, 200, 800, 2000] : Array.from({ length: 5 }, (_, i) => lo + ((hi - lo) * i) / 4);
+    const stops = vals.map((v, i) => `rgb(${viewColor(mode, mode === "humidity" ? Math.min(v, (def.warn ?? 100) - 0.1) : v).map((c) => Math.round(c * 255)).join(",")}) ${i * 25}%`).join(",");
+    const el = document.createElement("div");
+    el.className = "legend";
+    const unit = (v) => (mode === "power" ? fmtPower(v) : `${fmt(v, def.digits)} ${def.unit}`);
+    el.innerHTML = `<span class="lt"></span><div class="bar" style="background: linear-gradient(90deg, ${stops})"></div><div class="ticks"><span>${unit(vals[0])}</span><span>${unit(vals[2])}</span><span>${unit(vals[4])}</span></div>${def.warn ? `<div class="lwarn">ab ${def.warn} % Schimmelgefahr</div>` : ""}`;
+    el.querySelector(".lt").textContent = `Bodenfarbe: ${def.label}`;
+    this._els.stage.appendChild(el);
+    this._legend = el;
+  }
+
 
   // ------------------------------------------------------------------ Overlays positionieren
 

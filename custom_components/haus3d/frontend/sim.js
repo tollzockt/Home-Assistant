@@ -171,7 +171,13 @@ export class Simulator {
     if (service === "lock") return this.set(entityId, "locked", {}, base);
     if (service === "unlock") return this.set(entityId, "unlocked", {}, base);
     if (service === "media_play_pause") return toggle("playing", "paused");
-    if (service === "set_temperature") return this.set(entityId, state ?? "heat", { temperature: Number(data.temperature) }, base);
+    if (service === "set_temperature") {
+      // heizt, solange das Soll über dem Ist liegt
+      const target = Number(data.temperature);
+      const cur = Number(st?.attributes?.current_temperature);
+      const action = Number.isFinite(cur) ? (target > cur + 0.2 ? "heating" : "idle") : st?.attributes?.hvac_action;
+      return this.set(entityId, state ?? "heat", { temperature: target, ...(action ? { hvac_action: action } : {}) }, base);
+    }
     // press, scene/script turn_on usw.: nur protokollieren
     return null;
   }

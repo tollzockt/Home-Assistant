@@ -104,6 +104,10 @@ if (params.has("motion")) {
   add(st("binary_sensor.kueche_bewegung", "on", { device_class: "motion", friendly_name: "Bewegung Küche" }, 1), "kueche");
   add(st("binary_sensor.bad_bewegung", "off", { device_class: "motion", friendly_name: "Bewegung Bad" }, 2), "badezimmer");
 }
+// ?power: Steckdose mit Leistung in der Küche, ?humid=72: Feuchte im Waschraum, ?climate: Heizkörper im Bad
+if (params.has("power")) add(st("sensor.kueche_steckdose_leistung", "320", { device_class: "power", unit_of_measurement: "W", friendly_name: "Steckdose Küche" }), "kueche");
+if (params.has("humid")) add(st("sensor.waschraum_feuchte", params.get("humid") || "72", { device_class: "humidity", unit_of_measurement: "%" }), "waschraum");
+if (params.has("climate") && eg) eg.furniture = [...(eg.furniture ?? []), { id: "hk_bad", type: "radiator", x: 1.5, z: 7.9, rotation: 180, w: 1.0, d: 0.1, h: 0.6, entity: "climate.bad" }];
 // ?lock: Haustürschloss (abgeschlossen) im Flur, ?siren: Sirene im Flur
 if (params.has("lock")) add(st("lock.haustuer", params.get("lock") || "locked", { friendly_name: "Haustür" }), "flur");
 if (params.has("siren")) add(st("siren.alarm", "off", { friendly_name: "Sirene" }), "flur");

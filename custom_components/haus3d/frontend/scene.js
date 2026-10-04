@@ -160,6 +160,7 @@ export class HouseScene {
     this.style = "standard";
     this.layers = {};
     this.lampBulbs = new Map(); // entity_id -> Leuchtmittel (Möbel-Lampen und 3D-Geräte)
+    this.heatParts = []; // Heizkörper-Rippen (glühen beim Heizen)
     this.devicesGroup = new THREE.Group();
     this.selected = null;
     this._makeMats();
@@ -341,6 +342,7 @@ export class HouseScene {
     this.building = building;
     this.warnings = [];
     this.lampBulbs.clear();
+    this.heatParts = [];
     for (const floor of building.floors ?? []) this._buildFloor(floor, building.settings ?? {}, footing(building.floors, floor));
     this._buildRoof(building);
     this._buildEnergy(building);
@@ -651,6 +653,13 @@ export class HouseScene {
       (floor.outdoor ?? []).some((o) => o.type === "balcony" && pointInPolygon(p, o.points));
     for (const item of floor.furniture ?? []) {
       const obj = buildFurniture(item, this.furnMats, elev, floor.height ?? 2.5);
+      if (item.type === "radiator") {
+        // Heizkörper glühen beim Heizen: verknüpftes Thermostat oder das des Raums
+        const meshes = [];
+        obj.traverse((o) => o.userData.heat && meshes.push(o));
+        const room = (floor.rooms ?? []).find((r) => pointInPolygon([item.x, item.z], r.points));
+        this.heatParts.push({ meshes, base: meshes[0]?.material, entity: item.entity && String(item.entity).startsWith("climate.") ? item.entity : null, roomKey: room ? `${floor.id}:${room.id}` : null });
+      }
       const entity = item.entity && item.entity !== "none" ? item.entity : null;
       if (entity) {
         obj.traverse((o) => (o.userData.entity = entity));
@@ -1425,6 +1434,12 @@ export class HouseScene {
    */
   applyStates(s) {
     this._lastStates = s;
+    // Heizkörper: glühen, solange ihr Thermostat (oder das des Raums) heizt
+    for (const h of this.heatParts ?? []) {
+      const on = h.entity ? !!s.heating?.has(h.entity) : !!(h.roomKey && s.heatRooms?.has(h.roomKey));
+      const mat = on ? this.furnMats.heatOn : h.base;
+      for (const m of h.meshes) if (m.material !== mat) m.material = mat;
+    }
     for (const [floorId, entry] of this.floors) {
       for (const [roomId, r] of entry.rooms) {
         const key = `${floorId}:${roomId}`;

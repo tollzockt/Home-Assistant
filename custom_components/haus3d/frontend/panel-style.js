@@ -225,6 +225,15 @@ header .floors, header .temp, header .fit { display: none; }
 .label .clim { color: var(--secondary-text-color); }
 .label .warn { color: var(--error-color, #db4437); font-weight: 500; }
 .label .occ { color: #00897b; font-size: 11px; }
+.label .heat { color: #e65100; font-size: 11px; font-weight: 600; }
+.rp-clim { display: flex; flex-wrap: wrap; gap: 4px 8px; align-items: center; padding: 0 14px 8px; font-size: 12px; color: var(--secondary-text-color); }
+.rp-clim .vent { padding: 3px 8px; border-radius: 10px; font-weight: 500; }
+.rp-clim .vent.good { background: rgba(67,160,71,.18); color: #2e7d32; }
+.rp-clim .vent.bad { background: rgba(255,179,0,.2); color: #8d6e00; }
+.rp-clim .vent.mold { background: rgba(211,47,47,.16); color: #c62828; }
+.rp-clim .vent.neutral { background: rgba(127,127,127,.12); }
+.legend .lt { font-weight: 600; }
+.legend .lwarn { margin-top: 2px; font-size: 11px; color: #8e24aa; }
 .label .occ.now { font-weight: 600; }
 .dev {
   position: relative; width: 36px; height: 36px; flex: none;

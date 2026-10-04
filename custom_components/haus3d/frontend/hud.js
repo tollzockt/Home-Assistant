@@ -104,3 +104,15 @@ export function nextStyle(style) {
   const order = ["auto", "day", "night", "cyber"];
   return order[(order.indexOf(style) + 1) % order.length];
 }
+
+/** Bodenfarbe durchschalten: aus → Temperatur → Feuchte → Leistung → aus. */
+export function nextView(view) {
+  const order = ["none", "temp", "humidity", "power"];
+  return order[(order.indexOf(view) + 1) % order.length] ?? "temp";
+}
+
+/** Gespeicherte Bodenfarbe lesen; alte Einstellung haus3d.temp ("1") = Temperatur. */
+export function migrateView(viewRaw, tempRaw) {
+  if (["none", "temp", "humidity", "power"].includes(viewRaw)) return viewRaw;
+  return tempRaw === "1" ? "temp" : "none";
+}

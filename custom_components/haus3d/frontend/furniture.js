@@ -142,6 +142,8 @@ export function furnitureMaterials(style) {
     screen: m(0x111111, { emissive: cyber ? 0x2962ff : 0x000000, emissiveIntensity: cyber ? 0.6 : 0 }),
     bulb: new THREE.MeshStandardMaterial({ color: 0xfff3c4, emissive: 0x000000 }),
     bulbOn: new THREE.MeshStandardMaterial({ color: 0xfff3c4, emissive: 0xffc94d, emissiveIntensity: 1.6 }),
+    // Heizkörper, während geheizt wird
+    heatOn: new THREE.MeshStandardMaterial({ color: 0xffd2b8, emissive: 0xff6a1f, emissiveIntensity: 0.55, roughness: 0.6 }),
     edge: cyber ? new THREE.LineBasicMaterial({ color: 0xff2bd6, transparent: true, opacity: 0.8 }) : null,
   };
 }
@@ -314,7 +316,7 @@ function buildModel(type, w, d, h, M) {
       box(g, M.ceramic, w, 0.15, d, 0, h - 0.15, 0);
       break;
     case "radiator":
-      for (let i = 0; i < Math.max(3, Math.round(w / 0.08)); i++) box(g, M.white, 0.05, h, d, -w / 2 + 0.025 + i * 0.08, 0.1, 0);
+      for (let i = 0; i < Math.max(3, Math.round(w / 0.08)); i++) box(g, M.white, 0.05, h, d, -w / 2 + 0.025 + i * 0.08, 0.1, 0).userData.heat = true;
       break;
     case "stairs": {
       const n = Math.max(8, Math.round(h / 0.18));

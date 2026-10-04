@@ -38,9 +38,9 @@ async function shot(name, query, viewport, deviceScaleFactor = 1) {
 async function fnToggle(page, name) {
   await page.locator("haus3d-panel .wheel.right .fab").click();
   // ggf. durchdrehen, bis der Eintrag sichtbar ist
-  for (let k = 0; k < 12 && !(await page.locator(`haus3d-panel .wheel.right .bub.vis[title="${name}"]`).count()); k++) await page.locator("haus3d-panel .wheel.right .spin.down").click();
+  for (let k = 0; k < 12 && !(await page.locator(`haus3d-panel .wheel.right .bub.vis[title^="${name}"]`).count()); k++) await page.locator("haus3d-panel .wheel.right .spin.down").click();
   await page.waitForTimeout(300);
-  await page.locator(`haus3d-panel .wheel.right .bub[title="${name}"]`).click();
+  await page.locator(`haus3d-panel .wheel.right .bub.vis[title^="${name}"]`).click();
   await page.locator("haus3d-panel .wheel.right .fab").click();
 }
 const desk = await shot("desktop-hell", "", { width: 1280, height: 800 });
@@ -56,12 +56,12 @@ await dev.click({ button: "middle" });
 await desk.waitForTimeout(200);
 const calls = await desk.evaluate(() => ({ calls: window.calls.filter((c) => c.service), events: window.events }));
 // Temperaturansicht + Etage EG
-await fnToggle(desk, "Temperatur");
+await fnToggle(desk, "Bodenfarbe");
 await desk.locator("haus3d-panel .floorbar button[data-floor]", { hasText: "EG" }).click();
 await desk.waitForTimeout(1500);
 await desk.screenshot({ path: `${out}/desktop-temperatur-eg.png` });
 await desk.locator("haus3d-panel .floorbar button[data-floor]", { hasText: "KG" }).click();
-await fnToggle(desk, "Temperatur");
+for (let k = 0; k < 3; k++) await fnToggle(desk, "Bodenfarbe"); // Temperatur → Feuchte → Leistung → aus
 await desk.waitForTimeout(1500);
 await desk.screenshot({ path: `${out}/desktop-kg.png` });
 const phone = await shot("handy-dunkel", "?dark&narrow", { width: 390, height: 844 }, 2);

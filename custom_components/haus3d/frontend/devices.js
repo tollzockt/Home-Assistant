@@ -190,7 +190,16 @@ export function roomClimate(room, hass, byArea) {
         .filter((v) => v !== null),
     );
   };
-  return { temperature: pick("temperature"), humidity: pick("humidity") };
+  let temperature = pick("temperature");
+  let humidity = pick("humidity");
+  // ohne eigene Sensoren: Werte des Thermostats im Raum
+  if (temperature === null || humidity === null) {
+    const th = roomHeating(room, hass, { get: () => ids });
+    const a = th ? hass.states[th.entity]?.attributes ?? {} : {};
+    if (temperature === null && room.climate?.temperature !== "none" && Number.isFinite(Number(a.current_temperature)) && a.current_temperature !== null) temperature = Number(a.current_temperature);
+    if (humidity === null && room.climate?.humidity !== "none" && Number.isFinite(Number(a.current_humidity)) && a.current_humidity !== null) humidity = Number(a.current_humidity);
+  }
+  return { temperature, humidity };
 }
 
 /** Ist mindestens ein Licht im Bereich des Raums an? */
@@ -335,7 +344,7 @@ function hsl(h, s, l) {
  * Alle Entitäten, deren Zustand das Modell betrifft. Nur wenn sich einer davon ändert (oder
  * erscheint/verschwindet), wird neu gezeichnet – hass ändert sich bei jedem Zustandswechsel.
  */
-export function watchedEntities(building, hass, byArea, { links = null, extra = [] } = {}) {
+export function watchedEntities(building, hass, byArea, { links = null, extra = [], power = false } = {}) {
   const ids = new Set();
   const put = (id) => {
     if (typeof id === "string" && id.includes(".") && id !== "none") ids.add(id);
@@ -351,6 +360,13 @@ export function watchedEntities(building, hass, byArea, { links = null, extra = 
         else if (d === "lock" || d === "alarm_control_panel") ids.add(id); // Statusleiste
       }
       for (const id of presenceSensors(room, hass, byArea)) ids.add(id); // Anwesenheit
+      if (power) {
+        // Bodenfarbe „Leistung“: Leistungssensoren nur in dieser Ansicht beobachten
+        if (room.power && room.power !== "none") ids.add(room.power);
+        else for (const id of byArea.get(room.area_id) ?? []) if (domainOf(id) === "sensor" && hass.states[id]?.attributes?.device_class === "power") ids.add(id);
+      }
+      const th = room.climate?.thermostat;
+      if (th && th !== "none") ids.add(th);
       for (const id of room.panel ?? []) ids.add(id);
       for (const key of ["temperature", "humidity"]) {
         const fixed = room.climate?.[key];
@@ -497,4 +513,109 @@ export function persons(hass) {
       const zone = st.state === "home" ? "zu Hause" : st.state === "not_home" ? "unterwegs" : st.state;
       return { entity_id: id, name: String(full).split(/\s+/)[0], full, picture: st.attributes?.entity_picture ?? null, home: st.state === "home", zone };
     });
+}
+
+// ------------------------------------------------------------------ Raumklima
+
+const numOrNull = (v) => (v === undefined || v === null || v === "" || Number.isNaN(Number(v)) ? null : Number(v));
+
+/** Thermostat eines Raums: room.climate.thermostat (Entität oder "none") oder das erste climate im Bereich. */
+export function roomHeating(room, hass, byArea) {
+  const fixed = room?.climate?.thermostat;
+  if (fixed === "none") return null;
+  const id = fixed || (byArea.get(room?.area_id) ?? []).find((x) => domainOf(x) === "climate" && hass.states[x] && hass.states[x].state !== "unavailable");
+  const st = id ? hass.states[id] : null;
+  if (!st) return null;
+  const a = st.attributes ?? {};
+  const target = numOrNull(a.temperature);
+  return {
+    entity: id,
+    current: numOrNull(a.current_temperature),
+    target,
+    low: numOrNull(a.target_temp_low),
+    high: numOrNull(a.target_temp_high),
+    step: numOrNull(a.target_temp_step) ?? 0.5,
+    min: numOrNull(a.min_temp) ?? 5,
+    max: numOrNull(a.max_temp) ?? 30,
+    action: a.hvac_action ?? null,
+    mode: st.state,
+    readOnly: target === null,
+  };
+}
+
+/** Taupunkt in °C (Magnus-Formel). */
+export function dewPoint(t, rh) {
+  if (t == null || rh == null || rh <= 0) return null;
+  const g = Math.log(rh / 100) + (17.62 * t) / (243.12 + t);
+  return Math.round(((243.12 * g) / (17.62 - g)) * 100) / 100;
+}
+
+/** Absolute Feuchte in g/m³. */
+export function absHumidity(t, rh) {
+  if (t == null || rh == null) return null;
+  const sat = 6.112 * Math.exp((17.62 * t) / (243.12 + t)); // hPa
+  return Math.round(((216.7 * (rh / 100) * sat) / (273.15 + t)) * 100) / 100;
+}
+
+/**
+ * Lüften? Vergleicht die absolute Feuchte drinnen und draußen.
+ * @returns {{level: "good"|"bad"|"neutral"|"mold", text: string}|null}
+ */
+export function ventAdvice(inside, outside, { margin = 1, moldRh = 65 } = {}) {
+  if (!inside || inside.temperature == null || inside.humidity == null) return null;
+  const mold = inside.humidity >= moldRh;
+  if (!outside || outside.temperature == null || outside.humidity == null) {
+    return mold ? { level: "mold", text: `Feuchte über ${moldRh} % – lüften` } : null;
+  }
+  const ai = absHumidity(inside.temperature, inside.humidity);
+  const ao = absHumidity(outside.temperature, outside.humidity);
+  if (ai - ao >= margin) return { level: mold ? "mold" : "good", text: mold ? `Feuchte über ${moldRh} % – jetzt lüften` : "Lüften lohnt sich (draußen trockener)" };
+  if (ao - ai >= margin) return { level: "bad", text: "Lieber geschlossen lassen – draußen feuchter" };
+  return { level: mold ? "mold" : "neutral", text: mold ? `Feuchte über ${moldRh} % – Lüften bringt wenig` : "Lüften ändert kaum etwas" };
+}
+
+// ------------------------------------------------------------------ Bodenfarbe nach Messwert
+
+/** Ansichten der Bodenfarbe. */
+export const VIEW_MODES = {
+  temp: { label: "Temperatur", unit: "°C", range: [18, 26], icon: "mdi:thermometer", digits: 1 },
+  humidity: { label: "Feuchte", unit: "%", range: [30, 70], warn: 65, icon: "mdi:water-percent", digits: 0 },
+  power: { label: "Leistung", unit: "W", range: [0, 2000], icon: "mdi:flash", digits: 0 },
+};
+
+/** Farbe [r, g, b] (0..1) für einen Wert in einer Ansicht; null ohne Wert. */
+export function viewColor(mode, v) {
+  if (v == null || !Number.isFinite(v)) return null;
+  if (mode === "temp") return temperatureColor(v);
+  if (mode === "humidity") {
+    // trocken (orange) → gut (grün) → feucht (blau); ab Warnwert violett
+    if (v >= (VIEW_MODES.humidity.warn ?? 65)) return hsl(280 / 360, 0.6, 0.5);
+    const f = Math.min(1, Math.max(0, (v - 30) / 35));
+    return hsl((30 + f * 180) / 360, 0.7, 0.5);
+  }
+  if (mode === "power") {
+    // logarithmisch: 10 W grün … 2 kW rot
+    const f = Math.min(1, Math.max(0, Math.log10(Math.max(1, v)) / Math.log10(2000)));
+    return hsl(((1 - f) * 120) / 360, 0.8, 0.48);
+  }
+  return null;
+}
+
+/**
+ * Leistung eines Raums in W: room.power (Entität oder "none") oder Summe der Leistungssensoren im Bereich.
+ * exclude: IDs, die nicht zählen (z. B. die Energie-Anzeige: PV, Einspeisung, Akku).
+ */
+export function roomPower(room, hass, byArea, exclude = new Set()) {
+  if (room?.power === "none") return null;
+  if (room?.power) return powerW(hass.states[room.power]);
+  let sum = null;
+  for (const id of byArea.get(room?.area_id) ?? []) {
+    if (exclude.has(id) || domainOf(id) !== "sensor") continue;
+    const st = hass.states[id];
+    if (st?.attributes?.device_class !== "power") continue;
+    const w = powerW(st);
+    if (w === null) continue;
+    sum = (sum ?? 0) + w;
+  }
+  return sum;
 }
