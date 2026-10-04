@@ -36,141 +36,15 @@ import { SIM_WEATHER, Simulator } from "./sim.js";
 import { FUNCTION_KEYS, LEGACY_FUNCTION_KEYS, MAX_CARDS, WHEEL_VISIBLE, labelPlace, nextStyle, migrateView, nextView, normalizeCards, normalizeFunctions, rotateWheel, wheelLayout, wheelPlusAngle } from "./hud.js";
 import { entityAction } from "./actions.js";
 import { entityPlaces, houseStatus, statusChips } from "./status.js";
+import { ALERT_DEFAULTS, evaluateAlerts, exteriorOpenings, normalizeAlerts, visibleAlerts } from "./alerts.js";
 import { QUALITY_CHOICES, adaptDpr, resolveQuality } from "./perf.js";
 import { HouseScene } from "./scene.js";
 import { closeGaps } from "./walls.js";
 import { EDITOR_STYLE, FloorEditor } from "./editor.js";
 import { PANEL_STYLE } from "./panel-style.js";
 
-const LONG_PRESS_MS = 550;
-const esc = (v) => String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
-const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
-
-const ENERGY_CORE = [
-  ["solar", "mdi:white-balance-sunny", "Solar"],
-  ["einspeisung", "mdi:transmission-tower-import", "Einspeisung"],
-  ["akku_ladestand", "mdi:battery", "Akku"],
-  ["akku_leistung", "mdi:battery-charging", "Akkuleistung"],
-  ["ertrag_heute", "mdi:counter", "Ertrag heute"],
-];
-
-/** Zeilen der Energie-Anzeige: feste Werte des Balkonkraftwerks plus frei gewählte (settings.energy.extra). */
-function energyRows(energy, hass) {
-  const rows = ENERGY_CORE.filter(([key]) => energy[key] && hass.states[energy[key]]).map(([key, icon, name]) => ({ key, icon, name, entity: energy[key] }));
-  for (const x of energy.extra ?? []) {
-    const id = typeof x === "string" ? x : x?.entity;
-    const st = id && hass.states[id];
-    if (!st) continue;
-    rows.push({ key: null, entity: id, name: (typeof x === "object" && x.name) || st.attributes.friendly_name || id, icon: st.attributes.icon ?? SENSOR_ICONS[st.attributes.device_class] ?? "mdi:flash" });
-  }
-  return rows;
-}
-
-/** Ebenen und ihre Namen im Einstellungsfenster. */
-const LAYERS = [
-  ["walls", "Wände"],
-  ["openings", "Fenster & Türen"],
-  ["floors", "Böden"],
-  ["furniture", "Möbel"],
-  ["garden", "Garten"],
-  ["grid", "Raster im Hintergrund"],
-  ["roof", "Dach (in „Alle“)"],
-  ["weather", "Wetter (Regen, Schnee)"],
-  ["solar", "Solarmodule"],
-  ["flow", "Energiefluss"],
-  ["devices", "Geräte"],
-  ["labels", "Raumnamen"],
-  ["climate", "Temperatur & Feuchte"],
-  ["energy", "Energieanzeige"],
-  ["status", "Statusleiste (Licht, offen, Schlösser)"],
-  ["presence", "Anwesenheit (Personen, Bewegung)"],
-];
-
-const DEFAULT_SETTINGS = { style: "auto", deviceMode: "icons", quality: "auto", perfHud: false, layers: Object.fromEntries(LAYERS.map(([k]) => [k, true])) };
-
-function loadSettings(raw, legacyStyle) {
-  let saved = {};
-  try {
-    saved = JSON.parse(raw ?? "{}") ?? {};
-  } catch {
-    saved = {};
-  }
-  const out = { ...DEFAULT_SETTINGS, ...saved, layers: { ...DEFAULT_SETTINGS.layers, ...(saved.layers ?? {}) } };
-  if (!raw && legacyStyle === "cyber") out.style = "cyber";
-  if (out.style === "standard") out.style = "day";
-  return out;
-}
-const fmt = (v, digits = 1) => (v == null ? "–" : v.toLocaleString("de-DE", { maximumFractionDigits: digits, minimumFractionDigits: 0 }));
-
-const ICONS = {
-  light: ["mdi:lightbulb-on", "mdi:lightbulb-outline"],
-  switch: ["mdi:toggle-switch", "mdi:toggle-switch-off-outline"],
-  fan: ["mdi:fan", "mdi:fan-off"],
-  cover: ["mdi:window-shutter-open", "mdi:window-shutter"],
-  climate: ["mdi:thermostat", "mdi:thermostat"],
-};
-const CONTACT_ICONS = {
-  window: ["mdi:window-open-variant", "mdi:window-closed-variant"],
-  door: ["mdi:door-open", "mdi:door-closed"],
-  garage_door: ["mdi:garage-open", "mdi:garage"],
-  opening: ["mdi:square-outline", "mdi:square"],
-};
-
-const DOMAIN_ICONS = {
-  sensor: "mdi:eye-outline",
-  binary_sensor: "mdi:checkbox-blank-circle-outline",
-  media_player: "mdi:speaker",
-  lock: "mdi:lock",
-  vacuum: "mdi:robot-vacuum",
-  camera: "mdi:cctv",
-  scene: "mdi:palette",
-  script: "mdi:script-text-outline",
-  button: "mdi:gesture-tap-button",
-  input_button: "mdi:gesture-tap-button",
-  input_boolean: "mdi:toggle-switch-outline",
-  automation: "mdi:robot",
-  humidifier: "mdi:air-humidifier",
-  water_heater: "mdi:water-boiler",
-  alarm_control_panel: "mdi:shield-home",
-  siren: "mdi:bullhorn",
-  number: "mdi:ray-vertex",
-  select: "mdi:format-list-bulleted",
-  person: "mdi:account",
-  device_tracker: "mdi:map-marker",
-  weather: "mdi:weather-partly-cloudy",
-};
-const SENSOR_ICONS = { temperature: "mdi:thermometer", humidity: "mdi:water-percent", power: "mdi:flash", energy: "mdi:lightning-bolt", battery: "mdi:battery", illuminance: "mdi:brightness-5", motion: "mdi:motion-sensor", occupancy: "mdi:account-eye", carbon_dioxide: "mdi:molecule-co2" };
-
-/** Leistung: unter 1000 W in W, sonst kW. */
-const fmtPower = (w) => (w == null ? "–" : Math.abs(w) < 1000 ? `${fmt(w, 0)} W` : `${fmt(w / 1000, 2)} kW`);
-
-/** Text setzen und bei leerem Text verstecken (nur wenn sich etwas ändert). */
-function setText(el, text) {
-  if (!el) return;
-  if (el.textContent !== text) el.textContent = text;
-  const hide = !text;
-  if (el.hidden !== hide) el.hidden = hide;
-}
-
-function iconFor(kind, stateObj) {
-  if (stateObj.attributes?.icon) return stateObj.attributes.icon;
-  if (kind === "other") {
-    const domain = stateObj.entity_id.split(".")[0];
-    return SENSOR_ICONS[stateObj.attributes?.device_class] ?? DOMAIN_ICONS[domain] ?? "mdi:circle-medium";
-  }
-  const active = isActive(kind, stateObj);
-  if (kind === "contact") return (CONTACT_ICONS[stateObj.attributes.device_class] ?? CONTACT_ICONS.opening)[active ? 0 : 1];
-  if (kind === "cover" && stateObj.attributes.device_class === "garage") return CONTACT_ICONS.garage_door[active ? 0 : 1];
-  return (ICONS[kind] ?? ["mdi:help-circle-outline"])[active ? 0 : 1];
-}
-
-function isActive(kind, stateObj) {
-  if (kind === "cover" || kind === "contact") return isOpen(stateObj);
-  if (kind === "other") return ["on", "open", "playing", "unlocked", "cleaning", "home", "heat", "cool"].includes(stateObj.state);
-  if (kind === "climate") return !["off", "unavailable", "unknown"].includes(stateObj.state);
-  return stateObj.state === "on";
-}
-
+import { LONG_PRESS_MS, esc, plural, ENERGY_CORE, energyRows, LAYERS, DEFAULT_SETTINGS, loadSettings, fmt, ICONS, CONTACT_ICONS, DOMAIN_ICONS, SENSOR_ICONS, fmtPower, setText, iconFor, isActive } from "./panel-util.js";
+import { DialogMethods } from "./panel-dialogs.js";
 
 class Haus3DPanel extends HTMLElement {
   constructor() {
@@ -312,6 +186,7 @@ class Haus3DPanel extends HTMLElement {
     this._weatherRef = st;
     this._weatherId = id;
     this._scene?.setWeather(weatherKind(st));
+    if (this._places) this._queueUpdate(); // Hinweis „Regen – Fenster offen“
   }
 
   get hass() {
@@ -397,49 +272,6 @@ class Haus3DPanel extends HTMLElement {
     el.querySelector("[data-sim=stop]").addEventListener("click", () => this._setSim(false));
     this._els.stage.appendChild(el);
     this._simBar = el;
-  }
-
-  /** Dialog statt „Weitere Infos“: Zustand des Geräts in der Simulation setzen. */
-  _simDialog(entityId) {
-    this._closeDialog();
-    const st = this._hass.states[entityId];
-    const domain = domainOf(entityId);
-    const name = st?.attributes?.friendly_name ?? entityId;
-    const el = document.createElement("div");
-    el.className = "dialog-backdrop";
-    const onOff = ["light", "switch", "fan", "input_boolean", "binary_sensor", "automation", "siren", "humidifier"].includes(domain);
-    const cls = st?.attributes?.device_class;
-    const labels = domain === "binary_sensor" && ["window", "door", "opening", "garage_door"].includes(cls) ? ["Offen", "Zu"] : ["An", "Aus"];
-    let body = "";
-    if (onOff) body = `<div class="btns"><button data-set="on" class="${st?.state === "on" ? "primary" : ""}">${labels[0]}</button><button data-set="off" class="${st?.state !== "on" ? "primary" : ""}">${labels[1]}</button></div>`;
-    else if (domain === "cover") body = `<div class="btns"><button data-svc="open_cover">Auf</button><button data-svc="close_cover">Zu</button></div><div class="row"><span>Position</span><input type="range" min="0" max="100" step="5" data-pos value="${st?.attributes?.current_position ?? (st?.state === "open" ? 100 : 0)}"><span class="pv">${st?.attributes?.current_position ?? ""} %</span></div>`;
-    else if (domain === "lock") body = `<div class="btns"><button data-svc="unlock">Aufschließen</button><button data-svc="lock">Abschließen</button></div>`;
-    else if (domain === "climate") body = `<div class="row"><span>Soll</span><input type="number" step="0.5" data-temp value="${st?.attributes?.temperature ?? 21}"><button data-act="temp">Setzen</button></div>`;
-    else body = `<div class="row"><input type="${/^-?\d+(\.\d+)?$/.test(st?.state ?? "") ? "number" : "text"}" step="any" data-val value="${esc(st?.state ?? "")}"><button data-act="val">Setzen</button></div>`;
-    el.innerHTML = `<div class="dialog simdlg" role="dialog" aria-label="Simulation">
-      <div class="dialog-head"><span>${esc(name)}</span><button class="icon close" title="Schließen"><ha-icon icon="mdi:close"></ha-icon></button></div>
-      <div class="dialog-body"><p class="hint">Simulation: ${esc(entityId)} ist gerade „${esc(st?.state ?? "unbekannt")}“. Änderungen bleiben in der Simulation.</p>${body}</div></div>`;
-    const done = () => {
-      this._simChanged();
-      this._closeDialog();
-    };
-    el.querySelectorAll("[data-set]").forEach((b) => b.addEventListener("click", () => {
-      this._sim.set(entityId, b.dataset.set, {}, st);
-      done();
-    }));
-    el.querySelectorAll("[data-svc]").forEach((b) => b.addEventListener("click", () => this._hass.callService(domain, b.dataset.svc, { entity_id: entityId }).then(() => this._closeDialog())));
-    el.querySelector("[data-pos]")?.addEventListener("change", (ev) => this._hass.callService("cover", "set_cover_position", { entity_id: entityId, position: Number(ev.target.value) }).then(() => this._closeDialog()));
-    el.querySelector("[data-act=temp]")?.addEventListener("click", () => this._hass.callService("climate", "set_temperature", { entity_id: entityId, temperature: Number(el.querySelector("[data-temp]").value) }).then(() => this._closeDialog()));
-    el.querySelector("[data-act=val]")?.addEventListener("click", () => {
-      this._sim.set(entityId, el.querySelector("[data-val]").value, {}, st);
-      done();
-    });
-    el.querySelector(".close").addEventListener("click", () => this._closeDialog());
-    el.addEventListener("click", (ev) => {
-      if (ev.target === el) this._closeDialog();
-    });
-    this._els.stage.appendChild(el);
-    this._dialog = el;
   }
 
   set narrow(value) {
@@ -686,6 +518,12 @@ class Haus3DPanel extends HTMLElement {
     this._links = buildingLinks(this._building, hass, this._byArea);
     this._computeWatched();
     this._places = entityPlaces(this._building, hass, this._byArea, this._links);
+    this._alertSig = null; // Beschriftungen werden neu gebaut
+    // Außenwand-Öffnungen nur einmal je Gebäude berechnen (Regen-Hinweis)
+    if (this._exteriorFor !== this._building) {
+      this._exterior = exteriorOpenings(this._building);
+      this._exteriorFor = this._building;
+    }
     this._chipKeys = null; // Statusleiste neu aufbauen
     this._buildOverlays();
     this._updateStates();
@@ -748,7 +586,7 @@ class Haus3DPanel extends HTMLElement {
         const anchor = this._scene?.anchors.find((a) => a.key === `room:${floor.id}:${room.id}`);
         const el = document.createElement("div");
         el.className = "room";
-        el.innerHTML = `<div class="label"><b></b><div class="clim" hidden></div><div class="heat" hidden></div><div class="occ" hidden></div><div class="warn" hidden></div></div><div class="devs"></div>`;
+        el.innerHTML = `<div class="label"><b></b><div class="clim" hidden></div><div class="heat" hidden></div><div class="occ" hidden></div><div class="warn" hidden></div><div class="alarmtext" hidden></div></div><div class="devs"></div>`;
         el.querySelector("b").textContent = room.name;
         const devs = el.querySelector(".devs");
         if (!threeD) for (const icon of icons.filter((i) => i.room === room.id && !i.manual)) devs.appendChild(this._iconEl(icon));
@@ -756,7 +594,7 @@ class Haus3DPanel extends HTMLElement {
         const pos = anchor?.position.clone() ?? new THREE.Vector3(0, elev, 0);
         pos.y += 0.95; // knapp 1 m über dem Boden (bei Hängen über der Fläche)
         const label = el.firstElementChild;
-        this._overlays.set(`room:${floor.id}:${room.id}`, { el, label, parts: { clim: label.querySelector(".clim"), heat: label.querySelector(".heat"), occ: label.querySelector(".occ"), warn: label.querySelector(".warn") }, floorId: floor.id, position: pos, room });
+        this._overlays.set(`room:${floor.id}:${room.id}`, { el, label, parts: { clim: label.querySelector(".clim"), heat: label.querySelector(".heat"), occ: label.querySelector(".occ"), warn: label.querySelector(".warn"), alarm: label.querySelector(".alarmtext") }, floorId: floor.id, position: pos, room });
       }
       // Geräte mit manueller Position (placements) stehen frei an ihrer Stelle
       for (const icon of icons.filter((i) => i.manual && !threeD)) {
@@ -1014,7 +852,8 @@ class Haus3DPanel extends HTMLElement {
     const energy = energyValues(this._building.settings, hass);
     const onEntities = new Set(this._watched.filter((id) => hass.states[id]?.state === "on"));
     const heating = new Set(this._watched.filter((id) => id.startsWith("climate.") && hass.states[id]?.attributes?.hvac_action === "heating"));
-    this._scene?.applyStates({ lit, temps, tempMode: view !== "none", tempColor: (v) => viewColor(view, v) ?? [0.6, 0.6, 0.6], open, covers, feedIn: energy.einspeisung, onEntities, heating, heatRooms });
+    const alertRooms = this._evalAlerts(energy);
+    this._scene?.applyStates({ lit, temps, tempMode: view !== "none", tempColor: (v) => viewColor(view, v) ?? [0.6, 0.6, 0.6], open, covers, feedIn: energy.einspeisung, onEntities, heating, heatRooms, alerts: alertRooms });
     this._renderRoomPanel();
 
     for (const { el, icon } of this._iconEls) {
@@ -1051,6 +890,119 @@ class Haus3DPanel extends HTMLElement {
     this._needTick("presence", recent);
   }
 
+  /** Ausgeblendete Hinweise (dieses Gerät): {key: Zeitpunkt}. */
+  _alertAck(next) {
+    try {
+      if (next) localStorage.setItem("haus3d.alerts.ack", JSON.stringify(next));
+      return next ?? JSON.parse(localStorage.getItem("haus3d.alerts.ack") || "{}") ?? {};
+    } catch {
+      return next ?? this._ackMem ?? {};
+    }
+  }
+
+  /**
+   * Hinweise auswerten (alerts.js) und anzeigen: Banner, Glocke, Zeile am Raumnamen, Bodenfarbe.
+   * Neu gezeichnet wird nur, wenn sich die Hinweise ändern.
+   * @returns {Map<string, string>} Raum → Stufe (für die Bodenfarbe)
+   */
+  _evalAlerts(energy) {
+    const hass = this._hass;
+    const weather = weatherKind(this._weatherRef ?? null).kind;
+    const res = evaluateAlerts({
+      building: this._building, hass, byArea: this._byArea, links: this._links, places: this._places ?? new Map(), exterior: this._exterior ?? new Set(),
+      weather, energy, now: Date.now(), cfg: this._building.settings?.alerts, humidityMax: Number(this._building.settings?.climate?.humidity_max) || 65,
+    });
+    this._needTick("alerts", res.pending);
+    // Ausblenden gilt, bis der Hinweis verschwindet (dann darf er wiederkommen)
+    let ack = this._alertAck();
+    const keys = new Set(res.alerts.map((a) => a.key));
+    const pruned = Object.fromEntries(Object.entries(ack).filter(([k]) => keys.has(k)));
+    if (Object.keys(pruned).length !== Object.keys(ack).length) ack = this._alertAck(pruned);
+    const visible = visibleAlerts(res.alerts, ack);
+    this._alerts = res.alerts;
+    this._visibleAlerts = visible;
+    const rooms = new Map();
+    for (const a of visible) {
+      if (!a.roomId) continue;
+      const k = `${a.floorId}:${a.roomId}`;
+      if (!rooms.has(k) || a.level === "critical") rooms.set(k, a.level);
+    }
+    const sig = visible.map((a) => a.key).join("|");
+    if (sig !== this._alertSig) {
+      this._alertSig = sig;
+      this._renderAlerts();
+    }
+    return rooms;
+  }
+
+  /** Banner oben, Glocke in der Statusleiste, Zeile am Raumnamen. */
+  _renderAlerts() {
+    const list = this._visibleAlerts ?? [];
+    // Raumnamen
+    for (const ov of this._overlays.values()) {
+      if (!ov.parts) continue;
+      const mine = list.filter((x) => ov.room && x.roomId === ov.room.id && ov.floorId === x.floorId);
+      const a = mine[0];
+      setText(ov.parts.alarm, a ? `${a.text}${mine.length > 1 ? ` (+${mine.length - 1})` : ""}` : "");
+      ov.label.classList.toggle("alarm", !!a);
+      ov.label.classList.toggle("crit", a?.level === "critical");
+    }
+    // Banner
+    this._alertBar?.remove();
+    this._alertBar = null;
+    if (list.length) {
+      const a = list[0];
+      const el = document.createElement("div");
+      el.className = `alertbar ${a.level}`;
+      el.setAttribute("role", "alert");
+      el.innerHTML = `<ha-icon icon="${esc(a.icon)}"></ha-icon><span class="at"></span>${list.length > 1 ? `<button class="more" title="Alle Hinweise">+${list.length - 1}</button>` : ""}${a.roomId ? `<button class="show">Zeigen</button>` : ""}<button class="ack" title="Ausblenden, bis sich etwas ändert">Ausblenden</button>`;
+      el.querySelector(".at").textContent = a.text;
+      el.querySelector(".show")?.addEventListener("click", () => this._showAlert(a));
+      el.querySelector(".ack").addEventListener("click", () => this._ackAlert(a));
+      el.querySelector(".more")?.addEventListener("click", (ev) => {
+        ev.stopPropagation();
+        this._alertsPopup();
+      });
+      this._els.stage.appendChild(el);
+      this._alertBar = el;
+    }
+    // Glocke
+    const box = this._els?.chips;
+    let bell = this._els?.status?.querySelector(".bell");
+    if (!list.length) bell?.remove();
+    else {
+      if (!bell) {
+        bell = document.createElement("button");
+        bell.className = "chip bell";
+        bell.innerHTML = `<ha-icon icon="mdi:bell-ring-outline"></ha-icon><span></span>`;
+        bell.addEventListener("click", (ev) => {
+          ev.stopPropagation();
+          this._alertsPopup();
+        });
+        box?.parentElement.insertBefore(bell, box);
+      }
+      bell.classList.toggle("crit", list.some((x) => x.level === "critical"));
+      bell.querySelector("span").textContent = String(list.length);
+      bell.title = `${list.length} Hinweis${list.length > 1 ? "e" : ""}`;
+    }
+  }
+
+  _showAlert(a) {
+    this._closePopup();
+    if (!a.roomId) return;
+    this._setFilter(a.floorId);
+    this._selectRoom({ floorId: a.floorId, roomId: a.roomId });
+  }
+
+  _ackAlert(a) {
+    const ack = this._alertAck();
+    ack[a.key] = Date.now();
+    this._alertAck(ack);
+    this._alertSig = null;
+    this._closePopup();
+    this._updateStates();
+  }
+
   /**
    * Gemeinsamer Takt (15 s) für zeitabhängige Anzeigen, nur solange ihn jemand braucht
    * (Anwesenheit „vor n min“, später Hinweise mit Dauer, Ruhemodus).
@@ -1068,7 +1020,7 @@ class Haus3DPanel extends HTMLElement {
 
   _onTick() {
     if (!this.isConnected || document.hidden) return;
-    if (this._tickers?.has("presence")) this._queueUpdate();
+    if (this._tickers?.has("presence") || this._tickers?.has("alerts")) this._queueUpdate();
   }
 
   /** Statusleiste in der Kopfzeile: Chips werden nur neu gebaut, wenn sich ihre Art ändert. */
@@ -1120,50 +1072,6 @@ class Haus3DPanel extends HTMLElement {
       badge.textContent = String(n);
       b.title = [f.open ? `${f.open} offen` : "", f.lights ? `${f.lights} Licht an` : ""].filter(Boolean).join(" · ");
     }
-  }
-
-  /** Liste zu einem Chip: nach Etage, Tipp springt zum Raum; bei Lichtern „Alle Lichter aus“. */
-  _statusPopup(key) {
-    this._closePopup();
-    const st = this._status;
-    if (!st) return;
-    const hass = this._hass;
-    const list = key === "lights" ? st.lights : key === "open" ? st.open.filter((o) => o.kind !== "garage") : key === "garage" ? st.open.filter((o) => o.kind === "garage") : key === "locks" ? st.unlocked : key === "alarm" && st.alarm ? [st.alarm] : [];
-    const title = { lights: "Licht an", open: "Offen", garage: "Tore offen", locks: "Schlösser offen", alarm: "Alarmanlage", ok: "Alles zu" }[key];
-    const el = document.createElement("div");
-    el.className = "popup statuspop";
-    const floors = [...(this._building.floors ?? [])].sort((a, b) => b.elevation - a.elevation);
-    let html = `<div class="head">${esc(title)} (${list.length})</div><div class="scroll">`;
-    for (const f of floors) {
-      const items = list.filter((x) => x.floorId === f.id);
-      if (!items.length) continue;
-      html += `<div class="sub">${esc(f.name)}</div>`;
-      for (const it of items) {
-        const room = placesOf(f).find((r) => r.id === it.roomId);
-        const name = hass.states[it.entity_id]?.attributes?.friendly_name ?? it.entity_id;
-        html += `<button data-floor="${esc(f.id)}" data-room="${esc(it.roomId ?? "")}" data-entity="${esc(it.entity_id)}"><span>${esc(room?.name ?? "")} · ${esc(name)}${it.state === "tilted" ? " (gekippt)" : ""}</span></button>`;
-      }
-    }
-    if (!list.length) html += `<div class="item"><span>Alle Fenster, Türen und Schlösser sind zu.</span></div>`;
-    html += `</div>`;
-    if (key === "lights" && list.length) html += `<div class="foot"><button class="alloff"><ha-icon icon="mdi:lightbulb-off-outline"></ha-icon><span>Alle Lichter aus</span></button></div>`;
-    el.innerHTML = html;
-    el.querySelectorAll("[data-entity]").forEach((b) => b.addEventListener("click", (ev) => {
-      ev.stopPropagation();
-      this._closePopup();
-      if (b.dataset.room) {
-        this._setFilter(b.dataset.floor);
-        this._selectRoom({ floorId: b.dataset.floor, roomId: b.dataset.room });
-      } else this._moreInfo(b.dataset.entity);
-    }));
-    el.querySelector(".alloff")?.addEventListener("click", (ev) => {
-      ev.stopPropagation();
-      this._closePopup();
-      hass.callService("light", "turn_off", { entity_id: list.map((x) => x.entity_id) }).then(() => this._toast(`${list.length} Lichter aus`)).catch((err) => this._toast(`Fehlgeschlagen: ${err.message ?? err}`));
-    });
-    el.addEventListener("click", (ev) => ev.stopPropagation());
-    this._els.stage.appendChild(el);
-    this._popup = el;
   }
 
   /** Personen als runde Bilder (zu Hause farbig, unterwegs grau mit Ort). */
@@ -1263,84 +1171,6 @@ class Haus3DPanel extends HTMLElement {
     this._renderWheels?.();
   }
 
-  _openSettings() {
-    this._closePopup();
-    this._closeDialog();
-    const st = this._settings;
-    const el = document.createElement("div");
-    el.className = "dialog-backdrop";
-    el.innerHTML = `
-      <div class="dialog" role="dialog" aria-label="Einstellungen">
-        <div class="dialog-head"><span>Einstellungen</span><button class="icon close" title="Schließen"><ha-icon icon="mdi:close"></ha-icon></button></div>
-        <div class="dialog-body">
-          <h4>Darstellung</h4>
-          <div class="seg" data-key="style">
-            <button data-value="auto">Auto</button><button data-value="day">Tag</button><button data-value="night">Nacht</button><button data-value="cyber">Cyberpunk</button>
-          </div>
-          <h4>Qualität</h4>
-          <div class="seg" data-key="quality">${QUALITY_CHOICES.map(([k, n]) => `<button data-value="${k}">${n}</button>`).join("")}</div>
-          <label class="chkrow"><input type="checkbox" data-perfhud${st.perfHud ? " checked" : ""}> Leistungsanzeige (Bilder/s)</label>
-          <p class="hint">Automatisch: am Tablet ausgewogen, die Auflösung passt sich der Rechenleistung an. „Akku“ zeichnet am sparsamsten.</p>
-          <h4>Geräte anzeigen als</h4>
-          <div class="seg" data-key="deviceMode">
-            <button data-value="icons">Symbole</button><button data-value="3d">3D-Objekte</button>
-          </div>
-          <h4>Einblenden</h4>
-          <div class="toggles">
-            ${LAYERS.map(([k, name]) => `<label><input type="checkbox" data-layer="${k}"${st.layers[k] !== false ? " checked" : ""}><span>${name}</span></label>`).join("")}
-          </div>
-          <p class="hint">Darstellung und Einblenden gelten für dieses Gerät/diesen Browser.</p>
-          <h4>Simulation</h4>
-          <p class="hint">Zum Ausprobieren: Schalten, Wetter, Tag/Nacht und Solarleistung werden nur simuliert, nichts geht an echte Geräte, der Grundriss wird nicht gespeichert.</p>
-          <div class="btns"><button class="simtoggle${this._sim ? "" : " primary"}">${this._sim ? "Simulation beenden" : "Simulation starten"}</button></div>
-          ${this._hass?.user?.is_admin ? `<h4>Haus & Wetter (für alle)</h4><div class="house-cfg"></div><h4>Energie-Anzeige (für alle)</h4><div class="energy-cfg"></div>` : ""}
-        </div>
-      </div>`;
-    const syncSeg = () => {
-      for (const seg of el.querySelectorAll(".seg")) for (const b of seg.querySelectorAll("button")) b.classList.toggle("sel", st[seg.dataset.key] === b.dataset.value);
-    };
-    syncSeg();
-    for (const seg of el.querySelectorAll(".seg")) {
-      seg.addEventListener("click", (ev) => {
-        const b = ev.target.closest("button");
-        if (!b) return;
-        st[seg.dataset.key] = b.dataset.value;
-        syncSeg();
-        this._saveSettings();
-        if (seg.dataset.key === "style") this._applyStyle();
-        else if (seg.dataset.key === "quality") this._applyQuality();
-        else this._refreshEntities();
-      });
-    }
-    for (const box of el.querySelectorAll("input[data-layer]")) {
-      box.addEventListener("change", () => {
-        st.layers[box.dataset.layer] = box.checked;
-        this._saveSettings();
-        this._scene?.setLayers(st.layers);
-        this._applyOverlayLayers();
-      });
-    }
-    el.querySelector("[data-perfhud]").addEventListener("change", (ev) => {
-      st.perfHud = ev.target.checked;
-      this._saveSettings();
-      this._applyQuality();
-    });
-    el.querySelector(".close").addEventListener("click", () => this._closeDialog());
-    el.addEventListener("click", (ev) => {
-      if (ev.target === el) this._closeDialog();
-    });
-    el.querySelector(".simtoggle").addEventListener("click", () => {
-      this._closeDialog();
-      this._setSim(!this._sim);
-    });
-    const cfg = el.querySelector(".energy-cfg");
-    if (cfg) this._renderEnergyConfig(cfg);
-    const house = el.querySelector(".house-cfg");
-    if (house) this._renderHouseConfig(house);
-    this._els.stage.appendChild(el);
-    this._dialog = el;
-  }
-
   /** Gemeinsame Einstellungen speichern (ins Gebäude, mit Revision). */
   async _saveBuildingSettings(patch, message) {
     const building = structuredClone(this._building);
@@ -1352,126 +1182,6 @@ class Haus3DPanel extends HTMLElement {
     } catch (err) {
       this._toast(`Speichern fehlgeschlagen: ${err.message ?? err.code}`);
     }
-  }
-
-  /** Dach (Form, Neigung, Überstand, Firstrichtung) und Wetter-Entität. */
-  _renderHouseConfig(box) {
-    const hass = this._hass;
-    const roof = roofSettings(this._building?.settings);
-    const weather = this._building?.settings?.weather ?? "";
-    const weathers = Object.keys(hass.states).filter((id) => id.startsWith("weather.")).sort();
-    const pvItems = (roof.items ?? []).some((it) => it?.type === "pv");
-    box.innerHTML = `
-      <label class="en-row"><span>Dach</span><select data-r="type">${ROOF_TYPES.map(([k, n]) => `<option value="${k}"${k === roof.type ? " selected" : ""}>${n}</option>`).join("")}</select></label>
-      <label class="en-row"><span>Neigung (°)</span><input data-r="pitch" type="number" min="5" max="60" step="1" value="${roof.pitch}"></label>
-      <label class="en-row"><span>Überstand (m)</span><input data-r="overhang" type="number" min="0" max="1.5" step="0.05" value="${roof.overhang}"></label>
-      <label class="en-row"><span>Dachfarbe</span><input type="color" data-rc value="${/^#[0-9a-f]{6}$/i.test(roof.color ?? "") ? roof.color : "#9a4a36"}"><button class="rc-reset" title="Standardfarbe">Standard</button></label>
-      <div class="swatches">${["#9a4a36", "#b5523b", "#6e2f25", "#4a3b32", "#3a3d42", "#23262b", "#5f6670", "#8c8f94", "#2f4f3f", "#3f5a78"].map((c) => `<button data-rcs="${c}" style="background:${c}" title="${c}"></button>`).join("")}</div>
-      <label class="en-row"><span>Flügel-Ende</span><select data-r="wing_end"><option value="gable"${roof.wing_end !== "hip" ? " selected" : ""}>Giebel</option><option value="hip"${roof.wing_end === "hip" ? " selected" : ""}>Walm (abgeschrägt)</option></select></label>
-      <label class="en-row"><span>First</span><select data-r="direction">${[["auto", "lange Seite"], ["x", "Ost–West im Plan"], ["z", "Nord–Süd im Plan"]].map(([k, n]) => `<option value="${k}"${k === roof.direction ? " selected" : ""}>${n}</option>`).join("")}</select></label>
-      <label class="en-row" title="Ab dieser Luftfeuchte warnt Haus 3D (Raumfenster, Bodenfarbe, Hinweise)"><span>Feuchte-Warnung ab (%)</span><input data-hummax type="number" min="40" max="90" step="1" value="${Number(this._building?.settings?.climate?.humidity_max) || 65}"></label>
-      <label class="en-row" title="Haustür aufschließen, Garagentor öffnen/schließen, Sirene einschalten"><span>Nachfragen</span><span class="chk"><input type="checkbox" data-safety${this._building?.settings?.safety?.confirm === false ? "" : " checked"}> bei Schloss, Garagentor, Sirene</span></label>
-      <label class="en-row"><span>Wetter</span><select data-w>
-        <option value=""${weather === "" ? " selected" : ""}>automatisch${weathers[0] ? ` (${esc(weathers[0])})` : ""}</option>
-        <option value="none"${weather === "none" ? " selected" : ""}>kein Wetter</option>
-        ${weathers.map((id) => `<option value="${esc(id)}"${id === weather ? " selected" : ""}>${esc(hass.states[id].attributes.friendly_name ?? id)}</option>`).join("")}
-      </select></label>
-      ${pvItems ? `<p class="hint">PV, Kamin und Dachfenster sitzen frei verschiebbar auf dem Dach: Bearbeiten → Ebene „Dach“.</p>` : `<p class="hint">Genauer und verschiebbar: Bearbeiten → Ebene „Dach“ (dort lässt sich diese PV übernehmen).</p>`}
-      <div class="pvlegacy"${pvItems ? " hidden" : ""}>
-      <h4>PV auf dem Dach (Anzahl Module je Richtung)</h4>
-      <div class="pvrow">${[["E", "Ost"], ["S", "Süd"], ["W", "West"], ["N", "Nord"]].map(([k, n]) => `<label><span>${n}</span><input type="number" min="0" max="60" step="1" data-pv="${k}" value="${Number(roof.solar?.[k]) || 0}"></label>`).join("")}</div>
-      <h4>PV-Felder (genaue Anordnung, ersetzt die Anzahl oben)</h4>
-      <div class="pvarrays"></div>
-      <div class="btns"><button class="pvadd">+ PV-Feld</button></div>
-      </div>
-      <label class="en-row"><span>Norden</span><select data-north>${[[0, "oben im Plan"], [90, "rechts im Plan"], [180, "unten im Plan"], [270, "links im Plan"]].map(([v, n]) => `<option value="${v}"${Number(this._building?.settings?.north ?? 0) === v ? " selected" : ""}>${n}</option>`).join("")}${[0, 90, 180, 270].includes(Number(this._building?.settings?.north ?? 0)) ? "" : `<option value="${this._building.settings.north}" selected>${this._building.settings.north}°</option>`}</select></label>
-      <p class="hint">Das Dach erscheint nur in der Ansicht „Alle“. Wählt man eine Etage, schaut man hinein. Module liegen auf den Dachflächen, die in die Richtung zeigen (L-Dach: Hauptdach und Flügel).</p>
-      <div class="btns"><button class="house-save primary">Speichern</button></div>`;
-    // PV-Felder: Richtung, Spalten × Reihen, hoch/quer, Abstand von links (von außen gesehen), ab Reihe
-    const arrays = structuredClone(roof.solar_arrays ?? []);
-    const arrBox = box.querySelector(".pvarrays");
-    const dirs = [["S", "Süd"], ["E", "Ost"], ["W", "West"], ["N", "Nord"]];
-    const drawArrays = () => {
-      arrBox.innerHTML = (arrays.length ? `<div class="pvarr head"><span>Richtung</span><span>Spalten</span><span>Reihen</span><span>Lage</span><span>von links (m)</span><span>ab Reihe</span><span></span></div>` : `<p class="hint">Keine Felder: Module werden nach der Anzahl je Richtung verteilt.</p>`) +
-        arrays.map((a, i) => `<div class="pvarr" data-i="${i}"><select data-k="dir">${dirs.map(([k, n]) => `<option value="${k}"${k === a.dir ? " selected" : ""}>${n}</option>`).join("")}</select><input type="number" min="1" max="20" data-k="cols" value="${a.cols ?? 2}"><input type="number" min="1" max="10" data-k="rows" value="${a.rows ?? 1}"><select data-k="orient"><option value="portrait"${a.orient !== "landscape" ? " selected" : ""}>hoch</option><option value="landscape"${a.orient === "landscape" ? " selected" : ""}>quer</option></select><input type="number" min="0" step="0.1" data-k="left" value="${a.left ?? 0.3}"><input type="number" min="0" max="10" data-k="row" value="${a.row ?? 0}"><button class="icon" data-rm="${i}" title="Feld entfernen"><ha-icon icon="mdi:delete-outline"></ha-icon></button></div>`).join("");
-      arrBox.querySelectorAll(".pvarr[data-i] [data-k]").forEach((inp) =>
-        inp.addEventListener("change", () => {
-          const a = arrays[Number(inp.closest(".pvarr").dataset.i)];
-          a[inp.dataset.k] = inp.tagName === "SELECT" ? inp.value : Number(inp.value);
-        }),
-      );
-      arrBox.querySelectorAll("[data-rm]").forEach((b) => b.addEventListener("click", () => {
-        arrays.splice(Number(b.dataset.rm), 1);
-        drawArrays();
-      }));
-    };
-    drawArrays();
-    box.querySelector(".pvadd").addEventListener("click", () => {
-      arrays.push({ dir: "S", cols: 3, rows: 2, orient: "portrait", left: 0.3, row: 0 });
-      drawArrays();
-    });
-    let roofColor = roof.color ?? null;
-    const colorInput = box.querySelector("[data-rc]");
-    colorInput.addEventListener("input", () => (roofColor = colorInput.value));
-    box.querySelector(".rc-reset").addEventListener("click", () => (roofColor = null));
-    box.querySelectorAll("[data-rcs]").forEach((b) =>
-      b.addEventListener("click", () => {
-        roofColor = b.dataset.rcs;
-        colorInput.value = roofColor;
-      }),
-    );
-    box.querySelector(".house-save").addEventListener("click", () => {
-      const next = { ...(this._building?.settings?.roof ?? {}) };
-      if (roofColor) next.color = roofColor;
-      else delete next.color;
-      if (!pvItems) next.solar = Object.fromEntries([...box.querySelectorAll("[data-pv]")].map((i) => [i.dataset.pv, Math.max(0, Math.round(Number(i.value) || 0))]));
-      if (!pvItems) next.solar_arrays = arrays.map((a) => ({ dir: a.dir ?? "S", cols: Math.max(1, Math.round(a.cols ?? 1)), rows: Math.max(1, Math.round(a.rows ?? 1)), orient: a.orient === "landscape" ? "landscape" : "portrait", left: Math.max(0, Number(a.left) || 0), row: Math.max(0, Math.round(a.row ?? 0)) }));
-      for (const inp of box.querySelectorAll("[data-r]")) next[inp.dataset.r] = inp.type === "number" ? Number(inp.value) : inp.value;
-      const w = box.querySelector("[data-w]").value;
-      const r = roofSettings({ roof: next }); // begrenzt Neigung und Überstand
-      const roof = { ...next, type: r.type, pitch: r.pitch, overhang: r.overhang, direction: r.direction };
-      const safety = { ...(this._building?.settings?.safety ?? {}), confirm: box.querySelector("[data-safety]").checked };
-      const hm = Math.round(Number(box.querySelector("[data-hummax]").value));
-      const climate = { ...(this._building?.settings?.climate ?? {}), humidity_max: Number.isFinite(hm) ? Math.min(90, Math.max(40, hm)) : 65 };
-      this._saveBuildingSettings({ roof, weather: w || null, north: Number(box.querySelector("[data-north]").value) || 0, safety, climate }, "Dach und Wetter gespeichert.");
-    });
-  }
-
-  /** Energie-Anzeige einstellen: feste Werte des Balkonkraftwerks und zusätzliche Entitäten. */
-  _renderEnergyConfig(box) {
-    const hass = this._hass;
-    const energy = structuredClone(this._building?.settings?.energy ?? {});
-    energy.extra = [...(energy.extra ?? [])].map((x) => (typeof x === "string" ? { entity: x } : x));
-    const opts = `<datalist id="en-all">${Object.keys(hass.states).filter((id) => /^(sensor|binary_sensor|input_number|number)\./.test(id)).sort().map((id) => `<option value="${esc(id)}">${esc(hass.states[id].attributes.friendly_name ?? "")}</option>`).join("")}</datalist>`;
-    const render = () => {
-      box.innerHTML = `${ENERGY_CORE.map(([k, , name]) => `<label class="en-row"><span>${name}</span><input list="en-all" data-core="${k}" value="${esc(energy[k] ?? "")}" placeholder="– keine –"></label>`).join("")}
-        ${energy.extra.map((x, i) => `<div class="en-row"><input data-extra-name="${i}" value="${esc(x.name ?? "")}" placeholder="Name"><input list="en-all" data-extra="${i}" value="${esc(x.entity ?? "")}"><button class="icon" data-rm="${i}" title="Entfernen"><ha-icon icon="mdi:delete-outline"></ha-icon></button></div>`).join("")}
-        ${opts}
-        <div class="btns"><button class="en-add">+ Wert hinzufügen</button><button class="en-save primary">Speichern</button></div>`;
-      box.querySelectorAll("[data-core]").forEach((i) => i.addEventListener("change", () => (energy[i.dataset.core] = i.value.trim() || null)));
-      box.querySelectorAll("[data-extra]").forEach((i) => i.addEventListener("change", () => (energy.extra[Number(i.dataset.extra)].entity = i.value.trim())));
-      box.querySelectorAll("[data-extra-name]").forEach((i) => i.addEventListener("change", () => (energy.extra[Number(i.dataset.extraName)].name = i.value.trim() || undefined)));
-      box.querySelectorAll("[data-rm]").forEach((b) => b.addEventListener("click", () => {
-        energy.extra.splice(Number(b.dataset.rm), 1);
-        render();
-      }));
-      box.querySelector(".en-add").addEventListener("click", () => {
-        energy.extra.push({ entity: "" });
-        render();
-      });
-      box.querySelector(".en-save").addEventListener("click", async () => {
-        const building = structuredClone(this._building);
-        building.settings.energy = { ...energy, extra: energy.extra.filter((x) => x.entity) };
-        try {
-          const res = await hass.callWS({ type: "haus3d/building/save", building, revision: this._revision });
-          this._setBuilding(res.building, res.revision, { keepCamera: true });
-          this._toast("Energie-Anzeige gespeichert.");
-        } catch (err) {
-          this._toast(`Speichern fehlgeschlagen: ${err.message ?? err.code}`);
-        }
-      });
-    };
-    render();
   }
 
   _closeDialog() {
@@ -1572,8 +1282,10 @@ class Haus3DPanel extends HTMLElement {
       if (!p.el) {
         p.el = document.createElement("div");
         p.el.className = "roompanel";
+        // oben links, unter einem Hinweis-Banner (sonst liegt der Banner über dem Kopf)
+        const top = this._alertBar?.isConnected ? this._alertBar.offsetTop + this._alertBar.offsetHeight + 8 : 12;
         p.x = p.x ?? 12 + idx * 28;
-        p.y = p.y ?? 12 + idx * 28;
+        p.y = p.y ?? top + idx * 28;
         this._els.stage.appendChild(p.el);
         this._dragPanel(p);
       }
@@ -1762,68 +1474,6 @@ class Haus3DPanel extends HTMLElement {
     p.el.addEventListener("pointercancel", end);
   }
 
-  /** Geräte eines Raums anpassen: Bereichsgeräte ein-/ausblenden, beliebige Entitäten hinzufügen. */
-  _customizeRoom(p, room) {
-    const hass = this._hass;
-    p.editing = true;
-    p.rows = null; // danach neu aufbauen
-    const areaIds = room.area_id ? this._byArea.get(room.area_id) ?? [] : [];
-    const hidden = new Set(room.hidden_entities ?? []);
-    const extra = [...(room.panel ?? [])];
-    const name = (id) => hass.states[id]?.attributes.friendly_name ?? id;
-    const render = () => {
-      p.el.innerHTML = `<div class="rp-head"><ha-icon class="grip" icon="mdi:drag"></ha-icon><b>Geräte: ${esc(room.name)}</b></div>
-        <div class="rp-sub">Haken = im Modell und im Raumfenster anzeigen.</div>
-        <div class="rp-list">
-          ${areaIds.map((id) => `<label class="rp-check"><input type="checkbox" data-id="${esc(id)}"${hidden.has(id) ? "" : " checked"}><span>${esc(name(id))}<small>${esc(id)}</small></span></label>`).join("") || `<div class="rp-empty">Kein Bereich zugeordnet.</div>`}
-          ${extra.map((id, i) => `<div class="rp-check"><ha-icon icon="mdi:plus-circle-outline"></ha-icon><span>${esc(name(id))}<small>${esc(id)}</small></span><button class="icon rm" data-i="${i}" title="Entfernen"><ha-icon icon="mdi:delete-outline"></ha-icon></button></div>`).join("")}
-        </div>
-        <div class="rp-add"><input list="rp-all" placeholder="Entität hinzufügen …"><datalist id="rp-all">${Object.keys(hass.states).sort().map((id) => `<option value="${esc(id)}">${esc(name(id))}</option>`).join("")}</datalist><button class="add">+</button></div>
-        <div class="rp-btns"><button class="cancel">Abbrechen</button><button class="save primary">Speichern</button></div>`;
-      p.el.querySelectorAll("input[type=checkbox]").forEach((c) => c.addEventListener("change", () => (c.checked ? hidden.delete(c.dataset.id) : hidden.add(c.dataset.id))));
-      p.el.querySelectorAll(".rm").forEach((b) => b.addEventListener("click", () => {
-        extra.splice(Number(b.dataset.i), 1);
-        render();
-      }));
-      const input = p.el.querySelector(".rp-add input");
-      const add = () => {
-        const id = input.value.trim();
-        if (!hass.states[id]) {
-          this._toast("Diese Entität gibt es nicht.");
-          return;
-        }
-        if (areaIds.includes(id)) hidden.delete(id);
-        else if (!extra.includes(id)) extra.push(id);
-        render();
-      };
-      p.el.querySelector(".add").addEventListener("click", add);
-      input.addEventListener("keydown", (ev) => ev.key === "Enter" && add());
-      p.el.querySelector(".cancel").addEventListener("click", () => {
-        p.editing = false;
-        this._renderRoomPanel();
-      });
-      p.el.querySelector(".save").addEventListener("click", async () => {
-        const building = structuredClone(this._building);
-        for (const f of building.floors) {
-          for (const r of [...f.rooms, ...(f.outdoor ?? [])]) {
-            if (r.id !== room.id) continue;
-            r.hidden_entities = [...hidden];
-            r.panel = extra;
-          }
-        }
-        try {
-          const res = await this._hass.callWS({ type: "haus3d/building/save", building, revision: this._revision });
-          p.editing = false;
-          this._setBuilding(res.building, res.revision, { keepCamera: true });
-          this._toast("Geräte gespeichert.");
-        } catch (err) {
-          this._toast(err.code === "conflict" ? "Der Stand wurde inzwischen geändert. Seite neu laden." : `Speichern fehlgeschlagen: ${err.message ?? err.code}`);
-        }
-      });
-    };
-    render();
-  }
-
   // ------------------------------------------------------------------ Karten, Etagen-Leiste, Rad-Menüs
 
   /** Auf/zu je Karte (pro Browser). patch setzt Werte, ohne Argument wird gelesen. */
@@ -1887,68 +1537,6 @@ class Haus3DPanel extends HTMLElement {
       const short = el.querySelector(".short");
       if (short) short.textContent = el.querySelector(".row[data-i] b")?.textContent ?? "";
     }
-  }
-
-  /** Karte anlegen oder anpassen: Titel, Symbol, Werte (Entität + Name). id = null: neue Karte. */
-  _cardDialog(id) {
-    this._closeDialog();
-    const hass = this._hass;
-    const all = normalizeCards(this._building?.settings?.cards);
-    const card = structuredClone(all.find((c) => c.id === id) ?? { id: `karte_${Date.now().toString(36)}`, title: "Neue Karte", icon: "mdi:card-text-outline", entities: [] });
-    const icons = ["mdi:card-text-outline", "mdi:fire", "mdi:radiator", "mdi:water-boiler", "mdi:thermometer", "mdi:washing-machine", "mdi:server", "mdi:pool", "mdi:car-electric", "mdi:battery-charging", "mdi:weather-partly-cloudy", "mdi:home-automation"];
-    const el = document.createElement("div");
-    el.className = "dialog-backdrop";
-    const render = () => {
-      el.innerHTML = `<div class="dialog qedit" role="dialog" aria-label="Karte">
-        <div class="dialog-head"><span>${id ? "Karte anpassen" : "Neue Karte"}</span><button class="icon close" title="Schließen"><ha-icon icon="mdi:close"></ha-icon></button></div>
-        <div class="dialog-body">
-          <h4>Titel</h4><div class="qrow"><input class="ttl" value="${esc(card.title)}"></div>
-          <h4>Symbol</h4><div class="qrow" style="flex-wrap:wrap">${icons.map((ic) => `<button class="icon ${ic === card.icon ? "on" : ""}" data-icon="${ic}" title="${ic}" style="${ic === card.icon ? "background:var(--primary-color,#03a9f4);color:#fff" : ""}"><ha-icon icon="${ic}"></ha-icon></button>`).join("")}</div>
-          <h4>Werte</h4>
-          ${card.entities.map((e, i) => `<div class="qrow"><input class="nm" data-name="${i}" value="${esc(e.name ?? "")}" placeholder="Name"><input list="card-ents" data-ent="${i}" value="${esc(e.entity)}" placeholder="Entität"><button class="icon" data-rm="${i}" title="Entfernen"><ha-icon icon="mdi:delete-outline"></ha-icon></button></div>`).join("")}
-          <datalist id="card-ents">${Object.keys(hass.states).sort().map((x) => `<option value="${esc(x)}">${esc(hass.states[x].attributes.friendly_name ?? "")}</option>`).join("")}</datalist>
-          <div class="btns"><button class="addv">+ Wert</button></div>
-          <div class="btns">${id ? `<button class="del">Karte löschen</button>` : ""}<button class="save primary">Speichern</button></div>
-        </div></div>`;
-      const sync = () => {
-        card.title = el.querySelector(".ttl").value.trim() || card.title;
-        el.querySelectorAll("[data-ent]").forEach((i) => (card.entities[Number(i.dataset.ent)].entity = i.value.trim()));
-        el.querySelectorAll("[data-name]").forEach((i) => (card.entities[Number(i.dataset.name)].name = i.value.trim() || undefined));
-      };
-      el.querySelectorAll("[data-icon]").forEach((b) => b.addEventListener("click", () => {
-        sync();
-        card.icon = b.dataset.icon;
-        render();
-      }));
-      el.querySelectorAll("[data-rm]").forEach((b) => b.addEventListener("click", () => {
-        sync();
-        card.entities.splice(Number(b.dataset.rm), 1);
-        render();
-      }));
-      el.querySelector(".addv").addEventListener("click", () => {
-        sync();
-        card.entities.push({ entity: "" });
-        render();
-      });
-      el.querySelector(".del")?.addEventListener("click", () => {
-        this._closeDialog();
-        this._saveBuildingSettings({ cards: all.filter((c) => c.id !== id) }, "Karte gelöscht.");
-      });
-      el.querySelector(".save").addEventListener("click", () => {
-        sync();
-        card.entities = card.entities.filter((e) => e.entity.includes("."));
-        const next = id ? all.map((c) => (c.id === id ? card : c)) : [...all, card];
-        this._closeDialog();
-        this._saveBuildingSettings({ cards: next.slice(0, MAX_CARDS) }, "Karte gespeichert.");
-      });
-      el.querySelector(".close").addEventListener("click", () => this._closeDialog());
-    };
-    render();
-    el.addEventListener("click", (ev) => {
-      if (ev.target === el) this._closeDialog();
-    });
-    this._els.stage.appendChild(el);
-    this._dialog = el;
   }
 
   /** Etagen-Leiste rechts: ▲ Alle (mit Dach) / Etagen von oben nach unten ▼. */
@@ -2143,127 +1731,6 @@ class Haus3DPanel extends HTMLElement {
     }
   }
 
-  /** Funktionsrad anpassen: eingebaute Umschalter ein-/ausblenden, sortieren, eigene Einträge (Entitäten) hinzufügen. */
-  _functionDialog() {
-    this._closeDialog();
-    const hass = this._hass;
-    const builtin = this._builtinFunctions();
-    let list = normalizeFunctions(this._building?.settings?.functions, this._building?.settings?.functions_seen ?? LEGACY_FUNCTION_KEYS);
-    const domains = ["automation", "script", "scene", "button", "input_button", "switch", "light", "input_boolean", "cover", "lock", "fan"];
-    const el = document.createElement("div");
-    el.className = "dialog-backdrop";
-    const render = () => {
-      const missing = FUNCTION_KEYS.filter((k) => !list.some((f) => f.key === k));
-      el.innerHTML = `<div class="dialog qedit" role="dialog" aria-label="Funktionen">
-        <div class="dialog-head"><span>Funktionen anpassen</span><button class="icon close" title="Schließen"><ha-icon icon="mdi:close"></ha-icon></button></div>
-        <div class="dialog-body">
-          <p class="hint">Im Rad sind ${WHEEL_VISIBLE} Einträge zu sehen, weitere werden durchgedreht. Eigene Einträge: Automation auslösen, Skript/Szene starten, sonst umschalten.</p>
-          ${list.map((f, i) => `<div class="qrow">${f.key
-            ? `<ha-icon icon="${esc(builtin[f.key].icon)}"></ha-icon><span class="fixed">${esc(builtin[f.key].name)}</span>`
-            : `<input class="nm" data-name="${i}" value="${esc(f.name ?? "")}" placeholder="Name"><input list="fn-ents" data-ent="${i}" value="${esc(f.entity ?? "")}" placeholder="script.…"><label class="qc" title="Vor dem Ausführen nachfragen"><input type="checkbox" data-cf="${i}"${f.confirm ? " checked" : ""}>Nachfragen</label>`}
-            <button class="icon" data-up="${i}" title="nach oben"><ha-icon icon="mdi:arrow-up"></ha-icon></button><button class="icon" data-rm="${i}" title="Ausblenden/Entfernen"><ha-icon icon="mdi:${f.key ? "eye-off-outline" : "delete-outline"}"></ha-icon></button></div>`).join("") || `<p class="hint">Keine Einträge.</p>`}
-          <datalist id="fn-ents">${Object.keys(hass.states).filter((x) => domains.includes(x.split(".")[0])).sort().map((x) => `<option value="${esc(x)}">${esc(hass.states[x].attributes.friendly_name ?? "")}</option>`).join("")}</datalist>
-          ${missing.length ? `<div class="qrow"><select class="addkey"><option value="">Ausgeblendete wieder zeigen …</option>${missing.map((k) => `<option value="${k}">${esc(builtin[k].name)}</option>`).join("")}</select></div>` : ""}
-          <div class="btns"><button class="reset">Standard</button><button class="addq">+ Eigener Eintrag</button><button class="save primary">Speichern</button></div>
-        </div></div>`;
-      const sync = () => {
-        el.querySelectorAll("[data-ent]").forEach((i) => (list[Number(i.dataset.ent)].entity = i.value.trim()));
-        el.querySelectorAll("[data-name]").forEach((i) => (list[Number(i.dataset.name)].name = i.value.trim() || undefined));
-        el.querySelectorAll("[data-cf]").forEach((i) => (list[Number(i.dataset.cf)].confirm = i.checked || undefined));
-      };
-      el.querySelectorAll("[data-rm]").forEach((b) => b.addEventListener("click", () => {
-        sync();
-        list.splice(Number(b.dataset.rm), 1);
-        render();
-      }));
-      el.querySelectorAll("[data-up]").forEach((b) => b.addEventListener("click", () => {
-        sync();
-        const i = Number(b.dataset.up);
-        if (i > 0) [list[i - 1], list[i]] = [list[i], list[i - 1]];
-        render();
-      }));
-      el.querySelector(".addkey")?.addEventListener("change", (ev) => {
-        sync();
-        if (ev.target.value) list.push({ key: ev.target.value });
-        render();
-      });
-      el.querySelector(".addq").addEventListener("click", () => {
-        sync();
-        list.push({ entity: "" });
-        render();
-      });
-      el.querySelector(".reset").addEventListener("click", () => {
-        list = normalizeFunctions(null);
-        render();
-      });
-      el.querySelector(".save").addEventListener("click", () => {
-        sync();
-        this._closeDialog();
-        this._saveBuildingSettings({ functions: list.filter((f) => f.key || f.entity?.includes(".")), functions_seen: [...FUNCTION_KEYS] }, "Funktionen gespeichert.");
-      });
-      el.querySelector(".close").addEventListener("click", () => this._closeDialog());
-    };
-    render();
-    el.addEventListener("click", (ev) => {
-      if (ev.target === el) this._closeDialog();
-    });
-    this._els.stage.appendChild(el);
-    this._dialog = el;
-  }
-
-  /** Kurzwahl bearbeiten: Automationen, Skripte, Szenen, Taster, Schalter. */
-  _quickDialog() {
-    this._closeDialog();
-    const hass = this._hass;
-    const list = structuredClone(this._building?.settings?.quick ?? []);
-    const domains = ["automation", "script", "scene", "button", "input_button", "switch", "light", "input_boolean", "cover", "lock", "fan"];
-    const el = document.createElement("div");
-    el.className = "dialog-backdrop";
-    const render = () => {
-      el.innerHTML = `<div class="dialog qedit" role="dialog" aria-label="Kurzwahl">
-        <div class="dialog-head"><span>Kurzwahl</span><button class="icon close" title="Schließen"><ha-icon icon="mdi:close"></ha-icon></button></div>
-        <div class="dialog-body">
-          <p class="hint">Antippen löst aus: Automation (trigger), Skript/Szene (starten), Taster (drücken), sonst umschalten. Lange drücken öffnet die Details. Im Rad sind ${WHEEL_VISIBLE} zu sehen, weitere werden durchgedreht.</p>
-          ${list.map((q, i) => `<div class="qrow"><input class="nm" data-name="${i}" value="${esc(q.name ?? "")}" placeholder="Name"><input list="quick-ents" data-ent="${i}" value="${esc(q.entity ?? "")}" placeholder="automation.…"><label class="qc" title="Vor dem Ausführen nachfragen"><input type="checkbox" data-cf="${i}"${q.confirm ? " checked" : ""}>Nachfragen</label><button class="icon" data-up="${i}" title="nach oben"><ha-icon icon="mdi:arrow-up"></ha-icon></button><button class="icon" data-rm="${i}" title="Entfernen"><ha-icon icon="mdi:delete-outline"></ha-icon></button></div>`).join("") || `<p class="hint">Noch keine Einträge.</p>`}
-          <datalist id="quick-ents">${Object.keys(hass.states).filter((x) => domains.includes(x.split(".")[0])).sort().map((x) => `<option value="${esc(x)}">${esc(hass.states[x].attributes.friendly_name ?? "")}</option>`).join("")}</datalist>
-          <div class="btns"><button class="addq">+ Eintrag</button><button class="save primary">Speichern</button></div>
-        </div></div>`;
-      const sync = () => {
-        el.querySelectorAll("[data-ent]").forEach((i) => (list[Number(i.dataset.ent)].entity = i.value.trim()));
-        el.querySelectorAll("[data-name]").forEach((i) => (list[Number(i.dataset.name)].name = i.value.trim() || undefined));
-        el.querySelectorAll("[data-cf]").forEach((i) => (list[Number(i.dataset.cf)].confirm = i.checked || undefined));
-      };
-      el.querySelectorAll("[data-rm]").forEach((b) => b.addEventListener("click", () => {
-        sync();
-        list.splice(Number(b.dataset.rm), 1);
-        render();
-      }));
-      el.querySelectorAll("[data-up]").forEach((b) => b.addEventListener("click", () => {
-        sync();
-        const i = Number(b.dataset.up);
-        if (i > 0) [list[i - 1], list[i]] = [list[i], list[i - 1]];
-        render();
-      }));
-      el.querySelector(".addq").addEventListener("click", () => {
-        sync();
-        list.push({ entity: "" });
-        render();
-      });
-      el.querySelector(".save").addEventListener("click", () => {
-        sync();
-        this._closeDialog();
-        this._saveBuildingSettings({ quick: list.filter((q) => q.entity?.includes(".")) }, "Kurzwahl gespeichert.");
-      });
-      el.querySelector(".close").addEventListener("click", () => this._closeDialog());
-    };
-    render();
-    el.addEventListener("click", (ev) => {
-      if (ev.target === el) this._closeDialog();
-    });
-    this._els.stage.appendChild(el);
-    this._dialog = el;
-  }
-
   /** Bodenfarbe weiterschalten (aus → Temperatur → Feuchte → Leistung). */
   _cycleView() {
     const before = this._view;
@@ -2296,7 +1763,6 @@ class Haus3DPanel extends HTMLElement {
     this._legend = el;
   }
 
-
   // ------------------------------------------------------------------ Overlays positionieren
 
   _positionOverlays() {
@@ -2326,127 +1792,14 @@ class Haus3DPanel extends HTMLElement {
 
   // ------------------------------------------------------------------ Import/Export/Verlauf (Admin)
 
-  _toggleMenu() {
-    if (this._popup) {
-      this._closePopup();
-      return;
-    }
-    const el = document.createElement("div");
-    el.className = "popup";
-    const entries = [
-      ["mdi:download", "Exportieren (JSON)", () => this._export()],
-      ["mdi:upload", "Importieren (JSON) …", () => this._els.file.click()],
-      ["mdi:content-save-outline", "Stand sichern", () => this._snapshot()],
-      ["mdi:history", "Verlauf …", () => this._showHistory()],
-    ];
-    for (const [icon, text, fn] of entries) {
-      const b = document.createElement("button");
-      b.innerHTML = `<ha-icon icon="${icon}"></ha-icon><span></span>`;
-      b.querySelector("span").textContent = text;
-      b.addEventListener("click", (ev) => {
-        ev.stopPropagation();
-        this._closePopup();
-        fn();
-      });
-      el.appendChild(b);
-    }
-    this._els.stage.appendChild(el);
-    this._popup = el;
-  }
-
   _closePopup() {
     this._popup?.remove();
     this._popup = null;
   }
 
-  _export() {
-    const blob = new Blob([JSON.stringify(exportFile(this._building), null, 2)], { type: "application/json" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `haus3d-${new Date().toISOString().slice(0, 10)}.json`;
-    this.shadowRoot.appendChild(a);
-    a.click();
-    a.remove();
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
-  }
-
-  async _importFile() {
-    const file = this._els.file.files?.[0];
-    this._els.file.value = "";
-    if (!file) return;
-    let building;
-    try {
-      building = parseImport(await file.text());
-    } catch (err) {
-      this._toast(err.message);
-      return;
-    }
-    // Räume mit Spalt dazwischen (Innenmaße statt Wandmitten) ergeben doppelte Außenwände: anbieten zu schließen
-    const closed = building.floors.map((f) => closeGaps(f.rooms));
-    const gapCount = closed.reduce((n, c) => n + c.gaps.length, 0);
-    if (gapCount && (await this._confirm(`Zwischen den Räumen gibt es ${plural(gapCount, "Lücke", "Lücken")} (bis 45 cm). Schließen, damit daraus Innenwände werden?`, "Schließen", { sub: "Wie „Lücken schließen“ in NeonPlan." }))) {
-      building.floors.forEach((f, i) => (f.rooms = closed[i].rooms));
-    }
-    const rooms = building.floors.reduce((n, f) => n + f.rooms.length, 0);
-    if (!(await this._confirm(`Grundriss mit ${plural(building.floors.length, "Etage", "Etagen")} und ${plural(rooms, "Raum", "Räumen")} importieren?`, "Importieren", { sub: "Der aktuelle Stand wird vorher im Verlauf gesichert." }))) return;
-    try {
-      const res = await this._hass.callWS({ type: "haus3d/building/save", building, revision: this._revision });
-      this._setBuilding(res.building, res.revision);
-      this._toast("Grundriss importiert.");
-    } catch (err) {
-      if (err.code === "conflict") this._toast("Der Stand wurde inzwischen geändert. Seite neu laden und erneut versuchen.");
-      else this._toast(`Import fehlgeschlagen: ${err.message ?? err.code}`);
-    }
-  }
-
-  async _snapshot() {
-    try {
-      await this._hass.callWS({ type: "haus3d/history/snapshot" });
-      this._toast("Stand gesichert.");
-    } catch (err) {
-      this._toast(`Sichern fehlgeschlagen: ${err.message ?? err.code}`);
-    }
-  }
-
-  async _showHistory() {
-    let items;
-    try {
-      ({ items } = await this._hass.callWS({ type: "haus3d/history/list" }));
-    } catch (err) {
-      this._toast(`Verlauf nicht verfügbar: ${err.message ?? err.code}`);
-      return;
-    }
-    const el = document.createElement("div");
-    el.className = "popup";
-    const reasons = { save: "vor Speichern", restore: "vor Wiederherstellen", manual: "gesichert" };
-    el.innerHTML = `<div class="head">Verlauf (letzte 20 Stände)</div><div class="scroll"></div>`;
-    const list = el.querySelector(".scroll");
-    if (!items.length) list.innerHTML = `<div class="item"><span>Noch keine Stände gesichert.</span></div>`;
-    for (const item of items) {
-      const row = document.createElement("div");
-      row.className = "item";
-      const when = new Date(item.created).toLocaleString("de-DE", { dateStyle: "short", timeStyle: "short" });
-      row.innerHTML = `<span></span><button>Wiederherstellen</button>`;
-      row.querySelector("span").textContent = `${when} · ${reasons[item.reason] ?? item.reason} · ${plural(item.floors, "Etage", "Etagen")}`;
-      row.querySelector("button").addEventListener("click", async (ev) => {
-        ev.stopPropagation();
-        this._closePopup();
-        if (!(await this._confirm(`Stand vom ${when} wiederherstellen?`, "Wiederherstellen", { sub: "Der aktuelle Stand wird vorher gesichert." }))) return;
-        try {
-          const res = await this._hass.callWS({ type: "haus3d/history/restore", history_id: item.id });
-          this._setBuilding(res.building, res.revision);
-          this._toast("Stand wiederhergestellt.");
-        } catch (err) {
-          this._toast(`Wiederherstellen fehlgeschlagen: ${err.message ?? err.code}`);
-        }
-      });
-      list.appendChild(row);
-    }
-    this._closePopup();
-    this._els.stage.appendChild(el);
-    this._popup = el;
-  }
 }
 
-if (!customElements.get("haus3d-panel")) customElements.define("haus3d-panel", Haus3DPanel);
+if (!customElements.get("haus3d-panel")) // Dialoge einmischen (panel-dialogs.js)
+Object.assign(Haus3DPanel.prototype, DialogMethods);
+
+customElements.define("haus3d-panel", Haus3DPanel);

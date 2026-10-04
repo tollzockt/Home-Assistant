@@ -358,6 +358,7 @@ export function watchedEntities(building, hass, byArea, { links = null, extra = 
           if (cls === "temperature" || cls === "humidity") ids.add(id);
         } else if (iconKind(hass.states[id])) ids.add(id);
         else if (d === "lock" || d === "alarm_control_panel") ids.add(id); // Statusleiste
+        else if (d === "binary_sensor" && ["moisture", "smoke", "gas", "carbon_monoxide", "heat", "safety"].includes(hass.states[id]?.attributes?.device_class)) ids.add(id); // Hinweise
       }
       for (const id of presenceSensors(room, hass, byArea)) ids.add(id); // Anwesenheit
       if (power) {

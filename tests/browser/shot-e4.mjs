@@ -8,7 +8,7 @@ const info = await pg.evaluate(async () => {
   const { houseStatus, statusChips } = await import("/custom_components/haus3d/frontend/status.js");
   const st = houseStatus(p._building, p._hass, p._byArea, p._links, p._places);
   const expected = statusChips(st).map((c) => c.text);
-  const shown = [...p.shadowRoot.querySelectorAll(".status .chip span")].map((s) => s.textContent);
+  const shown = [...p.shadowRoot.querySelectorAll(".status .chips .chip span")].map((s) => s.textContent);
   const badges = Object.fromEntries([...p.shadowRoot.querySelectorAll(".floorbar [data-floor]")].map((b) => [b.dataset.floor, b.querySelector(".badge")?.textContent ?? null]));
   return { expected, shown, badges, lights: st.lights.map((l) => l.entity_id) };
 });

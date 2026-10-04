@@ -1457,6 +1457,12 @@ export class HouseScene {
         const idle = this.style === "cyber" && !s.tempMode ? r.base : new THREE.Color(0x000000);
         r.mesh.material.emissive.copy(lit && !s.tempMode ? WARM : idle);
         r.mesh.material.emissiveIntensity = lit ? (this.style === "night" ? 0.9 : 0.45) : this.style === "cyber" ? 0.3 : 0;
+        // Hinweis im Raum: Boden rot (kritisch) bzw. orange (Warnung); Auswahl geht vor
+        const alert = s.alerts?.get(key);
+        if (alert) {
+          r.mesh.material.emissive.set(alert === "critical" ? 0xe53935 : 0xff8f00);
+          r.mesh.material.emissiveIntensity = alert === "critical" ? 0.55 : 0.4;
+        }
         r.glow.visible = lit && !s.tempMode && this.quality.glow !== false;
       }
       for (const [openingId, item] of entry.openings) {

@@ -226,6 +226,25 @@ header .floors, header .temp, header .fit { display: none; }
 .label .warn { color: var(--error-color, #db4437); font-weight: 500; }
 .label .occ { color: #00897b; font-size: 11px; }
 .label .heat { color: #e65100; font-size: 11px; font-weight: 600; }
+/* Hinweise: Banner oben mittig, Zeile am Raumnamen, Glocke */
+.alertbar { position: absolute; left: 50%; top: 12px; transform: translateX(-50%); z-index: 6; display: flex; align-items: center; gap: 8px; max-width: min(640px, calc(100% - 24px)); padding: 6px 6px 6px 12px; border-radius: 14px; color: #fff; box-shadow: 0 4px 16px rgba(0,0,0,.35); font-size: 14px; --mdc-icon-size: 22px; }
+.alertbar.critical { background: #c62828; }
+.alertbar.warn { background: #ef6c00; }
+.alertbar.info { background: #1565c0; }
+.alertbar .at { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 500; }
+.alertbar button { flex: none; min-height: 40px; padding: 0 12px; border-radius: 10px; border: none; background: rgba(255,255,255,.22); color: inherit; font: inherit; font-size: 13px; cursor: pointer; }
+.alertbar button.show { background: #fff; color: #333; }
+.label.alarm { outline: 2px solid #ff8f00; }
+.label.alarm.crit { outline-color: #e53935; animation: haus3d-pulse 1.6s ease-in-out infinite; }
+.label .alarmtext { color: #e65100; font-size: 11px; font-weight: 600; }
+.label.crit .alarmtext { color: #c62828; }
+@keyframes haus3d-pulse { 50% { outline-color: rgba(229,57,53,.25); } }
+@media (prefers-reduced-motion: reduce) { .label.alarm.crit { animation: none; } }
+.status .chip.bell { background: #ef6c00; color: #fff; }
+.status .chip.bell.crit { background: #c62828; }
+.alertpop .item { padding: 6px 8px 6px 12px; --mdc-icon-size: 20px; }
+.alertpop .item.critical ha-icon { color: #c62828; }
+.alertpop .item.warn ha-icon { color: #ef6c00; }
 .rp-clim { display: flex; flex-wrap: wrap; gap: 4px 8px; align-items: center; padding: 0 14px 8px; font-size: 12px; color: var(--secondary-text-color); }
 .rp-clim .vent { padding: 3px 8px; border-radius: 10px; font-weight: 500; }
 .rp-clim .vent.good { background: rgba(67,160,71,.18); color: #2e7d32; }

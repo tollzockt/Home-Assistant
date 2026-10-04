@@ -108,6 +108,8 @@ if (params.has("motion")) {
 if (params.has("power")) add(st("sensor.kueche_steckdose_leistung", "320", { device_class: "power", unit_of_measurement: "W", friendly_name: "Steckdose Küche" }), "kueche");
 if (params.has("humid")) add(st("sensor.waschraum_feuchte", params.get("humid") || "72", { device_class: "humidity", unit_of_measurement: "%" }), "waschraum");
 if (params.has("climate") && eg) eg.furniture = [...(eg.furniture ?? []), { id: "hk_bad", type: "radiator", x: 1.5, z: 7.9, rotation: 180, w: 1.0, d: 0.1, h: 0.6, entity: "climate.bad" }];
+// ?moisture: Wassermelder im Waschraum (ausgelöst)
+if (params.has("moisture")) add(st("binary_sensor.waschraum_wasser", "on", { device_class: "moisture", friendly_name: "Wassermelder Waschraum" }, 1), "waschraum");
 // ?lock: Haustürschloss (abgeschlossen) im Flur, ?siren: Sirene im Flur
 if (params.has("lock")) add(st("lock.haustuer", params.get("lock") || "locked", { friendly_name: "Haustür" }), "flur");
 if (params.has("siren")) add(st("siren.alarm", "off", { friendly_name: "Sirene" }), "flur");
