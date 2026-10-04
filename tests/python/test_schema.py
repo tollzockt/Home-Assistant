@@ -57,3 +57,9 @@ def test_seed_is_neutral_and_valid() -> None:
 def test_manifest_version_matches() -> None:
     manifest = json.loads((PKG / "manifest.json").read_text(encoding="utf-8"))
     assert manifest["version"] == VERSION
+
+
+def test_frontend_files_stay_small() -> None:
+    # über 128 KiB hängt die Auslieferung im Test-Webserver; große Teile in eigene Module auslagern
+    big = {f.name: f.stat().st_size for f in (PKG / "frontend").glob("*.js") if f.stat().st_size > 125_000}
+    assert big == {}

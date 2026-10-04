@@ -371,3 +371,79 @@ export function watchedEntities(building, hass, byArea, { links = null, extra = 
   for (const id of extra) put(id);
   return [...ids].sort();
 }
+
+// ------------------------------------------------------------------ Raumfenster: Gruppen und Aktionen
+
+const GROUPS = [
+  ["light", "Licht"],
+  ["switch", "Schalter"],
+  ["cover", "Beschattung"],
+  ["opening", "Fenster & Türen"],
+  ["climate", "Klima"],
+  ["media", "Medien"],
+  ["scene", "Szenen & Abläufe"],
+  ["sensor", "Sensoren"],
+  ["other", "Weitere"],
+];
+
+function groupOf(id, st) {
+  const d = domainOf(id);
+  const cls = st?.attributes?.device_class;
+  if (d === "light") return "light";
+  if (d === "switch" || d === "input_boolean" || d === "fan" || d === "humidifier") return "switch";
+  if (d === "cover") return cls === "garage" || cls === "gate" ? "opening" : "cover";
+  if (d === "lock" || (d === "binary_sensor" && CONTACT_CLASSES.includes(cls))) return "opening";
+  if (d === "climate" || d === "water_heater" || (d === "sensor" && (cls === "temperature" || cls === "humidity"))) return "climate";
+  if (d === "media_player") return "media";
+  if (d === "scene" || d === "script" || d === "automation" || d === "button" || d === "input_button") return "scene";
+  if (d === "sensor" || d === "binary_sensor") return "sensor";
+  return "other";
+}
+
+/** Geräte eines Raums in feste Gruppen mit Überschrift sortieren (nur nicht leere). */
+export function groupRoomEntities(ids, hass) {
+  const by = new Map(GROUPS.map(([k]) => [k, []]));
+  for (const id of ids) by.get(groupOf(id, hass.states[id])).push(id);
+  return GROUPS.filter(([k]) => by.get(k).length).map(([key, title]) => ({ key, title, ids: by.get(key) }));
+}
+
+/**
+ * Schnellaktionen eines Raums (aus den angezeigten Geräten): Lichter an/aus, Rollläden (ohne Garagen-
+ * und Hoftore), erstes Thermostat mit Schrittweite und Grenzen, Szenen.
+ */
+export function roomActions(ids, hass) {
+  const st = (id) => hass.states[id];
+  // Lichtgruppen (attributes.entity_id) nicht doppelt zählen
+  const lights = ids.filter((id) => domainOf(id) === "light" && !Array.isArray(st(id)?.attributes?.entity_id) && st(id)?.state !== "unavailable");
+  const covers = ids.filter((id) => domainOf(id) === "cover" && !["garage", "gate"].includes(st(id)?.attributes?.device_class));
+  const cid = ids.find((id) => domainOf(id) === "climate" && st(id) && st(id).state !== "unavailable");
+  let climate = null;
+  if (cid) {
+    const a = st(cid).attributes ?? {};
+    const num = (v) => (v === undefined || v === null || v === "" || Number.isNaN(Number(v)) ? null : Number(v));
+    climate = {
+      entity: cid,
+      target: num(a.temperature),
+      current: num(a.current_temperature),
+      step: num(a.target_temp_step) ?? 0.5,
+      min: num(a.min_temp) ?? 5,
+      max: num(a.max_temp) ?? 30,
+      action: a.hvac_action ?? null,
+      mode: st(cid).state,
+    };
+  }
+  return {
+    lights: { all: lights, on: lights.filter((id) => st(id)?.state === "on") },
+    covers,
+    climate,
+    scenes: ids.filter((id) => domainOf(id) === "scene"),
+  };
+}
+
+/** Solltemperatur um n Schritte ändern, auf Schrittweite runden und begrenzen. */
+export function stepTarget(climate, current, n) {
+  const base = current ?? climate.target ?? climate.current ?? 20;
+  const step = climate.step || 0.5;
+  const v = Math.round((base + n * step) / step) * step;
+  return Math.min(climate.max, Math.max(climate.min, Math.round(v * 100) / 100));
+}

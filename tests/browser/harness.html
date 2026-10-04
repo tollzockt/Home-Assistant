@@ -71,7 +71,7 @@ add(st("light.kueche", "off"), "kueche");
 add(st("switch.kaffeemaschine", "on"), "kueche");
 add(st("sensor.kueche_temperatur", "23.9", { device_class: "temperature" }), "kueche");
 add(st("sensor.kueche_temperatur_2", "24.3", { device_class: "temperature" }), "kueche");
-add(st("climate.bad", "heat"), "badezimmer");
+add(st("climate.bad", "heat", params.has("climate") ? { temperature: 22, current_temperature: 21.2, target_temp_step: 0.5, min_temp: 7, max_temp: 28, hvac_action: "heating", friendly_name: "Heizung Bad" } : {}), "badezimmer");
 add(st("sensor.bad_temperatur", "24.8", { device_class: "temperature" }), "badezimmer");
 add(st("sensor.schlafzimmer_temperatur", "18.6", { device_class: "temperature" }), "schlafzimmer");
 add(st("fan.schlafzimmer", "off"), "schlafzimmer");

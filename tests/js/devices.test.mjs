@@ -229,3 +229,28 @@ test("Watch-Liste: Energie-Zusatzzeilen, Karten, Kurzwahl, eigene Funktionen, Li
   const ids = watchedEntities(building, { states: {} }, new Map(), { links, extra: ["light.h"] });
   assert.deepEqual(ids, ["binary_sensor.g", "light.h", "script.e", "sensor.a", "sensor.b", "sensor.c", "sensor.d", "sensor.pv", "switch.f"]);
 });
+
+test("Raumfenster: Gruppen und Schnellaktionen", async () => {
+  const { groupRoomEntities, roomActions, stepTarget } = await import("../../custom_components/haus3d/frontend/devices.js");
+  const s = (entity_id, state, attributes = {}) => [entity_id, { entity_id, state, attributes }];
+  const hass = { states: Object.fromEntries([
+    s("light.a", "on"), s("light.b", "off"), s("light.gruppe", "on", { entity_id: ["light.a", "light.b"] }),
+    s("cover.rollo", "open", { device_class: "shutter" }), s("cover.garage", "open", { device_class: "garage" }),
+    s("binary_sensor.fenster", "off", { device_class: "window" }), s("sensor.temp", "21", { device_class: "temperature" }),
+    s("climate.hk", "heat", { temperature: 21, current_temperature: 20.5, target_temp_step: 0.5, min_temp: 7, max_temp: 22, hvac_action: "heating" }),
+    s("scene.kino", "scening"), s("sensor.strom", "5", { device_class: "power" }),
+  ]) };
+  const ids = Object.keys(hass.states);
+  const groups = groupRoomEntities(ids, hass);
+  assert.deepEqual(groups.map((g) => g.key), ["light", "cover", "opening", "climate", "scene", "sensor"]);
+  assert.deepEqual(groups.find((g) => g.key === "opening").ids, ["cover.garage", "binary_sensor.fenster"]);
+  const a = roomActions(ids, hass);
+  assert.deepEqual(a.lights, { all: ["light.a", "light.b"], on: ["light.a"] });
+  assert.deepEqual(a.covers, ["cover.rollo"]);
+  assert.equal(a.climate.entity, "climate.hk");
+  assert.equal(a.climate.action, "heating");
+  assert.deepEqual(a.scenes, ["scene.kino"]);
+  assert.equal(stepTarget(a.climate, null, 1), 21.5);
+  assert.equal(stepTarget(a.climate, 21.8, 2), 22); // Grenze
+  assert.equal(stepTarget(a.climate, 8, -4), 7);
+});

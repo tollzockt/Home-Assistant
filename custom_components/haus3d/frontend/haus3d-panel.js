@@ -15,6 +15,9 @@ import {
   placesOf,
   roomClimate,
   roomLit,
+  groupRoomEntities,
+  roomActions,
+  stepTarget,
   temperatureColor,
   watchedEntities,
 } from "./devices.js";
@@ -26,6 +29,7 @@ import { entityAction } from "./actions.js";
 import { HouseScene } from "./scene.js";
 import { closeGaps } from "./walls.js";
 import { EDITOR_STYLE, FloorEditor } from "./editor.js";
+import { PANEL_STYLE } from "./panel-style.js";
 
 const LONG_PRESS_MS = 550;
 const esc = (v) => String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
@@ -124,6 +128,14 @@ const DOMAIN_ICONS = {
 };
 const SENSOR_ICONS = { temperature: "mdi:thermometer", humidity: "mdi:water-percent", power: "mdi:flash", energy: "mdi:lightning-bolt", battery: "mdi:battery", illuminance: "mdi:brightness-5", motion: "mdi:motion-sensor", occupancy: "mdi:account-eye", carbon_dioxide: "mdi:molecule-co2" };
 
+/** Text setzen und bei leerem Text verstecken (nur wenn sich etwas ändert). */
+function setText(el, text) {
+  if (!el) return;
+  if (el.textContent !== text) el.textContent = text;
+  const hide = !text;
+  if (el.hidden !== hide) el.hidden = hide;
+}
+
 function iconFor(kind, stateObj) {
   if (stateObj.attributes?.icon) return stateObj.attributes.icon;
   if (kind === "other") {
@@ -143,283 +155,6 @@ function isActive(kind, stateObj) {
   return stateObj.state === "on";
 }
 
-const STYLE = `
-:host {
-  display: block;
-  /* HA gibt dem Panel-Container keine Höhe vor: volle Fensterhöhe (dvh: mobile Adressleiste) */
-  height: 100vh;
-  height: 100dvh;
-  background: var(--primary-background-color);
-  color: var(--primary-text-color);
-  font-family: var(--paper-font-body1_-_font-family, Roboto, sans-serif);
-  -webkit-tap-highlight-color: transparent;
-}
-[hidden] { display: none !important; }
-.hide-labels .label, .hide-devices .devs, .hide-devices .dev.free, .hide-climate .label .clim { display: none !important; }
-.confirm-backdrop { position: absolute; inset: 0; z-index: 12; background: rgba(0,0,0,.45); display: flex; align-items: center; justify-content: center; padding: 16px; }
-.confirm { background: var(--card-background-color, #fff); color: var(--primary-text-color); border-radius: 16px; padding: 18px; width: min(380px, 100%); box-shadow: 0 10px 30px rgba(0,0,0,.45); }
-.confirm .ct { font-size: 17px; font-weight: 600; line-height: 1.35; }
-.confirm .cs { margin-top: 4px; font-size: 13px; color: var(--secondary-text-color); }
-.confirm .cb { display: flex; gap: 10px; margin-top: 18px; }
-.confirm .cb button { flex: 1; min-height: 56px; border-radius: 12px; border: none; font: inherit; font-size: 16px; cursor: pointer; background: var(--secondary-background-color, #eee); color: inherit; }
-.confirm .cb .yes { background: var(--primary-color, #03a9f4); color: #fff; }
-.confirm .cb .yes.danger { background: #d32f2f; }
-.dialog-backdrop { position: absolute; inset: 0; background: rgba(0,0,0,.35); z-index: 10; display: flex; align-items: flex-start; justify-content: flex-end; padding: 8px; }
-.dialog { background: var(--card-background-color, #fff); color: var(--primary-text-color); border-radius: 14px; width: min(440px, 100%); max-height: calc(100% - 16px); overflow: auto; box-shadow: 0 8px 28px rgba(0,0,0,.4); }
-.dialog-head { display: flex; align-items: center; justify-content: space-between; padding: 6px 6px 6px 16px; font-size: 17px; font-weight: 500; border-bottom: 1px solid var(--divider-color, rgba(127,127,127,.2)); }
-.dialog-body { padding: 4px 16px 16px; }
-.dialog h4 { margin: 14px 0 6px; font-size: 13px; font-weight: 500; color: var(--secondary-text-color); text-transform: uppercase; letter-spacing: .04em; }
-.seg { display: flex; background: rgba(127,127,127,.15); border-radius: 10px; padding: 3px; gap: 3px; }
-.seg button { flex: 1; border: none; background: none; color: inherit; font: inherit; padding: 8px; border-radius: 8px; cursor: pointer; min-height: 38px; }
-.seg button.sel { background: var(--primary-color, #03a9f4); color: #fff; }
-.toggles { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 12px; }
-.toggles label { display: flex; align-items: center; gap: 8px; min-height: 36px; cursor: pointer; font-size: 14px; }
-.toggles input { width: 18px; height: 18px; accent-color: var(--primary-color, #03a9f4); }
-.en-row { display: flex; align-items: center; gap: 6px; margin: 4px 0; font-size: 13px; }
-.en-row span { width: 90px; flex: none; color: var(--secondary-text-color); }
-.en-row input { flex: 1; min-width: 0; font: inherit; font-size: 13px; padding: 7px; border-radius: 8px; border: 1px solid var(--divider-color, rgba(127,127,127,.4)); background: var(--primary-background-color, #fff); color: inherit; }
-.en-row input[data-extra-name] { flex: 0 0 90px; }
-.dialog .btns { display: flex; gap: 8px; margin-top: 10px; }
-.dialog .btns button { flex: 1; font: inherit; padding: 9px; border-radius: 8px; border: 1px solid var(--divider-color, rgba(127,127,127,.4)); background: none; color: inherit; cursor: pointer; }
-.dialog .btns .primary { background: var(--primary-color, #03a9f4); color: #fff; border-color: transparent; }
-.hint { font-size: 12px; color: var(--secondary-text-color); margin: 14px 0 0; }
-.roompanel { position: absolute; left: 12px; top: 12px; width: min(320px, calc(100% - 24px)); max-height: 60%; overflow: auto; z-index: 4; touch-action: none;
-  background: var(--card-background-color, #fff); color: var(--primary-text-color); border-radius: 14px; box-shadow: 0 4px 18px rgba(0,0,0,.35); }
-.rp-head { display: flex; align-items: center; gap: 4px; padding: 4px 4px 0 8px; font-size: 16px; cursor: grab; user-select: none; }
-.rp-head b { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.rp-head .grip { color: var(--secondary-text-color); --mdc-icon-size: 18px; }
-.rp-check { display: flex; align-items: center; gap: 10px; padding: 6px 14px; min-height: 40px; font-size: 14px; }
-.rp-check span { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
-.rp-check small { color: var(--secondary-text-color); font-size: 11px; overflow: hidden; text-overflow: ellipsis; }
-.rp-check input { width: 20px; height: 20px; accent-color: var(--primary-color, #03a9f4); }
-.rp-add { display: flex; gap: 6px; padding: 6px 14px; }
-.rp-add input { flex: 1; min-width: 0; font: inherit; padding: 8px; border-radius: 8px; border: 1px solid var(--divider-color, rgba(127,127,127,.4)); background: var(--primary-background-color, #fff); color: inherit; }
-.rp-add button, .rp-btns button { font: inherit; padding: 8px 14px; border-radius: 8px; border: 1px solid var(--divider-color, rgba(127,127,127,.4)); background: none; color: inherit; cursor: pointer; min-height: 40px; }
-.rp-btns { display: flex; justify-content: flex-end; gap: 8px; padding: 8px 14px 14px; }
-.rp-btns .primary { background: var(--primary-color, #03a9f4); color: #fff; border-color: transparent; }
-/* Tablet und Touch: größere Ziele */
-@media (pointer: coarse) {
-  button.icon { width: 48px; height: 48px; }
-  .floors button { min-height: 40px; padding: 8px 16px; font-size: 15px; }
-  .dev { width: 42px; height: 42px; --mdc-icon-size: 22px; }
-  .rp-row { min-height: 52px; }
-  .rp-icon { width: 38px; height: 38px; }
-  .toggles label { min-height: 44px; }
-  .seg button { min-height: 44px; }
-  .energy { font-size: 14px; }
-  .energy .row { padding: 5px 0; }
-}
-.rp-sub { padding: 0 14px 6px; font-size: 12px; color: var(--secondary-text-color); }
-.rp-row { display: flex; align-items: center; gap: 10px; padding: 6px 14px; min-height: 44px; cursor: pointer; user-select: none; --mdc-icon-size: 20px; }
-.rp-row:hover { background: rgba(127,127,127,.1); }
-.rp-icon { width: 32px; height: 32px; border-radius: 50%; display: flex; align-items: center; justify-content: center; background: rgba(127,127,127,.15); flex: none; }
-.rp-icon.active { background: #ffc107; color: #3b2a00; }
-.rp-icon.alert { background: var(--error-color, #db4437); color: #fff; }
-.rp-name { flex: 1; font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.rp-state { font-size: 13px; color: var(--secondary-text-color); white-space: nowrap; }
-.rp-empty { padding: 8px 14px 14px; color: var(--secondary-text-color); font-size: 13px; }
-.wrap { display: flex; flex-direction: column; height: 100%; }
-header {
-  display: flex; align-items: center; gap: 8px;
-  min-height: 56px; padding: 0 8px 0 4px;
-  padding-top: env(safe-area-inset-top);
-  background: var(--app-header-background-color, var(--primary-color));
-  color: var(--app-header-text-color, #fff);
-  border-bottom: var(--app-header-border-bottom, none);
-  box-sizing: border-box; flex-wrap: wrap;
-}
-header .title { font-size: 20px; font-weight: 400; margin-right: auto; padding-left: 8px; white-space: nowrap; }
-button.icon {
-  background: none; border: none; color: inherit; cursor: pointer;
-  width: 44px; height: 44px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center;
-}
-button.icon:hover, button.icon:focus-visible { background: rgba(127,127,127,.2); outline: none; }
-button.icon.on { background: rgba(255,255,255,.25); }
-button.icon.menu { display: none; }
-:host([narrow]) button.icon.menu { display: inline-flex; }
-.floors { display: inline-flex; background: rgba(0,0,0,.18); border-radius: 18px; padding: 3px; gap: 2px; overflow-x: auto; max-width: 100%; }
-.floors button {
-  border: none; background: none; color: inherit; font: inherit; font-size: 14px; cursor: pointer;
-  padding: 6px 14px; border-radius: 15px; min-height: 32px; white-space: nowrap;
-}
-.floors button.sel { background: var(--card-background-color, #fff); color: var(--primary-text-color); }
-.stage { position: relative; flex: 1; min-height: 0; overflow: hidden; }
-header .floors, header .temp, header .fit { display: none; }
-/* Kartenleiste oben rechts: Energie + bis zu 5 eigene Karten, jede einzeln aufklappbar */
-.cards { position: absolute; top: 10px; right: 10px; left: 60px; display: flex; flex-direction: row-reverse; flex-wrap: wrap; align-items: flex-start; gap: 8px; pointer-events: none; z-index: 4; }
-.cards > * { pointer-events: auto; }
-.cards .energy, .cards .card { position: static; }
-.card { background: var(--card-background-color, #fff); color: var(--primary-text-color); border-radius: var(--ha-card-border-radius, 12px); padding: 10px 12px; font-size: 13px; min-width: 170px; max-width: 260px; box-shadow: var(--ha-card-box-shadow, 0 2px 6px rgba(0,0,0,.25)); --mdc-icon-size: 18px; }
-.card h3 { margin: 0 0 6px; font-size: 14px; font-weight: 500; display: flex; align-items: center; gap: 6px; cursor: pointer; user-select: none; min-height: 32px; }
-.card h3 span { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.card h3 .cedit { opacity: .55; }
-.card h3 .cedit:hover { opacity: 1; }
-.card .chev, .energy .chev { transition: transform .2s; }
-.card.collapsed h3 { margin: 0; }
-.card.collapsed .chev { transform: rotate(-90deg); }
-.card.collapsed .row { display: none; }
-.card .row { display: flex; align-items: center; gap: 8px; padding: 2px 0; cursor: pointer; }
-.card .row span { margin-right: auto; color: var(--secondary-text-color); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.card .row b { font-weight: 500; white-space: nowrap; }
-.card .short, .energy .short { display: none; font-weight: 500; margin-left: 4px; }
-.card.collapsed .short, .energy.collapsed .short { display: inline; }
-.cards .addcard { width: 44px; height: 44px; border-radius: 12px; border: 2px dashed var(--primary-color, #03a9f4); background: color-mix(in srgb, var(--card-background-color, #fff) 70%, transparent); color: var(--primary-color, #03a9f4); font-size: 24px; cursor: pointer; display: flex; align-items: center; justify-content: center; }
-/* Etagen-Leiste rechts */
-.floorbar { position: absolute; right: 10px; top: 50%; transform: translateY(-50%); z-index: 4; display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 6px 5px; border-radius: 24px; background: color-mix(in srgb, var(--card-background-color, #fff) 92%, transparent); color: var(--primary-text-color); box-shadow: 0 2px 10px rgba(0,0,0,.25); }
-.floorbar button { border: none; background: none; color: inherit; font: inherit; font-size: 12px; font-weight: 600; min-width: 46px; min-height: 36px; border-radius: 14px; cursor: pointer; padding: 0 6px; }
-.floorbar button.sel { background: var(--primary-color, #03a9f4); color: #fff; }
-.floorbar button.arrow { min-height: 28px; opacity: .65; --mdc-icon-size: 20px; }
-.floorbar button:disabled { opacity: .25; cursor: default; }
-/* Rad-Menüs unten links (Kurzwahl) und unten rechts (Funktionen) */
-.wheel { position: absolute; bottom: 14px; width: 0; height: 0; z-index: 5; }
-.wheel.left { left: 14px; } .wheel.right { right: 14px; }
-.wheel .fab { position: absolute; bottom: 0; width: 56px; height: 56px; border-radius: 50%; border: none; background: #fff; color: #222; box-shadow: 0 4px 16px rgba(0,0,0,.35); cursor: pointer; display: flex; align-items: center; justify-content: center; --mdc-icon-size: 26px; }
-.wheel.left .fab { left: 0; } .wheel.right .fab { right: 0; }
-.wheel .bub { position: absolute; width: 48px; height: 48px; margin: 4px; border-radius: 50%; border: none; cursor: pointer; display: flex; align-items: center; justify-content: center; background: var(--card-background-color, #fff); color: var(--primary-text-color); box-shadow: 0 3px 10px rgba(0,0,0,.3); --mdc-icon-size: 22px; transition: left .25s, right .25s, bottom .25s, opacity .25s, transform .25s; opacity: 0; transform: scale(.4); pointer-events: none; }
-.wheel.open .bub.vis { opacity: 1; transform: scale(1); pointer-events: auto; }
-.wheel .bub.on { background: var(--primary-color, #03a9f4); color: #fff; }
-.wheel .bub .lab { position: absolute; white-space: nowrap; font-size: 11px; padding: 2px 7px; border-radius: 8px; background: rgba(0,0,0,.72); color: #fff; pointer-events: none; z-index: 1; }
-.wheel .bub .lab.top { bottom: 52px; }
-.wheel.left .bub .lab.top { left: 0; } .wheel.right .bub .lab.top { right: 0; }
-.wheel .bub .lab.diag { bottom: 44px; }
-.wheel.left .bub .lab.diag { left: 36px; } .wheel.right .bub .lab.diag { right: 36px; }
-.wheel .bub .lab.side { top: 14px; }
-.wheel.left .bub .lab.side { left: 54px; } .wheel.right .bub .lab.side { right: 54px; }
-.wheel .bub.plus { border: 2px dashed var(--primary-color, #03a9f4); background: var(--card-background-color, #fff); color: var(--primary-color, #03a9f4); }
-.wheel .spin { position: absolute; bottom: 64px; width: 26px; height: 26px; padding: 0; border-radius: 50%; border: none; cursor: pointer; display: flex; align-items: center; justify-content: center; background: rgba(0,0,0,.55); color: #fff; --mdc-icon-size: 18px; opacity: 0; pointer-events: none; transition: opacity .2s; }
-.wheel.open .spin { opacity: .9; pointer-events: auto; }
-.wheel.left .spin.up { left: 70px; bottom: 70px; } .wheel.left .spin.down { left: 100px; bottom: 40px; }
-.wheel.right .spin.up { right: 70px; bottom: 70px; } .wheel.right .spin.down { right: 100px; bottom: 40px; }
-.qedit .qrow .fixed { flex: 1; font-size: 13px; }
-.qedit select.addkey { flex: 1; font: inherit; font-size: 13px; padding: 7px; border-radius: 8px; border: 1px solid var(--divider-color, rgba(127,127,127,.4)); background: var(--primary-background-color, #fff); color: inherit; }
-.legend { left: 50% !important; transform: translateX(-50%); bottom: 80px !important; }
-.qedit .qrow { display: flex; gap: 6px; align-items: center; margin: 4px 0; }
-.qedit .qrow input { flex: 1; min-width: 0; font: inherit; font-size: 13px; padding: 7px; border-radius: 8px; border: 1px solid var(--divider-color, rgba(127,127,127,.4)); background: var(--primary-background-color, #fff); color: inherit; }
-.qedit .qrow input.nm { flex: 0 0 110px; }
-.qedit .qrow .qc { display: inline-flex; align-items: center; gap: 3px; font-size: 11px; color: var(--secondary-text-color); white-space: nowrap; }
-.qedit .qrow .qc input { flex: none; width: auto; }
-.pvarr { display: grid; grid-template-columns: 62px 1fr 1fr 66px 1fr 1fr 30px; gap: 4px; align-items: center; font-size: 12px; margin: 3px 0; }
-.pvarr input, .pvarr select { font: inherit; font-size: 12px; padding: 5px 3px; border-radius: 6px; border: 1px solid var(--divider-color, rgba(127,127,127,.4)); background: var(--primary-background-color, #fff); color: var(--primary-text-color); min-width: 0; }
-.pvarr.head { color: var(--secondary-text-color); }
-.house-cfg .swatches { display: flex; flex-wrap: wrap; gap: 4px; margin: 2px 0 6px 96px; }
-.house-cfg .swatches button { width: 22px; height: 22px; border-radius: 6px; border: 1px solid rgba(127,127,127,.5); padding: 0; cursor: pointer; }
-.house-cfg .rc-reset { font: inherit; font-size: 12px; padding: 5px 8px; border-radius: 8px; border: 1px solid var(--divider-color, rgba(127,127,127,.4)); background: none; color: inherit; cursor: pointer; }
-.house-cfg input[type=color] { width: 44px; height: 30px; padding: 2px; flex: none; }
-.pvrow { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
-.pvrow label { display: flex; flex-direction: column; font-size: 12px; color: var(--secondary-text-color); }
-.pvrow input { font: inherit; padding: 6px; border-radius: 8px; border: 1px solid var(--divider-color, rgba(127,127,127,.4)); background: var(--primary-background-color, #fff); color: var(--primary-text-color); }
-.simbar { position: absolute; left: 50%; bottom: 14px; transform: translateX(-50%); z-index: 6; display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; max-width: calc(100% - 24px); padding: 6px 10px; border-radius: 12px; background: repeating-linear-gradient(135deg, #ff9800 0 12px, #fb8c00 12px 24px); color: #1b1b1b; font-size: 13px; box-shadow: 0 2px 10px rgba(0,0,0,.35); }
-.simbar b { letter-spacing: .08em; }
-.simbar select, .simbar input[type=range] { font: inherit; font-size: 12px; border-radius: 6px; border: none; padding: 3px; max-width: 130px; }
-.simbar label { display: inline-flex; align-items: center; gap: 4px; }
-.simbar button { font: inherit; font-size: 12px; padding: 4px 9px; border-radius: 7px; border: none; background: rgba(0,0,0,.75); color: #fff; cursor: pointer; }
-.simdlg .row { display: flex; gap: 8px; align-items: center; margin: 8px 0; }
-.simdlg input[type=number], .simdlg input[type=text] { flex: 1; min-width: 0; font: inherit; padding: 7px; border-radius: 8px; border: 1px solid var(--divider-color, rgba(127,127,127,.4)); background: var(--primary-background-color, #fff); color: inherit; }
-.simdlg input[type=range] { flex: 1; }
-.canvas { position: absolute; inset: 0; }
-.overlay { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
-.room {
-  position: absolute; left: 0; top: 0; display: flex; flex-direction: column; align-items: center; gap: 4px;
-  transition: opacity .2s;
-}
-.devs { display: flex; flex-wrap: wrap; justify-content: center; gap: 4px; max-width: 168px; }
-.label {
-  background: color-mix(in srgb, var(--card-background-color, #fff) 82%, transparent);
-  color: var(--primary-text-color); border-radius: 8px; padding: 3px 8px;
-  font-size: 12px; line-height: 1.3; text-align: center; white-space: nowrap;
-  box-shadow: 0 1px 3px rgba(0,0,0,.25); transition: opacity .2s;
-}
-.label b { font-weight: 500; font-size: 13px; }
-.label .clim { color: var(--secondary-text-color); }
-.label .warn { color: var(--error-color, #db4437); font-weight: 500; }
-.dev {
-  position: relative; width: 36px; height: 36px; flex: none;
-  border-radius: 50%; display: flex; align-items: center; justify-content: center;
-  background: var(--card-background-color, #fff); color: var(--secondary-text-color);
-  box-shadow: 0 1px 4px rgba(0,0,0,.35); pointer-events: auto; cursor: pointer;
-  touch-action: none; user-select: none; -webkit-user-select: none; transition: opacity .2s;
-  --mdc-icon-size: 20px;
-}
-.dev.free { position: absolute; left: 0; top: 0; }
-.dev.active { background: #ffc107; color: #3b2a00; }
-.dev.alert { background: var(--error-color, #db4437); color: #fff; }
-.dev.unavailable { opacity: .45; }
-.hidden-behind { opacity: .15 !important; }
-.hidden-behind, .hidden-behind .dev { pointer-events: none !important; }
-.energy {
-  position: absolute; right: 12px; top: 12px; min-width: 180px;
-  background: var(--card-background-color, #fff); color: var(--primary-text-color);
-  border-radius: var(--ha-card-border-radius, 12px); padding: 10px 12px; font-size: 13px;
-  box-shadow: var(--ha-card-box-shadow, 0 2px 6px rgba(0,0,0,.25));
-  --mdc-icon-size: 18px;
-}
-.energy h3 { margin: 0 0 6px; font-size: 14px; font-weight: 500; display: flex; align-items: center; gap: 6px; cursor: pointer; user-select: none; min-height: 32px; }
-.energy h3 span { flex: 1; }
-.energy .chev { transition: transform .2s; }
-.energy.collapsed h3 { margin: 0; }
-.energy.collapsed .chev { transform: rotate(-90deg); }
-.energy .row { display: flex; align-items: center; gap: 8px; padding: 2px 0; }
-.energy .row span:nth-child(2) { margin-right: auto; color: var(--secondary-text-color); }
-.energy .row b { font-weight: 500; }
-.energy.collapsed .row { display: none; }
-.legend {
-  position: absolute; left: 12px; bottom: 12px; padding: 8px 10px; border-radius: 10px; font-size: 12px;
-  background: var(--card-background-color, #fff); box-shadow: 0 1px 4px rgba(0,0,0,.25);
-}
-.legend .bar { width: 160px; height: 10px; border-radius: 5px; margin: 4px 0 2px; }
-.legend .ticks { display: flex; justify-content: space-between; color: var(--secondary-text-color); }
-.toast {
-  position: absolute; left: 50%; bottom: 16px; transform: translateX(-50%);
-  background: #323232; color: #fff; padding: 10px 16px; border-radius: 6px; font-size: 14px;
-  max-width: calc(100% - 32px); box-shadow: 0 2px 8px rgba(0,0,0,.4); z-index: 7;
-}
-/* in der Simulation liegt die Simbar unten: Meldungen darüber */
-.stage.has-simbar .toast { bottom: 72px; }
-.msg { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; padding: 24px; text-align: center; color: var(--secondary-text-color); }
-.popup {
-  position: absolute; right: 8px; top: 8px; z-index: 6; min-width: 220px;
-  background: var(--card-background-color, #fff); color: var(--primary-text-color);
-  border-radius: 10px; box-shadow: 0 4px 16px rgba(0,0,0,.35); padding: 6px 0; font-size: 14px;
-}
-.popup button {
-  display: flex; align-items: center; gap: 12px; width: 100%; border: none; background: none; color: inherit;
-  font: inherit; text-align: left; padding: 10px 16px; cursor: pointer; min-height: 44px;
-}
-.popup button:hover { background: rgba(127,127,127,.15); }
-.popup .head { padding: 8px 16px; font-weight: 500; }
-.popup .item { display: flex; align-items: center; gap: 8px; padding: 4px 8px 4px 16px; }
-.popup .item span { margin-right: auto; font-size: 13px; }
-.popup .item button { width: auto; padding: 6px 10px; min-height: 36px; color: var(--primary-color); }
-.popup .scroll { max-height: 50vh; overflow-y: auto; }
-:host([night]) .label { background: rgba(14,20,44,.85); color: #e3e8ff; }
-:host([night]) .label .clim { color: #aab4e8; }
-:host([cyber]) { background: #07030f; }
-:host([cyber]) header { background: linear-gradient(90deg, #12052a, #07030f 60%, #1a0630); color: #e0f7ff; border-bottom: 1px solid #ff2bd6; box-shadow: 0 0 12px rgba(255,43,214,.35); }
-:host([cyber]) header .title { font-family: "Orbitron", "Rajdhani", var(--paper-font-body1_-_font-family, sans-serif); letter-spacing: .12em; text-transform: uppercase; text-shadow: 0 0 8px #00e5ff; }
-:host([cyber]) .floors { background: rgba(0,229,255,.08); border: 1px solid rgba(0,229,255,.35); }
-:host([cyber]) .floors button.sel { background: #00e5ff; color: #07030f; box-shadow: 0 0 10px #00e5ff; }
-:host([cyber]) button.icon.on { background: rgba(255,43,214,.3); box-shadow: 0 0 10px #ff2bd6; }
-:host([cyber]) .label { background: rgba(10,4,25,.85); color: #e0f7ff; border: 1px solid #00e5ff; box-shadow: 0 0 8px rgba(0,229,255,.55); text-shadow: 0 0 6px rgba(0,229,255,.8); }
-:host([cyber]) .label .clim { color: #ff8af0; }
-:host([cyber]) .dev { background: #12082a; color: #ff8af0; border: 1px solid #ff2bd6; box-shadow: 0 0 8px rgba(255,43,214,.6); }
-:host([cyber]) .dev.active { background: #ffd000; color: #1a0630; border-color: #fff176; box-shadow: 0 0 14px #ffd000; }
-:host([cyber]) .dev.alert { background: #ff1744; color: #fff; box-shadow: 0 0 14px #ff1744; }
-:host([cyber]) .dialog, :host([cyber]) .roompanel { background: rgba(10,4,25,.95); color: #e0f7ff; border: 1px solid #00e5ff; box-shadow: 0 0 18px rgba(0,229,255,.4); }
-:host([cyber]) .seg button.sel { background: #ff2bd6; box-shadow: 0 0 10px #ff2bd6; }
-:host([cyber]) .rp-icon.active { background: #ffd000; box-shadow: 0 0 10px #ffd000; }
-:host([cyber]) .energy, :host([cyber]) .legend, :host([cyber]) .popup { background: rgba(10,4,25,.92); color: #e0f7ff; border: 1px solid #ff2bd6; box-shadow: 0 0 14px rgba(255,43,214,.45); }
-:host([cyber]) .energy .row span:nth-child(2) { color: #8f7dff; }
-:host([cyber]) .energy .row b { color: #00e5ff; text-shadow: 0 0 6px #00e5ff; }
-@media (max-width: 600px) {
-  header .title { display: none; }
-  .label { font-size: 11px; padding: 2px 6px; }
-  .label b { font-size: 12px; }
-  .dev { width: 32px; height: 32px; --mdc-icon-size: 18px; }
-  .devs { max-width: 140px; gap: 3px; }
-  .energy { right: 8px; top: 8px; min-width: 0; padding: 8px 10px; }
-  .floors { order: 0; }
-}
-`;
 
 class Haus3DPanel extends HTMLElement {
   constructor() {
@@ -440,6 +175,7 @@ class Haus3DPanel extends HTMLElement {
     this._overlays = new Map(); // key -> {el, position: Vector3, floorId}
     this._watched = [];
     this._watchedRefs = [];
+    this._extraWatched = () => this._panelIds();
   }
 
   set hass(real) {
@@ -460,7 +196,29 @@ class Haus3DPanel extends HTMLElement {
     this._applyWeather();
     const changed = this._watchedChanged();
     if (changed === "membership") this._refreshEntities();
-    else if (changed) this._updateStates();
+    else if (changed) this._queueUpdate();
+  }
+
+  /**
+   * Zustände gebündelt aktualisieren: höchstens einmal pro Bild (viele Sensoren melden kurz
+   * nacheinander), im Hintergrund (Tab verborgen) erst beim Zurückkommen.
+   */
+  _queueUpdate() {
+    if (this._updPending) return;
+    this._updPending = true;
+    const run = () => {
+      if (!this._updPending) return;
+      cancelAnimationFrame(this._updRaf);
+      clearTimeout(this._updTimer);
+      this._updPending = false;
+      if (document.hidden) {
+        this._staleHidden = true;
+        return;
+      }
+      this._updateStates();
+    };
+    this._updRaf = requestAnimationFrame(run);
+    this._updTimer = setTimeout(run, 200); // falls kein Bild kommt
   }
 
   /** Regen/Schnee aus der Wetter-Entität (settings.weather, sonst die erste weather.*). */
@@ -611,12 +369,22 @@ class Haus3DPanel extends HTMLElement {
 
   connectedCallback() {
     if (!this._built) this._build();
+    if (!this._onVisible) {
+      this._onVisible = () => {
+        if (!document.hidden && this._staleHidden) {
+          this._staleHidden = false;
+          this._updateStates();
+        }
+      };
+    }
+    document.addEventListener("visibilitychange", this._onVisible);
     if (!this._editor) this._scene?.start();
     if (!this._building && !this._loading) this._load();
   }
 
   disconnectedCallback() {
     this._scene?.stop();
+    document.removeEventListener("visibilitychange", this._onVisible);
   }
 
   // ------------------------------------------------------------------ Aufbau
@@ -624,7 +392,7 @@ class Haus3DPanel extends HTMLElement {
   _build() {
     this._built = true;
     this.shadowRoot.innerHTML = `
-      <style>${STYLE}${EDITOR_STYLE}</style>
+      <style>${PANEL_STYLE}${EDITOR_STYLE}</style>
       <div class="wrap">
         <header>
           <button class="icon menu" title="Menü"><ha-icon icon="mdi:menu"></ha-icon></button>
@@ -886,13 +654,15 @@ class Haus3DPanel extends HTMLElement {
         const anchor = this._scene?.anchors.find((a) => a.key === `room:${floor.id}:${room.id}`);
         const el = document.createElement("div");
         el.className = "room";
-        el.innerHTML = `<div class="label"></div><div class="devs"></div>`;
+        el.innerHTML = `<div class="label"><b></b><div class="clim" hidden></div><div class="warn" hidden></div></div><div class="devs"></div>`;
+        el.querySelector("b").textContent = room.name;
         const devs = el.querySelector(".devs");
         if (!threeD) for (const icon of icons.filter((i) => i.room === room.id && !i.manual)) devs.appendChild(this._iconEl(icon));
         layer.appendChild(el);
         const pos = anchor?.position.clone() ?? new THREE.Vector3(0, elev, 0);
         pos.y += 0.95; // knapp 1 m über dem Boden (bei Hängen über der Fläche)
-        this._overlays.set(`room:${floor.id}:${room.id}`, { el, label: el.firstElementChild, floorId: floor.id, position: pos, room });
+        const label = el.firstElementChild;
+        this._overlays.set(`room:${floor.id}:${room.id}`, { el, label, parts: { clim: label.querySelector(".clim"), warn: label.querySelector(".warn") }, floorId: floor.id, position: pos, room });
       }
       // Geräte mit manueller Position (placements) stehen frei an ihrer Stelle
       for (const icon of icons.filter((i) => i.manual && !threeD)) {
@@ -1119,12 +889,12 @@ class Haus3DPanel extends HTMLElement {
         roomAlerts.set(key, unassigned.length);
         const ov = this._overlays.get(`room:${key}`);
         if (ov) {
-          const label = ov.label;
+          // nur Texte setzen (kein Neuaufbau): flackert nicht und verschluckt keine Tipps
           const parts = [];
           if (climate.temperature != null) parts.push(`${fmt(climate.temperature)} °C`);
           if (climate.humidity != null) parts.push(`${fmt(climate.humidity, 0)} %`);
-          label.innerHTML = `<b></b>${parts.length ? `<div class="clim">${parts.join(" · ")}</div>` : ""}${unassigned.length ? `<div class="warn">${unassigned.length} offen</div>` : ""}`;
-          label.querySelector("b").textContent = room.name;
+          setText(ov.parts.clim, parts.join(" · "));
+          setText(ov.parts.warn, unassigned.length ? `${unassigned.length} offen` : "");
         }
       }
     }
@@ -1508,13 +1278,17 @@ class Haus3DPanel extends HTMLElement {
     }
     this._selected = this._panels.at(-1) ?? null;
     this._scene?.selectRooms(this._panels.map((p) => ({ floorId: p.floorId, roomId: p.roomId })), { focus: !!sel && !toggle });
+    this._rewatch(); // Geräte der offenen Raumfenster mit beobachten
     this._renderRoomPanel();
   }
 
-  /** Raumfenster: Name, Klima und alle Geräte des Raums; verschiebbar, mit "Geräte anpassen" für Admins. */
+  /**
+   * Raumfenster: Name, Klima, Schnellaktionen und die Geräte des Raums in Gruppen; verschiebbar, mit
+   * „Geräte anpassen“ für Admins. Wird einmal aufgebaut und danach nur aktualisiert (Text, Klassen),
+   * damit Tipps nicht verloren gehen und die Liste mit dem Finger scrollt.
+   */
   _renderRoomPanel() {
     this._panels = this._panels ?? [];
-    const hass = this._hass;
     this._panels = this._panels.filter((p) => {
       const floor = this._building?.floors.find((f) => f.id === p.floorId);
       const room = floor && placesOf(floor).find((r) => r.id === p.roomId);
@@ -1528,43 +1302,147 @@ class Haus3DPanel extends HTMLElement {
       if (!p.el) {
         p.el = document.createElement("div");
         p.el.className = "roompanel";
-        const stage = this._els.stage.getBoundingClientRect();
         p.x = p.x ?? 12 + idx * 28;
-        p.y = p.y ?? Math.max(12, stage.height - 360 - idx * 28);
+        p.y = p.y ?? 12 + idx * 28;
         this._els.stage.appendChild(p.el);
         this._dragPanel(p);
       }
       p.el.style.left = `${p.x}px`;
       p.el.style.top = `${p.y}px`;
-      const ids = roomEntities(room, hass, this._byArea, this._building).filter((id) => displayKind(hass.states[id]));
-      const climate = roomClimate(room, hass, this._byArea);
-      const parts = [];
-      if (climate.temperature != null) parts.push(`${fmt(climate.temperature)} °C`);
-      if (climate.humidity != null) parts.push(`${fmt(climate.humidity, 0)} %`);
-      const admin = !!hass.user?.is_admin;
-      p.el.innerHTML = `<div class="rp-head"><ha-icon class="grip" icon="mdi:drag"></ha-icon><b></b>${admin ? `<button class="icon cfg" title="Geräte anpassen"><ha-icon icon="mdi:tune-variant"></ha-icon></button>` : ""}<button class="icon close" title="Schließen"><ha-icon icon="mdi:close"></ha-icon></button></div>
-        <div class="rp-sub"></div><div class="rp-list"></div>`;
-      p.el.querySelector("b").textContent = room.name;
-      p.el.querySelector(".rp-sub").textContent = [floor.name, ...parts].join(" · ") + (room.area_id ? "" : " · kein Bereich zugeordnet");
-      p.el.querySelector(".close").addEventListener("click", () => this._selectRoom({ floorId: p.floorId, roomId: p.roomId }, { toggle: true }));
-      p.el.querySelector(".cfg")?.addEventListener("click", () => this._customizeRoom(p, room));
-      const list = p.el.querySelector(".rp-list");
-      if (!ids.length) list.innerHTML = `<div class="rp-empty">Keine Geräte. Über ⚙ hinzufügen.</div>`;
-      for (const id of ids) {
-        const st = hass.states[id];
-        const kind = displayKind(st);
+      this._updateRoomPanel(p, floor, room);
+    });
+  }
+
+  /** Geräte, die ein Raumfenster zeigt (ohne ausgeblendete). */
+  _panelEntities(room) {
+    const hass = this._hass;
+    return roomEntities(room, hass, this._byArea, this._building).filter((id) => displayKind(hass.states[id]));
+  }
+
+  /** IDs aller geöffneten Raumfenster (werden zusätzlich beobachtet). */
+  _panelIds() {
+    const out = [];
+    for (const p of this._panels ?? []) {
+      const floor = this._building?.floors.find((f) => f.id === p.floorId);
+      const room = floor && placesOf(floor).find((r) => r.id === p.roomId);
+      if (room) out.push(...this._panelEntities(room));
+    }
+    return out;
+  }
+
+  /** Gerüst eines Raumfensters bauen (einmal bzw. wenn sich die Geräteliste ändert). */
+  _createRoomPanel(p, floor, room, ids) {
+    const hass = this._hass;
+    const admin = !!hass.user?.is_admin;
+    p.el.innerHTML = `<div class="rp-head"><ha-icon class="grip" icon="mdi:drag"></ha-icon><b></b>${admin ? `<button class="icon cfg" title="Geräte anpassen"><ha-icon icon="mdi:tune-variant"></ha-icon></button>` : ""}<button class="icon close" title="Schließen"><ha-icon icon="mdi:close"></ha-icon></button></div>
+      <div class="rp-sub"></div><div class="rp-actions"></div><div class="rp-list"></div>`;
+    p.el.querySelector("b").textContent = room.name;
+    p.el.querySelector(".close").addEventListener("click", () => this._selectRoom({ floorId: p.floorId, roomId: p.roomId }, { toggle: true }));
+    p.el.querySelector(".cfg")?.addEventListener("click", () => this._customizeRoom(p, room));
+    // Schnellaktionen
+    const acts = roomActions(ids, hass);
+    p.actions = acts;
+    const bar = p.el.querySelector(".rp-actions");
+    const btn = (cls, icon, text, title = text) => `<button class="${cls}" title="${esc(title)}"><ha-icon icon="${icon}"></ha-icon><span>${esc(text)}</span></button>`;
+    let html = "";
+    if (acts.lights.all.length) html += btn("act-light", "mdi:lightbulb-group", "Licht");
+    if (acts.covers.length) html += `<span class="seg">${btn("act-up", "mdi:arrow-up", "Auf")}${btn("act-stop", "mdi:stop", "Stopp")}${btn("act-down", "mdi:arrow-down", "Zu")}</span>`;
+    if (acts.climate) html += `<span class="stepper"><button class="act-minus" title="kälter">−</button><span class="target"></span><button class="act-plus" title="wärmer">+</button></span>`;
+    for (const id of acts.scenes) html += `<button class="chip act-scene" data-entity="${esc(id)}"><ha-icon icon="mdi:palette"></ha-icon><span>${esc(hass.states[id]?.attributes?.friendly_name ?? id)}</span></button>`;
+    bar.innerHTML = html;
+    bar.hidden = !html;
+    const bulk = (domain, service, list) => {
+      if (!list.length) return;
+      this._hass.callService(domain, service, { entity_id: list }).catch((err) => this._toast(`Fehlgeschlagen: ${err.message ?? err}`));
+    };
+    bar.querySelector(".act-light")?.addEventListener("click", () => {
+      const on = p.actions.lights.on;
+      if (on.length) bulk("light", "turn_off", on);
+      else bulk("light", "turn_on", p.actions.lights.all);
+    });
+    bar.querySelector(".act-up")?.addEventListener("click", () => bulk("cover", "open_cover", p.actions.covers));
+    bar.querySelector(".act-stop")?.addEventListener("click", () => bulk("cover", "stop_cover", p.actions.covers));
+    bar.querySelector(".act-down")?.addEventListener("click", () => bulk("cover", "close_cover", p.actions.covers));
+    const step = (n) => {
+      const c = p.actions.climate;
+      if (!c) return;
+      const now = performance.now();
+      const cur = p.pending && now < p.pending.until ? p.pending.value : null;
+      const value = stepTarget(c, cur, n);
+      p.pending = { value, until: now + 10000 };
+      this._updateRoomPanel(p, floor, room);
+      clearTimeout(p.climateTimer);
+      // gesammelt senden: ein Aufruf nach kurzer Pause
+      p.climateTimer = setTimeout(() => {
+        this._hass.callService("climate", "set_temperature", { entity_id: c.entity, temperature: value }).catch((err) => this._toast(`Fehlgeschlagen: ${err.message ?? err}`));
+      }, 700);
+    };
+    bar.querySelector(".act-minus")?.addEventListener("click", () => step(-1));
+    bar.querySelector(".act-plus")?.addEventListener("click", () => step(1));
+    bar.querySelectorAll(".act-scene").forEach((b) => b.addEventListener("click", () => this._runAction(b.dataset.entity, { source: "wheel", quiet: false })));
+    // Geräte in Gruppen
+    const list = p.el.querySelector(".rp-list");
+    p.rows = new Map();
+    if (!ids.length) list.innerHTML = `<div class="rp-empty">Keine Geräte.${admin ? " Über das Regler-Symbol oben hinzufügen." : ""}</div>`;
+    for (const g of groupRoomEntities(ids, hass)) {
+      const h = document.createElement("div");
+      h.className = "rp-group";
+      h.textContent = g.title;
+      list.appendChild(h);
+      for (const id of g.ids) {
         const row = document.createElement("div");
         row.className = "rp-row";
         row.dataset.entity = id;
-        const active = isActive(kind, st);
-        row.innerHTML = `<span class="rp-icon${active ? (kind === "contact" ? " alert" : " active") : ""}"><ha-icon></ha-icon></span><span class="rp-name"></span><span class="rp-state"></span>`;
-        row.querySelector("ha-icon").setAttribute("icon", iconFor(kind, st));
-        row.querySelector(".rp-name").textContent = st.attributes.friendly_name ?? id;
-        row.querySelector(".rp-state").textContent = hass.formatEntityState ? hass.formatEntityState(st) : st.state;
+        row.innerHTML = `<span class="rp-icon"><ha-icon></ha-icon></span><span class="rp-name"></span><span class="rp-state"></span>`;
         this._bindIcon(row, id);
         list.appendChild(row);
+        p.rows.set(id, { row, icon: row.querySelector("ha-icon"), dot: row.firstElementChild, name: row.querySelector(".rp-name"), state: row.querySelector(".rp-state") });
       }
-    });
+    }
+  }
+
+  /** Raumfenster aktualisieren: nur Texte und Klassen; neu aufbauen nur, wenn sich die Geräte ändern. */
+  _updateRoomPanel(p, floor, room) {
+    const hass = this._hass;
+    const ids = this._panelEntities(room);
+    const sig = `${ids.join(",")}|${!!hass.user?.is_admin}|${room.name}`;
+    if (p.sig !== sig || !p.rows) {
+      p.sig = sig;
+      this._createRoomPanel(p, floor, room, ids);
+    }
+    p.actions = roomActions(ids, hass);
+    const climate = roomClimate(room, hass, this._byArea);
+    const parts = [];
+    if (climate.temperature != null) parts.push(`${fmt(climate.temperature)} °C`);
+    if (climate.humidity != null) parts.push(`${fmt(climate.humidity, 0)} %`);
+    p.el.querySelector(".rp-sub").textContent = [floor.name, ...parts].join(" · ") + (room.area_id ? "" : " · kein Bereich zugeordnet");
+    const light = p.el.querySelector(".act-light span");
+    if (light) {
+      const on = p.actions.lights.on.length;
+      light.textContent = on ? `Licht aus (${on})` : "Licht an";
+      light.parentElement.classList.toggle("on", on > 0);
+    }
+    const c = p.actions.climate;
+    const target = p.el.querySelector(".stepper .target");
+    if (c && target) {
+      const now = performance.now();
+      if (p.pending && (now > p.pending.until || (c.target != null && Math.abs(c.target - p.pending.value) < 1e-6))) p.pending = null;
+      const v = p.pending ? p.pending.value : c.target;
+      target.textContent = v != null ? `${fmt(v)} °C` : c.mode;
+      target.classList.toggle("pending", !!p.pending);
+      target.classList.toggle("heating", c.action === "heating");
+      target.title = c.action === "heating" ? "heizt" : c.current != null ? `ist ${fmt(c.current)} °C` : "";
+    }
+    for (const [id, r] of p.rows) {
+      const st = hass.states[id];
+      if (!st) continue;
+      const kind = displayKind(st);
+      const active = isActive(kind, st);
+      r.dot.className = `rp-icon${active ? (kind === "contact" ? " alert" : " active") : ""}`;
+      r.icon.setAttribute("icon", iconFor(kind, st));
+      r.name.textContent = st.attributes.friendly_name ?? id;
+      r.state.textContent = hass.formatEntityState ? hass.formatEntityState(st) : st.state;
+    }
   }
 
   /** Raumfenster am Kopf ziehen (Maus und Finger); bleibt im sichtbaren Bereich. */
@@ -1595,6 +1473,7 @@ class Haus3DPanel extends HTMLElement {
   _customizeRoom(p, room) {
     const hass = this._hass;
     p.editing = true;
+    p.rows = null; // danach neu aufbauen
     const areaIds = room.area_id ? this._byArea.get(room.area_id) ?? [] : [];
     const hidden = new Set(room.hidden_entities ?? []);
     const extra = [...(room.panel ?? [])];
