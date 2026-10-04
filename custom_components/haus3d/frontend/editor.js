@@ -4,6 +4,7 @@
 
 import { buildingIcons, entitiesByArea, iconKind } from "./devices.js";
 import {
+  alignToFloor,
   allIds,
   clampOffset,
   cleanFloor,
@@ -1258,6 +1259,7 @@ export class FloorEditor {
 
     if (!sel) {
       const haFloors = Object.values(hass.floors ?? {});
+      const below = [...this.b.floors].filter((x) => x.elevation < f.elevation && (x.rooms ?? []).length).sort((a, b) => b.elevation - a.elevation)[0];
       el.innerHTML = `<h3>Etage ${esc(f.name)}</h3>
         <label>Name</label><input data-floor="name" value="${esc(f.name)}">
         <div class="row2">${num("elevation", "Höhe über Boden (m)", f.elevation)}${num("height", "Raumhöhe (m)", f.height)}</div>
@@ -1266,7 +1268,14 @@ export class FloorEditor {
         ${colorField("exterior", "Außenwände (Farbe außen)", this.b.settings.wall_colors?.exterior)}
         ${colorField("interior", "Innenwände (Standard für alle Räume)", this.b.settings.wall_colors?.interior)}
         <p class="muted">${f.rooms.length} Räume · ${f.openings.length} Fenster/Türen · ${(f.furniture ?? []).length} Möbel</p>
+        ${below ? `<div class="btns"><button data-act="alignbelow" title="Außenwände, die bis 15 cm neben denen von ${esc(below.name)} liegen, genau darüber setzen">Außenwände bündig auf ${esc(below.name)}</button></div>` : ""}
         <div class="btns"><button data-act="addfloor">+ Etage</button><button data-act="delfloor" class="danger">Etage löschen</button></div>`;
+      el.querySelector("[data-act=alignbelow]")?.addEventListener("click", () => {
+        const { floor, moved } = alignToFloor(this.floor, below, this.b.settings ?? {});
+        if (!moved.length) return this._toast(`Außenwände liegen schon bündig auf ${below.name} (oder weiter als 15 cm daneben).`);
+        this.change(() => floor);
+        this._toast(`Bündig gesetzt: ${moved.join(", ")}`);
+      });
       bindColors((fl, key, v) => {
         const wc = { ...(this.b.settings.wall_colors ?? {}) };
         if (v) wc[key] = v;

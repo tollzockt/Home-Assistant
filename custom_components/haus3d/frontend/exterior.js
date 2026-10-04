@@ -182,17 +182,18 @@ export function roofParts(rooms, { wall = 0.24, overhang = 0.4, direction = "aut
     for (const q of parts) {
       const overlapA = Math.min(part.a1, q.a1) - Math.max(part.a0, q.a0) > 0.3;
       const overlapB = Math.min(part.b1, q.b1) - Math.max(part.b0, q.b0) > 0.3;
+      // inner: Länge des Stücks, das im Nachbardach steckt (ab dessen Traufe); dort ohne seitlichen Überstand
       if (overlapA && q.ridge === "a" && Math.abs(part.b1 - q.b0) < eps) {
-        part.b1 = (q.b0 + q.b1) / 2; part.ridge = "b"; part.open = [false, true]; part.ext.b1 = true; break;
+        part.b1 = (q.b0 + q.b1) / 2; part.ridge = "b"; part.open = [false, true]; part.ext.b1 = part.b1 - q.b0; break;
       }
       if (overlapA && q.ridge === "a" && Math.abs(part.b0 - q.b1) < eps) {
-        part.b0 = (q.b0 + q.b1) / 2; part.ridge = "b"; part.open = [true, false]; part.ext.b0 = true; break;
+        part.b0 = (q.b0 + q.b1) / 2; part.ridge = "b"; part.open = [true, false]; part.ext.b0 = q.b1 - part.b0; break;
       }
       if (overlapB && q.ridge === "b" && Math.abs(part.a1 - q.a0) < eps) {
-        part.a1 = (q.a0 + q.a1) / 2; part.ridge = "a"; part.open = [false, true]; part.ext.a1 = true; break;
+        part.a1 = (q.a0 + q.a1) / 2; part.ridge = "a"; part.open = [false, true]; part.ext.a1 = part.a1 - q.a0; break;
       }
       if (overlapB && q.ridge === "b" && Math.abs(part.a0 - q.a1) < eps) {
-        part.a0 = (q.a0 + q.a1) / 2; part.ridge = "a"; part.open = [true, false]; part.ext.a0 = true; break;
+        part.a0 = (q.a0 + q.a1) / 2; part.ridge = "a"; part.open = [true, false]; part.ext.a0 = q.a1 - part.a0; break;
       }
     }
     part.ridge ??= part.a1 - part.a0 >= part.b1 - part.b0 ? "a" : "b";
@@ -207,9 +208,13 @@ export function roofParts(rooms, { wall = 0.24, overhang = 0.4, direction = "aut
     const ca = (a0 + a1) / 2;
     const cb = (b0 + b1) / 2;
     const center = [r3(ca * A[0] + cb * B[0]), r3(ca * A[1] + cb * B[1])];
+    // inner[0]/[1]: Länge ab dem offenen Ende, die im Nachbardach steckt (bis zu dessen Traufe)
+    const inLo = q.ridge === "a" ? q.ext.a0 : q.ext.b0;
+    const inHi = q.ridge === "a" ? q.ext.a1 : q.ext.b1;
+    const inner = [inLo ? r3(inLo + grow) : 0, inHi ? r3(inHi + grow) : 0];
     return q.ridge === "a"
-      ? { center, u: A, v: B, length: r3(a1 - a0), width: r3(b1 - b0), open: q.open }
-      : { center, u: B, v: [-A[0], -A[1]], length: r3(b1 - b0), width: r3(a1 - a0), open: q.open };
+      ? { center, u: A, v: B, length: r3(a1 - a0), width: r3(b1 - b0), open: q.open, inner }
+      : { center, u: B, v: [-A[0], -A[1]], length: r3(b1 - b0), width: r3(a1 - a0), open: q.open, inner };
   });
 }
 

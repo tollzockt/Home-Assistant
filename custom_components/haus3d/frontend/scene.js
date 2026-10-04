@@ -1010,8 +1010,15 @@ export class HouseScene {
         const hip = roof.type === "hip";
         const rLo = hip && !openLo ? Math.max(0, L - W) : L;
         const rHi = hip && !openHi ? Math.max(0, L - W) : L;
-        quad(roofPos, P(-L, -W, eave), P(L, -W, eave), P(rHi, 0, ridge), P(-rLo, 0, ridge));
-        quad(roofPos, P(-L, W, eave), P(L, W, eave), P(rHi, 0, ridge), P(-rLo, 0, ridge));
+        // Stück im Nachbardach (inner): ohne seitlichen Überstand, sonst schaut es unter dessen Giebel heraus
+        const [inLo, inHi] = fr.inner ?? [0, 0];
+        const sA = -L + Math.min(inLo, L);
+        const sB = L - Math.min(inHi, L);
+        for (const sg of [-1, 1]) {
+          quad(roofPos, P(sA, sg * W, eave), P(sB, sg * W, eave), P(Math.min(sB, rHi), 0, ridge), P(Math.max(sA, -rLo), 0, ridge));
+          if (inLo) quad(roofPos, P(-L, sg * Wi, top), P(sA, sg * Wi, top), P(sA, 0, ridge), P(-L, 0, ridge));
+          if (inHi) quad(roofPos, P(sB, sg * Wi, top), P(L, sg * Wi, top), P(L, 0, ridge), P(sB, 0, ridge));
+        }
         const yi = eave + (W - Wi) * tan;
         if (hip && !openLo) tri(roofPos, P(-L, -W, eave), P(-L, W, eave), P(-rLo, 0, ridge));
         else if (!openLo) tri(gablePos, P(-Llo, -Wi, yi), P(-Llo, Wi, yi), P(-Llo, 0, ridge));

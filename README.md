@@ -94,6 +94,8 @@ Ansicht **2D**, **2D + 3D** (nebeneinander, auf schmalen Geräten untereinander)
 - **Aufräumen** (Besen): gleicht Versätze von wenigen Zentimetern zwischen Räumen an (die 3D-Ansicht tut
   das ohnehin, sonst entstünden doppelte Wände mit Spalt), entfernt doppelte Eckpunkte und „Spitzen“ (Kanten, die auf sich selbst
   zurücklaufen), ohne Fenster und Türen zu verschieben, und rückt Möbel, die in Wände ragen, davor.
+- **Außenwände bündig** (bei der Etage, nichts gewählt): setzt Außenwände, die bis 15 cm neben denen der
+  Etage darunter liegen, genau darüber (z. B. EG auf KG). Fenster und Türen bleiben an ihrer Stelle.
 - Rückgängig/Wiederholen (Strg+Z), Lücken schließen, Etagen anlegen/löschen.
   Gespeichert wird erst mit „Speichern“, der alte Stand landet im Verlauf.
 
@@ -105,8 +107,8 @@ Damit HACS sie als Update anbietet, braucht es ein **Release**:
 
 1. Auf GitHub im Repository rechts **Releases → Draft a new release** (bzw. „Create a new release“).
 2. **Choose a tag** → neuen Tag eintippen, genau wie die Version in `manifest.json` mit „v“ davor,
-   z. B. `v0.8.1` → „Create new tag“. Ziel-Zweig: `main`.
-3. Titel z. B. `0.8.1`, kurze Beschreibung, bei „Release label“ **None** (nicht Pre-release),
+   z. B. `v0.8.2` → „Create new tag“. Ziel-Zweig: `main`.
+3. Titel z. B. `0.8.2`, kurze Beschreibung, bei „Release label“ **None** (nicht Pre-release),
    **Publish release**.
 4. In Home Assistant: **HACS → Haus 3D** (ggf. ⋮ → „Informationen aktualisieren“) → **Herunterladen**/
    **Aktualisieren** → Home Assistant **neu starten**.

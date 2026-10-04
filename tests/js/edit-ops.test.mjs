@@ -177,3 +177,20 @@ test("Wand mit T-Stoß: Nachbar bekommt einen Versatz statt schief zu werden", a
   assert.deepEqual(pts.sz, f.rooms[3].points);
   assert.equal(computeWalls(g).warnings.length, 0);
 });
+
+test("EG bündig auf KG: Außenwände rücken, Fenster bleiben an ihrer Stelle", async () => {
+  const { alignToFloor } = await import("../../custom_components/haus3d/frontend/edit-ops.js");
+  const kg = floorWith([rectRoom([0, 0.35], [10, 8], "k")]);
+  const eg = floorWith([rectRoom([0, 0.45], [6, 8], "a"), rectRoom([6, 0.45], [10.05, 8], "b")], [
+    { id: "f", room_id: "a", edge: 0, offset: 3, width: 1.2, type: "window", sill: 1, height: 1.2 },
+    { id: "s", room_id: "b", edge: 1, offset: 2, width: 1, type: "window", sill: 1, height: 1.2 },
+  ]);
+  const before = openingGeometry(eg, eg.openings[1]).center;
+  const { floor, moved } = alignToFloor(eg, kg, { wall_exterior: 0.24, wall_interior: 0.12 });
+  assert.deepEqual(moved.sort(), ["x 10.05 → 10", "z 0.45 → 0.35"]);
+  assert.deepEqual(floor.rooms[0].points, [[0, 0.35], [6, 0.35], [6, 8], [0, 8]]);
+  assert.deepEqual(floor.rooms[1].points[1], [10, 0.35]);
+  // Fenster auf der rechten Wand: gleiche Höhe im Plan (z), nur die Wand ist 5 cm gewandert
+  const after = openingGeometry(floor, floor.openings[1]).center;
+  assert.ok(Math.abs(after[1] - before[1]) < 1e-9 && Math.abs(after[0] - 10) < 1e-9);
+});

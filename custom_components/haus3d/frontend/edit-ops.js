@@ -1,7 +1,7 @@
 // Reine Bearbeitungs-Operationen für den Editor (ohne DOM, mit node testbar).
 // Alle Koordinaten in Metern, Plan [x, z].
 
-import { alignAxes, pointInPolygon, signedArea } from "./walls.js";
+import { alignAxes, computeWalls, pointInPolygon, signedArea } from "./walls.js";
 
 const r3 = (v) => Math.round(v * 1000) / 1000;
 
@@ -480,4 +480,68 @@ export function moveVertex(floor, roomId, i, p, { linked = true } = {}) {
     ...floor,
     rooms: floor.rooms.map((r) => ({ ...r, points: r.points.map((q, k) => (moves.has(`${r.id}#${k}`) ? [r3(p[0]), r3(p[1])] : q)) })),
   };
+}
+
+/**
+ * Außenwände einer Etage bündig auf die Etage darunter (ref) setzen: achsparallele Außenwände, die
+ * höchstens tol neben einer gleich ausgerichteten Außenwand von ref liegen, bekommen deren Lage. Alle
+ * Punkte der Etage mit dieser x- bzw. z-Koordinate wandern mit (angeschlossene Innenwände auch).
+ * Fenster und Türen bleiben an ihrer Stelle.
+ * @returns {{floor: object, moved: string[]}} neue Etage und Beschreibung der verschobenen Wände
+ */
+export function alignToFloor(floor, ref, settings = {}, tol = 0.15) {
+  const lines = (f) =>
+    computeWalls(f, settings).segments
+      .filter((s) => s.kind === "exterior")
+      .map((s) => {
+        const ax = Math.abs(s.u[0]) > 0.999 ? "z" : Math.abs(s.u[1]) > 0.999 ? "x" : null;
+        if (!ax) return null;
+        const c = ax === "z" ? s.a[1] : s.a[0];
+        const lo = Math.min(ax === "z" ? s.a[0] : s.a[1], ax === "z" ? s.b[0] : s.b[1]);
+        const hi = Math.max(ax === "z" ? s.a[0] : s.a[1], ax === "z" ? s.b[0] : s.b[1]);
+        // Außenseite: Richtung der Normalen zur Seite ohne Raum
+        const out = s.roomLeft ? -1 : 1;
+        const side = (ax === "z" ? s.n[1] : s.n[0]) * out > 0 ? 1 : -1;
+        return { ax, c, lo, hi, side };
+      })
+      .filter(Boolean);
+  const mine = lines(floor);
+  const theirs = lines(ref);
+  const map = { x: new Map(), z: new Map() };
+  for (const l of mine) {
+    let best = null;
+    for (const t of theirs) {
+      if (t.ax !== l.ax || t.side !== l.side) continue;
+      const d = Math.abs(t.c - l.c);
+      const overlap = Math.min(l.hi, t.hi) - Math.max(l.lo, t.lo);
+      if (d < 1e-6 || d > tol || overlap < 0.5) continue;
+      if (!best || d < Math.abs(best - l.c)) best = t.c;
+    }
+    if (best !== null) map[l.ax].set(l.c, best);
+  }
+  if (!map.x.size && !map.z.size) return { floor, moved: [] };
+  const move = (p) => {
+    let [x, z] = p;
+    for (const [from, to] of map.x) if (Math.abs(x - from) < 0.002) x = to;
+    for (const [from, to] of map.z) if (Math.abs(z - from) < 0.002) z = to;
+    return [r3(x), r3(z)];
+  };
+  // Öffnungen: Mittelpunkt merken und auf der (gleichen) Kante wieder einhängen
+  const centers = new Map();
+  for (const o of floor.openings ?? []) {
+    const g = openingGeometry(floor, o);
+    if (g) centers.set(o.id, g.center);
+  }
+  const next = { ...floor, rooms: floor.rooms.map((r) => ({ ...r, points: r.points.map(move) })) };
+  next.openings = (floor.openings ?? []).map((o) => {
+    const c = centers.get(o.id);
+    const room = next.rooms.find((r) => r.id === o.room_id);
+    if (!c || !room) return o;
+    const a = room.points[o.edge];
+    const b = room.points[(o.edge + 1) % room.points.length];
+    const pr = projectOnSegment(move(c), a, b);
+    return { ...o, offset: clampOffset(pr.t, o.width, pr.len) };
+  });
+  const moved = [...[...map.x].map(([f, t]) => `x ${r3(f)} → ${r3(t)}`), ...[...map.z].map(([f, t]) => `z ${r3(f)} → ${r3(t)}`)];
+  return { floor: next, moved };
 }
