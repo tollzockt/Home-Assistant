@@ -6,7 +6,7 @@ import { OrbitControls } from "./vendor/OrbitControls.js";
 import { buildDevice, buildFurniture, furnitureMaterials } from "./furniture.js";
 import { floorColor, textureFor } from "./model.js";
 import { getTexture, planarUVs } from "./textures.js";
-import { ROOF_ITEMS, freeEdges, panelArraySlots, panelSlots, pvLayout, roofFaces, roofFloor, roofParts, roofRooms, roofSettings, roofSurfaceAt, roomRoofGroups, scatter, seeded } from "./exterior.js";
+import { ROOF_ITEMS, adjustRoofParts, freeEdges, panelArraySlots, panelSlots, pvLayout, roofFaces, roofFloor, roofParts, roofRooms, roofSettings, roofSurfaceAt, roomRoofGroups, scatter, seeded } from "./exterior.js";
 import { centroid, computeWalls, labelPoint, pieceFootprint, pointInPolygon, wallPieces } from "./walls.js";
 
 const OUTDOOR = {
@@ -588,9 +588,22 @@ export class HouseScene {
     const roomCols = new Map((floor.rooms ?? []).map((r) => [r.id, tex(custom(r.wall_color, intCol), r.wall_texture, wt.interior)]));
     // Außenseite: Farbe des Raums dahinter (room.exterior_color, z. B. Holzschuppen), sonst Hausfarbe
     const extCols = new Map((floor.rooms ?? []).map((r) => [r.id, tex(custom(r.exterior_color, extCol), r.exterior_texture, wt.exterior)]));
+    // Aussehen je Wand: room.edge_styles[Kante] {color, texture, exterior_color, exterior_texture}
+    const roomById = new Map((floor.rooms ?? []).map((r) => [r.id, r]));
+    const edgeStyle = (seg, roomId) => {
+      const e = seg.sources?.find((x) => x.room_id === roomId)?.edge;
+      return e === undefined ? null : roomById.get(roomId)?.edge_styles?.[e] ?? null;
+    };
+    const styled = (base, color, texture) => (color || texture ? Object.assign(custom(color, base).clone(), { tex: texture ? (cyber ? null : textureFor("wall", texture)) : base.tex }) : base);
     for (const seg of segments) {
-      const outside = extCols.get(seg.roomLeft ?? seg.roomRight) ?? extCol;
-      const face = (roomId) => (roomId ? roomCols.get(roomId) ?? intCol : outside);
+      const extRoom = seg.roomLeft ?? seg.roomRight;
+      const extStyle = seg.kind === "exterior" ? edgeStyle(seg, extRoom) : null;
+      const outside = styled(extCols.get(extRoom) ?? extCol, extStyle?.exterior_color, extStyle?.exterior_texture);
+      const face = (roomId) => {
+        if (!roomId) return outside;
+        const st = edgeStyle(seg, roomId);
+        return styled(roomCols.get(roomId) ?? intCol, st?.color, st?.texture);
+      };
       const h = seg.height ?? height;
       const end = seg.kind === "exterior" ? outside : intCol;
       const fw = seg.kind === "free" ? (floor.walls ?? []).find((w) => w.id === seg.freeId) : null;
@@ -988,13 +1001,19 @@ export class HouseScene {
     for (const floor of building.floors ?? []) {
       const entry = this.floors.get(floor.id);
       if (!entry) continue;
+      entry.roofWrappers = [];
       for (const g of roomRoofGroups(floor)) {
+        // Hülle ohne Ebene: Etagenwahl blendet sie aus (man schaut hinein), innen die Ebene „roof“
+        const wrap = new THREE.Group();
         const group = new THREE.Group();
         group.userData.layer = "roof";
+        wrap.add(group);
         const top = (floor.elevation ?? 0) + (floor.height ?? 2.5);
         const res = this._roofGeometry(g.rooms, g.roof, top, building.settings?.wall_exterior ?? 0.24, group, { roomRoof: true });
+        res.group = group;
         for (const r of g.rooms) this.roomRoofs.set(r.id, res);
-        entry.group.add(group);
+        entry.group.add(wrap);
+        entry.roofWrappers.push(wrap);
       }
     }
   }
@@ -1111,7 +1130,8 @@ export class HouseScene {
    */
   _roofGeometry(rooms, roof, top, wall, parent, { roomRoof = false, settings = {} } = {}) {
     const ov = roof.overhang;
-    const parts = roofParts(rooms, { wall, overhang: ov, direction: roof.direction });
+    // von Hand angepasste Dachteile (roof.adjust, Dach-Ebene im Editor)
+    const parts = adjustRoofParts(roofParts(rooms, { wall, overhang: ov, direction: roof.direction }), roof.adjust, !!roof.flip);
     const tan = Math.tan(THREE.MathUtils.degToRad(roof.pitch));
     const roofPos = [];
     const gablePos = [];
@@ -1213,10 +1233,11 @@ export class HouseScene {
     const solar = new THREE.Group();
     const pitched = this.roomRoofs?.get(shed.room.id);
     if (pitched && (pitched.type === "gable" || pitched.type === "shed")) {
-      // Schuppen mit eigenem Dach: Module liegen flach auf den Dachflächen (wie in echt)
+      // Schuppen mit eigenem Dach: Module liegen flach auf den Dachflächen (wie in echt) und
+      // verschwinden mit dem Dach (Ebene „Dach“ aus oder Etage gewählt)
       this._panelsOnRoof(solar, pitched, shed.room.solar_panels ?? 4);
       solar.userData.layer = "solar";
-      entry.group.add(solar);
+      pitched.group.add(solar);
       this._buildFlow(building, shed, top + (pitched.parts[0]?.width ?? 2) / 2 * pitched.tan, entry);
       return;
     }
@@ -1258,7 +1279,14 @@ export class HouseScene {
       }
     }
     solar.userData.layer = "solar";
-    entry.group.add(solar);
+    // ohne eigenes Dach: Platte mit Modulen ist das Dach (Ebene „roof“ und Etagenwahl wie Raumdächer)
+    const wrap = new THREE.Group();
+    const asRoof = new THREE.Group();
+    asRoof.userData.layer = "roof";
+    asRoof.add(solar);
+    wrap.add(asRoof);
+    entry.group.add(wrap);
+    (entry.roofWrappers ??= []).push(wrap);
     this._buildFlow(building, shed, top, entry);
   }
 
@@ -1344,8 +1372,9 @@ export class HouseScene {
     // gewählte Etage und alle darunter (Außenwände bleiben stehen, man schaut nur von oben hinein)
     const elev = this.floors.get(this.filter)?.floor.elevation ?? Infinity;
     for (const [id, entry] of this.floors) entry.group.visible = this.filter === "all" || this.filter === id || (entry.floor.elevation ?? 0) < elev;
-    // Dach nur in der Gesamtansicht; mit Etagenwahl schaut man hinein
+    // Dach nur in der Gesamtansicht; mit Etagenwahl schaut man hinein (auch Raumdächer dieser Etage)
     if (this.roofHolder) this.roofHolder.visible = this.filter === "all";
+    for (const [id, entry] of this.floors) for (const w of entry.roofWrappers ?? []) w.visible = this.filter !== id;
     this._syncDeviceVisibility();
     if (fit) this.fitCamera();
     this._cameraMoved();

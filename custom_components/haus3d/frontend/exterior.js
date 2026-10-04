@@ -611,7 +611,7 @@ export function roofModel(building) {
   const rooms = roofRooms(floor, roof);
   if (!rooms.length) return null;
   const wall = building.settings?.wall_exterior ?? 0.24;
-  const parts = roofParts(rooms, { wall, overhang: roof.overhang, direction: roof.direction });
+  const parts = adjustRoofParts(roofParts(rooms, { wall, overhang: roof.overhang, direction: roof.direction }), roof.adjust, !!roof.flip);
   const tan = Math.tan((roof.pitch * Math.PI) / 180);
   const top = (floor.elevation ?? 0) + (floor.height ?? 2.5);
   for (const fr of parts) fr.hipEnds = partHipEnds(fr, roof);
@@ -779,4 +779,34 @@ export function legacyPvItems(model, north = 0) {
     }
   }
   return items;
+}
+
+/**
+ * Dachteile von Hand anpassen (Dach-Ebene im Editor): adjust[k] = {lo, hi, a, b} verlängert (+) bzw.
+ * kürzt (−) Teil k am Anfang/Ende entlang des Firsts (lo/hi) und an den beiden Traufen (a: Seite −v,
+ * b: Seite +v), in Metern. Der First bleibt in der Mitte zwischen den Traufen.
+ */
+export function adjustRoofParts(parts, adjust, flip = false) {
+  // flip: Pultdach andersherum (hohe Seite tauschen) – Querachse v umdrehen
+  if (flip) parts = parts.map((fr) => ({ ...fr, v: [-fr.v[0], -fr.v[1]] }));
+  if (!Array.isArray(adjust) || !adjust.length) return parts;
+  return parts.map((fr, k) => {
+    const d = adjust[k];
+    if (!d) return fr;
+    const lo = Number(d.lo) || 0;
+    const hi = Number(d.hi) || 0;
+    const a = Number(d.a) || 0;
+    const b = Number(d.b) || 0;
+    if (!lo && !hi && !a && !b) return fr;
+    const length = Math.max(0.3, fr.length + lo + hi);
+    const width = Math.max(0.3, fr.width + a + b);
+    const ds = (hi - lo) / 2;
+    const dt = (b - a) / 2;
+    return {
+      ...fr,
+      length,
+      width,
+      center: [fr.center[0] + fr.u[0] * ds + fr.v[0] * dt, fr.center[1] + fr.u[1] * ds + fr.v[1] * dt],
+    };
+  });
 }

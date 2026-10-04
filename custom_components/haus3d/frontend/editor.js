@@ -33,7 +33,7 @@ import {
 import { FURNITURE, FURNITURE_CATEGORIES } from "./furniture.js";
 import { COLOR_SWATCHES, FLOOR_MATERIALS, floorColor, normalize } from "./model.js";
 import { ROOF_TYPES, autoHeights, roofFloor, roofSettings } from "./exterior.js";
-import { ROOF_HINTS, ROOF_TOOLS, roofMoveDrag, roofProps, roofStartDrag, roofSvg, textureField } from "./editor-roof.js";
+import { ROOF_HINTS, ROOF_TOOLS, roofMoveDrag, roofNudgePart, roofProps, roofStartDrag, roofSvg, textureField } from "./editor-roof.js";
 import { HouseScene } from "./scene.js";
 import { furnitureThumb, renderThumbs } from "./thumbs.js";
 import { closeGaps, computeWalls, labelPoint, pieceFootprint, signedArea } from "./walls.js";
@@ -114,6 +114,7 @@ export const EDITOR_STYLE = `
 .ed-svg.select { cursor: default; }
 .ed-props { width: 300px; overflow-y: auto; border-left: 1px solid var(--divider-color, rgba(127,127,127,.25)); background: var(--card-background-color, #fff); padding: 10px 14px 20px; font-size: 14px; }
 .ed-props h3 { margin: 4px 0 10px; font-size: 16px; font-weight: 500; }
+.ed-props .edgebox { border: 2px solid #ff9800; border-radius: 10px; padding: 8px 10px; margin-bottom: 12px; }
 .ed-props label { display: block; margin: 8px 0 3px; font-size: 12px; color: var(--secondary-text-color); }
 .ed-props input, .ed-props select { width: 100%; box-sizing: border-box; font: inherit; padding: 7px 8px; border-radius: 8px; border: 1px solid var(--divider-color, rgba(127,127,127,.4)); background: var(--primary-background-color, #fff); color: inherit; }
 .ed-props .row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 0 8px; }
@@ -444,6 +445,11 @@ export class FloorEditor {
     const merge = performance.now() - (this._lastNudge ?? 0) < 700 && this._nudgeSel === `${sel.kind}:${sel.id}`;
     this._lastNudge = performance.now();
     this._nudgeSel = `${sel.kind}:${sel.id}`;
+    if (sel.kind === "roofpart") {
+      roofNudgePart(this, sel.id, dx, dz, merge);
+      this.renderProps();
+      return;
+    }
     if (sel.kind === "roofitem") {
       this.changeRoof((roof) => {
         const it = roof.items.find((x) => x.id === sel.id);
@@ -785,7 +791,9 @@ export class FloorEditor {
       if (this.sel.kind === "room") {
         poly.points.forEach((p, i) => {
           const q = poly.points[(i + 1) % poly.points.length];
-          parts.push(`<line data-kind="edge" data-i="${i}" x1="${r3(p[0])}" y1="${r3(p[1])}" x2="${r3(q[0])}" y2="${r3(q[1])}" stroke="#03a9f4" stroke-opacity=".25" stroke-width="${px(12)}" style="cursor:move"/>`);
+          const on = this.sel.edge === i;
+          parts.push(`<line data-kind="edge" data-i="${i}" x1="${r3(p[0])}" y1="${r3(p[1])}" x2="${r3(q[0])}" y2="${r3(q[1])}" stroke="${on ? "#ff9800" : "#03a9f4"}" stroke-opacity="${on ? 0.8 : 0.25}" stroke-width="${px(on ? 14 : 12)}" style="cursor:move"/>`);
+          if (poly.edge_styles?.[i]) parts.push(`<circle cx="${r3((p[0] + q[0]) / 2)}" cy="${r3((p[1] + q[1]) / 2)}" r="${px(3)}" fill="#ff9800" pointer-events="none"/>`);
         });
       }
       // Hang: Höhe je Ecke anzeigen
@@ -1211,6 +1219,8 @@ export class FloorEditor {
         drag.first = false;
         break;
       case "roofitem":
+      case "roofhandle":
+      case "roofpart":
         roofMoveDrag(this, drag, p);
         break;
     }
@@ -1234,7 +1244,13 @@ export class FloorEditor {
       this.render();
       this.renderProps();
     }
-    if (drag.mode === "furniture" || drag.mode === "rotate" || drag.mode === "opening" || drag.mode === "roofitem") this.renderProps();
+    if (drag.mode === "edge" && !drag.applied) {
+      // Wand nur angetippt (nicht verschoben): diese Wand wählen (Farbe, Textur je Wand)
+      this.sel = { kind: "room", id: drag.id, edge: this.sel?.edge === drag.i ? null : drag.i };
+      this.render();
+      this.renderProps();
+    }
+    if (drag.mode === "furniture" || drag.mode === "rotate" || drag.mode === "opening" || drag.mode.startsWith("roof")) this.renderProps();
   }
 
   _finishPolygon() {
@@ -1289,6 +1305,16 @@ export class FloorEditor {
     const sel = this.sel;
     if (!sel) return;
     if (sel.kind === "roofitem") this.changeRoof((roof) => (roof.items = (roof.items ?? []).filter((x) => x.id !== sel.id)));
+    else if (sel.kind === "roofpart") {
+      // Entf auf einer Dachfläche: Anpassung zurücksetzen
+      this.changeRoof((roof) => {
+        if (roof.adjust?.[sel.id]) roof.adjust[sel.id] = null;
+        while (roof.adjust?.length && !roof.adjust[roof.adjust.length - 1]) roof.adjust.pop();
+        if (!roof.adjust?.length) delete roof.adjust;
+      });
+      this.renderProps();
+      return;
+    }
     else if (sel.kind === "room") this.change((fl) => removeRoom(fl, sel.id));
     else if (sel.kind === "opening") this.change((fl) => ({ ...fl, openings: fl.openings.filter((o) => o.id !== sel.id) }));
     else if (sel.kind === "furniture") this.change((fl) => ({ ...fl, furniture: fl.furniture.filter((m) => m.id !== sel.id) }));
@@ -1507,7 +1533,17 @@ export class FloorEditor {
     if (sel.kind === "room") {
       const r = f.rooms.find((x) => x.id === sel.id);
       if (!r) return this._clearSel();
-      el.innerHTML = `<h3>Raum</h3>
+      const ei = Number.isInteger(sel.edge) && sel.edge < r.points.length ? sel.edge : null;
+      const est = ei !== null ? r.edge_styles?.[ei] ?? {} : null;
+      const isExt = ei !== null && computeWalls(f, this.b.settings ?? {}).segments.some((sg) => sg.kind === "exterior" && sg.sources?.some((x) => x.room_id === r.id && x.edge === ei));
+      const edgeBox = ei === null
+        ? `<p class="muted">Tipp: eine blaue Wand antippen (nicht ziehen), um nur diese Wand anders zu gestalten, z. B. Fachwerk.</p>`
+        : `<div class="edgebox"><h3>Wand ${ei + 1} von ${r.points.length}</h3>
+          ${colorField("edge_color", "Farbe innen (nur diese Wand)", est.color)}
+          ${textureField("edge_texture", "Textur innen (nur diese Wand)", est.texture, "w")}
+          ${isExt ? colorField("edge_exterior_color", "Farbe außen (nur diese Wand)", est.exterior_color) + textureField("edge_exterior_texture", "Textur außen (nur diese Wand)", est.exterior_texture, "w") : ""}
+          <div class="btns"><button data-act="edgereset">Wie der Raum</button><button data-act="edgeclose">Fertig</button></div></div>`;
+      el.innerHTML = `${edgeBox}<h3>Raum</h3>
         <label>Name</label><input data-room="name" value="${esc(r.name)}">
         <label>Bereich in Home Assistant</label><select data-room="area_id">${areaOptions(r.area_id)}</select>
         <label>Bodenbelag</label><select data-room="floor_material">${FLOOR_MATERIALS.map(([k, n]) => `<option value="${k}"${k === r.floor_material ? " selected" : ""}>${n}</option>`).join("")}</select>
@@ -1519,13 +1555,41 @@ export class FloorEditor {
         ${textureField("exterior_texture", "Wand außen: Textur", r.exterior_texture, "w")}
         <label>Eigenes Dach (Schuppen, Carport, Anbau)</label><select data-roof="type">${ROOF_TYPES.map(([k, n]) => `<option value="${k}"${k === (r.roof?.type ?? "none") ? " selected" : ""}>${n}</option>`).join("")}</select>
         ${r.roof && r.roof.type !== "none" ? `<div class="row2"><div><label>Neigung (°)</label><input type="number" min="5" max="60" step="1" data-roof="pitch" value="${r.roof.pitch ?? 35}"></div><div><label>Überstand (m)</label><input type="number" min="0" max="1.5" step="0.05" data-roof="overhang" value="${r.roof.overhang ?? 0.4}"></div></div>
-          ${colorField("roof_color", "Dachfarbe", r.roof.color)}` : ""}
+          <div class="row2"><div><label>${r.roof.type === "shed" ? "Neigung quer zu" : "First entlang"}</label><select data-roof="direction">${[["auto", "lange Seite"], ["x", "links–rechts im Plan"], ["z", "oben–unten im Plan"]].map(([k, n]) => `<option value="${k}"${k === (r.roof.direction ?? "auto") ? " selected" : ""}>${n}</option>`).join("")}</select></div>
+          ${r.roof.type === "shed" ? `<div><label>Hohe Seite</label><button data-act="roofflip" title="Pultdach andersherum">⇄ tauschen</button></div>` : ""}</div>
+          ${colorField("roof_color", "Dachfarbe", r.roof.color)}
+          ${textureField("roof_texture", "Dachdeckung (Textur)", r.roof.texture, "r")}` : ""}
         ${r.area_id === "balkonkraftwerk" || /schuppen/i.test(r.name) ? `<label>Solarmodule auf dem Dach (Anzahl)</label><input type="number" min="0" max="12" step="1" data-solar value="${r.solar_panels ?? 4}">` : ""}
         <p class="muted">${Math.abs(signedArea(r.points)).toFixed(2)} m² · ${r.points.length} Ecken. Ecken ziehen, „+“ fügt eine Ecke ein, Entf löscht den Raum.</p>
         ${pad()}
         <div class="btns"><button data-act="delvertex">Letzte gewählte Ecke löschen</button><button data-act="del" class="danger">Raum löschen</button></div>`;
+      // Schlüssel edge_*: Aussehen der gewählten Wand (room.edge_styles[Kante])
+      const setEdge = (room, key, v) => {
+        const k = key.slice(5);
+        const styles = { ...(room.edge_styles ?? {}) };
+        const st = { ...(styles[ei] ?? {}) };
+        if (v) st[k] = v;
+        else delete st[k];
+        if (Object.keys(st).length) styles[ei] = st;
+        else delete styles[ei];
+        if (Object.keys(styles).length) room.edge_styles = styles;
+        else delete room.edge_styles;
+      };
+      el.querySelector("[data-act=edgereset]")?.addEventListener("click", () => {
+        this.change((fl) => {
+          const room = fl.rooms.find((x) => x.id === r.id);
+          for (const k of ["edge_color", "edge_texture", "edge_exterior_color", "edge_exterior_texture"]) setEdge(room, k, null);
+        });
+        this.renderProps();
+      });
+      el.querySelector("[data-act=edgeclose]")?.addEventListener("click", () => {
+        this.sel = { kind: "room", id: r.id };
+        this.render();
+        this.renderProps();
+      });
       bindColors((fl, key, v) => {
         const room = fl.rooms.find((x) => x.id === r.id);
+        if (key.startsWith("edge_")) return setEdge(room, key, v);
         if (key === "roof_color") {
           room.roof = { ...(room.roof ?? {}) };
           if (v) room.roof.color = v;
@@ -1537,6 +1601,13 @@ export class FloorEditor {
       });
       bindTextures((fl, key, v) => {
         const room = fl.rooms.find((x) => x.id === r.id);
+        if (key.startsWith("edge_")) return setEdge(room, key, v);
+        if (key === "roof_texture") {
+          room.roof = { ...(room.roof ?? {}) };
+          if (v) room.roof.texture = v;
+          else delete room.roof.texture;
+          return;
+        }
         if (v) room[key] = v;
         else delete room[key];
       });
@@ -1546,11 +1617,19 @@ export class FloorEditor {
             const room = fl.rooms.find((x) => x.id === r.id);
             const k = inp.dataset.roof;
             if (k === "type" && inp.value === "none") delete room.roof;
-            else room.roof = { pitch: 25, overhang: 0.3, ...(room.roof ?? {}), [k]: k === "type" ? inp.value : Number(inp.value) };
+            else room.roof = { pitch: 25, overhang: 0.3, ...(room.roof ?? {}), [k]: k === "type" || k === "direction" ? inp.value : Number(inp.value) };
           });
           this.renderProps();
         }),
       );
+      el.querySelector("[data-act=roofflip]")?.addEventListener("click", () => {
+        this.change((fl) => {
+          const room = fl.rooms.find((x) => x.id === r.id);
+          room.roof = { ...room.roof, flip: !room.roof.flip };
+          if (!room.roof.flip) delete room.roof.flip;
+        });
+        this.renderProps();
+      });
       el.querySelector("[data-solar]")?.addEventListener("change", (ev) =>
         this.change((fl) => {
           fl.rooms.find((x) => x.id === r.id).solar_panels = Math.max(0, Math.round(Number(ev.target.value) || 0));

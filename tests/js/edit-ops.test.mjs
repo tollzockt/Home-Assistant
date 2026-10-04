@@ -214,3 +214,17 @@ test("Freistehende Wand: gerade einrasten, Öffnung darin, löschen", async () =
   const g = removeWall(f, "w1");
   assert.deepEqual([g.walls.length, g.openings.length], [0, 0]);
 });
+
+test("Aussehen je Wand wandert mit beim Einfügen und Löschen von Ecken", async () => {
+  const { insertVertex, removeVertex, remapEdgeStyles } = await import("../../custom_components/haus3d/frontend/edit-ops.js");
+  const room = { id: "wz", points: [[0, 0], [4, 0], [4, 3], [0, 3]], edge_styles: { 1: { texture: "timber" }, 3: { color: "#ffffff" } } };
+  const fl = { rooms: [room], openings: [] };
+  const ins = insertVertex(fl, "wz", 1, [4, 1.5]).rooms[0];
+  assert.deepEqual(Object.keys(ins.edge_styles), ["1", "2", "4"]);
+  assert.equal(ins.edge_styles[2].texture, "timber");
+  const back = removeVertex({ rooms: [ins], openings: [] }, "wz", 2).rooms[0];
+  assert.deepEqual(back.edge_styles, room.edge_styles);
+  // nach dem Aufräumen: Stil sitzt an der Kante mit derselben Mitte
+  const st = remapEdgeStyles(room.points, [[4, 0], [4, 3], [0, 3], [0, 0]], room.edge_styles);
+  assert.deepEqual(st, { 0: { texture: "timber" }, 2: { color: "#ffffff" } });
+});

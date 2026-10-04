@@ -486,12 +486,46 @@ const roofItems = await rf.evaluate(() => window.panel._editor.b.settings.roof.i
 await rf.locator("haus3d-panel .floorsel").selectOption("eg");
 await rf.waitForTimeout(300);
 const texSelects = await rf.evaluate(() => window.panel._editor.props.querySelectorAll("[data-tex]").length);
+// eine Wand des Wohnzimmers: antippen (nicht ziehen), Fachwerk nur für diese Wand
+await rf.evaluate(() => { const e = window.panel._editor; e.sel = { kind: "room", id: "wohnzimmer" }; e.render(); e.renderProps(); });
+const wz = await rf.evaluate(() => window.panel._editor.floor.rooms.find((r) => r.id === "wohnzimmer").points);
+const m0 = await rplan(wz[0][0] * 0.75 + wz[1][0] * 0.25, wz[0][1] * 0.75 + wz[1][1] * 0.25);
+await rf.mouse.click(m0[0], m0[1]);
+await rf.waitForTimeout(200);
+const edgeSel = await rf.evaluate(() => window.panel._editor.sel);
+await rf.locator("haus3d-panel .ed-props .edgebox select[data-tex=edge_texture]").selectOption("timber");
+await rf.waitForTimeout(200);
+const edgeStyles = await rf.evaluate(() => window.panel._editor.floor.rooms.find((r) => r.id === "wohnzimmer").edge_styles);
+await rf.waitForTimeout(900);
+await rf.screenshot({ path: `${out}/wand-fachwerk.png` });
+// Dachfläche anpassen: Fläche antippen, Griff „Traufe“ ziehen
+await rf.locator("haus3d-panel .floorsel").selectOption("__roof");
+await rf.waitForTimeout(300);
+const partCenter = await rf.evaluate(() => { const e = window.panel._editor; const poly = e.svg.querySelector("[data-kind=roofpart]"); const r = poly.getBoundingClientRect(); return [r.left + r.width / 2, r.top + r.height / 2]; });
+await rf.mouse.click(partCenter[0], partCenter[1]);
+await rf.waitForTimeout(200);
+const handle = await rf.evaluate(() => { const h = window.panel._editor.svg.querySelector("[data-kind=roofhandle][data-side=hi]"); const r = h.getBoundingClientRect(); return [r.left + r.width / 2, r.top + r.height / 2]; });
+await rf.mouse.move(handle[0], handle[1]);
+await rf.mouse.down();
+await rf.mouse.move(handle[0] + 30, handle[1] + 30, { steps: 4 });
+await rf.mouse.up();
+await rf.waitForTimeout(800);
+const roofAdjust = await rf.evaluate(() => window.panel._editor.b.settings.roof.adjust);
+await rf.screenshot({ path: `${out}/dach-kante.png` });
 await rf.locator("haus3d-panel .ed-bar button[data-act=save]").click();
 await rf.waitForTimeout(1200);
 const savedItems = await rf.evaluate(() => (window.panel._building.settings.roof.items ?? []).length);
 const roof3d = await rf.evaluate(() => { let pv = 0; let n = 0; window.panel._scene.roofHolder?.traverse((o) => { if (!o.isMesh) return; n++; if (o.geometry?.parameters?.height === 0.04) pv++; }); return { pv, n }; });
 await rf.screenshot({ path: `${out}/dach-3d.png` });
-console.log(JSON.stringify({ roofLayer: { texMats, lowerVisible, roofTools, roofItems, texSelects, savedItems, roof3d, moved: roofItems.find((x) => x.type === "pv").x - pvBefore.x } }));
+// Raumdach (Schuppen) verschwindet mit der Etagenwahl samt Modulen
+await rf.locator("haus3d-panel .floorbar button[data-floor='eg']").click();
+await rf.waitForTimeout(400);
+const shedHidden = await rf.evaluate(() => { const sc = window.panel._scene; const w = sc.floors.get("eg").roofWrappers ?? []; return w.length > 0 && w.every((x) => !x.visible); });
+await rf.locator("haus3d-panel .floorbar button[data-floor='all']").click();
+console.log(JSON.stringify({ roofLayer: { edgeSel, edgeStyles, roofAdjust, shedHidden, texMats, lowerVisible, roofTools, roofItems, texSelects, savedItems, roof3d, moved: roofItems.find((x) => x.type === "pv").x - pvBefore.x } }));
+if (edgeSel?.edge == null || !edgeStyles) errors.push(`Wand wählen/Fachwerk fehlt: ${JSON.stringify(edgeSel)} ${JSON.stringify(edgeStyles)}`);
+if (!roofAdjust?.some((a) => a?.hi)) errors.push(`Dachkante nicht verschoben: ${JSON.stringify(roofAdjust)}`);
+if (!shedHidden) errors.push("Schuppendach bleibt bei Etagenwahl stehen");
 if (savedItems !== 3) errors.push(`Dach-Elemente nicht gespeichert: ${savedItems}`);
 if (roof3d.pv < 3) errors.push(`PV-Feld und Dachfenster fehlen in 3D: ${roof3d.pv}`);
 if (!lowerVisible.includes("kg")) errors.push(`KG unter EG nicht sichtbar: ${lowerVisible}`);

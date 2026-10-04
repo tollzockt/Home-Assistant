@@ -9,7 +9,7 @@ const N = 256;
 
 /** Kachelgröße in Metern [Breite, Höhe] je Textur. */
 const TILE = {
-  plaster: [1.5, 1.5], brick: [1, 0.5], stone: [1.2, 1.2], wood_v: [0.96, 1.5], wood_h: [1.5, 0.96], panel: [0.8, 1.5],
+  plaster: [1.5, 1.5], brick: [1, 0.5], timber: [2.4, 2.6], stone: [1.2, 1.2], wood_v: [0.96, 1.5], wood_h: [1.5, 0.96], panel: [0.8, 1.5],
   concrete: [2, 1], tiles: [0.6, 0.6], tiles_large: [1.2, 1.2], parquet: [1.2, 1.2], carpet: [0.6, 0.6],
   roof_tiles: [1.2, 1.32], roof_slate: [0.8, 0.8], roof_metal: [1.5, 1.5], roof_shingle: [1, 1],
   grass: [1.5, 1.5], gravel: [1, 1], paving: [1, 1], slabs: [1.2, 1.2], deck: [1.2, 1.2], asphalt: [2, 2], soil: [1.2, 1.2],
@@ -57,6 +57,40 @@ const DRAW = {
   brick: (g, rnd) => {
     courses(g, rnd, { rows: 6, cols: 4, joint: 4, mortar: 250, base: 215, spread: 26 });
     grain_overlay(g, rnd, 0.06);
+  },
+  // Fachwerk: dunkle Balken (Schwelle, Riegel, Rähm, Ständer, Streben), helle Gefache; die Farbe tönt
+  // vor allem die Gefache. Kachel 2,4 × 2,6 m: oben Rähm, unten Schwelle (Bild oben = Wand oben)
+  timber: (g, rnd) => {
+    grain(g, rnd, 8, 246, 6000, 1.5);
+    const beam = (draw) => {
+      g.save();
+      g.fillStyle = "rgb(70,52,40)";
+      draw();
+      g.restore();
+    };
+    const b = 11; // Balkenbreite (≈ 11 cm)
+    beam(() => {
+      g.fillRect(0, 0, N, b); // Rähm
+      g.fillRect(0, N - b, N, b); // Schwelle
+      g.fillRect(0, N * 0.5 - b / 2, N, b); // Riegel
+      for (const x of [0, N / 2]) g.fillRect(x, 0, b, N); // Ständer
+      for (const x of [N / 4, (3 * N) / 4]) g.fillRect(x - b / 2, N * 0.5, b, N * 0.5); // Zwischenständer unten
+      // Streben im unteren Feld, schräg
+      g.lineWidth = b;
+      g.strokeStyle = "rgb(70,52,40)";
+      g.beginPath();
+      g.moveTo(b, N - b);
+      g.lineTo(N / 4, N * 0.5);
+      g.moveTo(N / 2 + b, N * 0.5 + b / 2);
+      g.lineTo((3 * N) / 4, N - b);
+      g.stroke();
+    });
+    // Holzmaserung auf den Balken
+    for (let i = 0; i < 400; i++) {
+      shade(g, 40 + rnd() * 30, 0.35);
+      const y = rnd() < 0.5 ? rnd() * b : N * 0.5 - b / 2 + rnd() * b;
+      g.fillRect(rnd() * N, y, 10 + rnd() * 30, 1);
+    }
   },
   stone: (g, rnd) => {
     shade(g, 200);

@@ -13,7 +13,7 @@ export const ROOF_TOOLS = [
 ];
 
 export const ROOF_HINTS = {
-  select: "Dach-Ebene: Kamin, Dachfenster und PV-Felder antippen und ziehen. PV-Felder richten sich nach der Dachfläche unter ihrer Mitte. Pfeiltasten schieben, Entf löscht.",
+  select: "Dach-Ebene: Dachfläche antippen, dann ihre Kanten (orange Punkte) ziehen, bis sie auf den Hauswänden sitzt, oder die Fläche ziehen. Kamin, Dachfenster und PV-Felder antippen und ziehen. Pfeiltasten schieben, Entf setzt zurück bzw. löscht.",
   chimney: "Auf das Dach tippen: Kamin setzen.",
   skylight: "Auf das Dach tippen: Dachfenster setzen.",
   pv: "Auf das Dach tippen: PV-Feld setzen (Spalten × Reihen rechts einstellen).",
@@ -80,8 +80,24 @@ export function roofSvg(ed, px) {
       if (hipLo) faces.push([[Q(-L, -W), Q(-L, W), Q(-rLo, 0)], 0.65]);
       if (hipHi) faces.push([[Q(L, -W), Q(L, W), Q(rHi, 0)], 0.65]);
     } else faces.push([[Q(-L, -W), Q(L, -W), Q(L, W), Q(-L, W)], 0.6]);
-    for (const [poly, op] of faces) parts.push(`<polygon data-kind="roofface" points="${poly.map(P).join(" ")}" fill="${col}" fill-opacity="${op}" stroke="${col}" stroke-width="${px(1.5)}"/>`);
+    const k = model.parts.indexOf(fr);
+    for (const [poly, op] of faces) parts.push(`<polygon data-kind="roofpart" data-part="${k}" points="${poly.map(P).join(" ")}" fill="${col}" fill-opacity="${op}" stroke="${col}" stroke-width="${px(1.5)}" style="cursor:pointer"/>`);
     if (roof.type === "gable" || roof.type === "hip") parts.push(`<line x1="${P(Q(-rLo, 0)).split(",")[0]}" y1="${P(Q(-rLo, 0)).split(",")[1]}" x2="${P(Q(rHi, 0)).split(",")[0]}" y2="${P(Q(rHi, 0)).split(",")[1]}" stroke="#fff" stroke-opacity=".95" stroke-width="${px(2.5)}" pointer-events="none"/>`);
+  }
+  // gewählte Dachfläche: Umriss, Maße und Griffe an den vier Kanten
+  const selPart = ed.sel?.kind === "roofpart" ? model.parts[ed.sel.id] : null;
+  if (selPart) {
+    const fr = selPart;
+    const L = fr.length / 2;
+    const W = fr.width / 2;
+    const Q = (s, t) => [fr.center[0] + s * fr.u[0] + t * fr.v[0], fr.center[1] + s * fr.u[1] + t * fr.v[1]];
+    parts.push(`<polygon points="${[Q(-L, -W), Q(L, -W), Q(L, W), Q(-L, W)].map(P).join(" ")}" fill="none" stroke="#03a9f4" stroke-width="${px(3)}" pointer-events="none"/>`);
+    // Hauswände darunter kräftig, damit man die Kanten daran ausrichten kann
+    parts.push(`<g fill="none" stroke="#ffeb3b" stroke-width="${px(2)}" stroke-dasharray="${px(6)} ${px(4)}" pointer-events="none">${(floor?.rooms ?? []).map((r) => `<polygon points="${r.points.map(P).join(" ")}"/>`).join("")}</g>`);
+    for (const [side, q] of [["lo", Q(-L, 0)], ["hi", Q(L, 0)], ["a", Q(0, -W)], ["b", Q(0, W)]]) {
+      parts.push(`<circle data-kind="roofhandle" data-side="${side}" cx="${r3(q[0])}" cy="${r3(q[1])}" r="${px(9)}" fill="#ff9800" stroke="#fff" stroke-width="${px(2)}" style="cursor:grab"/>`);
+    }
+    parts.push(`<text x="${r3(fr.center[0])}" y="${r3(fr.center[1] + px(4))}" text-anchor="middle" font-size="${px(12)}" font-weight="600" fill="#fff" pointer-events="none">${fr.length.toFixed(2)} × ${fr.width.toFixed(2)} m</text>`);
   }
   // Himmelsrichtung
   const north = ((Number(ed.b.settings?.north) || 0) * Math.PI) / 180;
@@ -136,6 +152,19 @@ export function roofStartDrag(ed, ev, p) {
     ed.render();
     return { mode: "roofitem", id: it.id, off: [0, 0], first: false };
   }
+  if (t?.dataset.kind === "roofhandle" && ed.sel?.kind === "roofpart") {
+    const k = ed.sel.id;
+    const adj = (ed.b.settings.roof?.adjust ?? [])[k] ?? {};
+    return { mode: "roofhandle", part: k, side: t.dataset.side, start: p, base: Number(adj[t.dataset.side]) || 0, first: true };
+  }
+  if (t?.dataset.kind === "roofpart") {
+    const k = Number(t.dataset.part);
+    const adj = (ed.b.settings.roof?.adjust ?? [])[k] ?? {};
+    ed.sel = { kind: "roofpart", id: k };
+    ed.renderProps();
+    ed.render();
+    return { mode: "roofpart", part: k, start: p, base: { lo: Number(adj.lo) || 0, hi: Number(adj.hi) || 0, a: Number(adj.a) || 0, b: Number(adj.b) || 0 }, first: true };
+  }
   if (t?.dataset.kind === "roofitem") {
     const it = (ed.b.settings.roof?.items ?? []).find((x) => x.id === t.dataset.id);
     ed.sel = { kind: "roofitem", id: it.id };
@@ -151,9 +180,56 @@ export function roofStartDrag(ed, ev, p) {
   return { mode: "pan", sx: ev.clientX, sz: ev.clientY, tx: ed.tx, tz: ed.tz };
 }
 
+/** Anpassung eines Dachteils setzen (roof.adjust[k]); leere Einträge fallen weg. */
+function setAdjust(roof, k, next) {
+  const list = [...(roof.adjust ?? [])];
+  while (list.length <= k) list.push(null);
+  const clean = Object.fromEntries(Object.entries(next).filter(([, v]) => Math.abs(v) > 1e-9).map(([key, v]) => [key, r3(v)]));
+  list[k] = Object.keys(clean).length ? clean : null;
+  while (list.length && !list[list.length - 1]) list.pop();
+  if (list.length) roof.adjust = list;
+  else delete roof.adjust;
+}
+
+/** Dachteil k im Grundriss verschieben (Anfang/Ende und Traufen gleichmäßig). */
+export function roofNudgePart(ed, k, dx, dz, merge) {
+  const fr = roofModel(ed.b)?.parts[k];
+  if (!fr) return;
+  const ds = dx * fr.u[0] + dz * fr.u[1];
+  const dt = dx * fr.v[0] + dz * fr.v[1];
+  const a0 = (ed.b.settings.roof?.adjust ?? [])[k] ?? {};
+  ed.changeRoof((roof) => setAdjust(roof, k, { lo: (Number(a0.lo) || 0) - ds, hi: (Number(a0.hi) || 0) + ds, a: (Number(a0.a) || 0) - dt, b: (Number(a0.b) || 0) + dt }), { merge });
+}
+
 /** Ziehen eines Dach-Elements (aufs Raster). */
 export function roofMoveDrag(ed, drag, p) {
   const grid = ed.b.settings?.grid ?? 0.05;
+  if (drag.mode === "roofhandle" || drag.mode === "roofpart") {
+    // Richtungen des Teils ändern sich durch die Anpassung nicht: aus dem Modell ohne diese Bewegung
+    const fr = roofModel(ed.b)?.parts[drag.part];
+    if (!fr) return;
+    const dx = p[0] - drag.start[0];
+    const dz = p[1] - drag.start[1];
+    const snap = (v) => Math.round(v / grid) * grid;
+    const cur = (ed.b.settings.roof?.adjust ?? [])[drag.part] ?? {};
+    let next;
+    if (drag.mode === "roofhandle") {
+      const dir = { lo: [-fr.u[0], -fr.u[1]], hi: fr.u, a: [-fr.v[0], -fr.v[1]], b: fr.v }[drag.side];
+      const v = r3(drag.base + snap(dx * dir[0] + dz * dir[1]));
+      if (v === (Number(cur[drag.side]) || 0)) return;
+      next = { lo: Number(cur.lo) || 0, hi: Number(cur.hi) || 0, a: Number(cur.a) || 0, b: Number(cur.b) || 0, [drag.side]: v };
+      ed._toast(`${{ lo: "Anfang", hi: "Ende", a: "Traufe 1", b: "Traufe 2" }[drag.side]}: ${v >= 0 ? "+" : ""}${v.toFixed(2)} m`);
+    } else {
+      const ds = snap(dx * fr.u[0] + dz * fr.u[1]);
+      const dt = snap(dx * fr.v[0] + dz * fr.v[1]);
+      const b0 = drag.base;
+      next = { lo: b0.lo - ds, hi: b0.hi + ds, a: b0.a - dt, b: b0.b + dt };
+      if (["lo", "hi", "a", "b"].every((key) => Math.abs(next[key] - (Number(cur[key]) || 0)) < 1e-9)) return;
+    }
+    ed.changeRoof((roof) => setAdjust(roof, drag.part, next), { merge: !drag.first });
+    drag.first = false;
+    return;
+  }
   const x = r3(Math.round((p[0] - drag.off[0]) / grid) * grid);
   const z = r3(Math.round((p[1] - drag.off[1]) / grid) * grid);
   const it = (ed.b.settings.roof?.items ?? []).find((y) => y.id === drag.id);
@@ -182,6 +258,34 @@ export function roofProps(ed, el, pad, bindPad) {
     if (v === null || v === "" || v === undefined) delete obj[k];
     else obj[k] = v;
   };
+  if (ed.sel?.kind === "roofpart" && model?.parts[ed.sel.id]) {
+    const k = ed.sel.id;
+    const fr = model.parts[k];
+    const adj = (raw.adjust ?? [])[k] ?? {};
+    el.innerHTML = `<h3>Dachfläche ${k + 1} von ${model.parts.length}</h3>
+      <p class="muted">${fr.length.toFixed(2)} m lang (entlang First) × ${fr.width.toFixed(2)} m breit, inkl. Überstand ${roof.overhang.toFixed(2)} m. Gelb gestrichelt: die Hauswände darunter.</p>
+      <div class="row2">${num("lo", "Anfang (m, + länger)", adj.lo ?? 0)}${num("hi", "Ende (m, + länger)", adj.hi ?? 0)}</div>
+      <div class="row2">${num("a", "Traufe 1 (m, + breiter)", adj.a ?? 0)}${num("b", "Traufe 2 (m, + breiter)", adj.b ?? 0)}</div>
+      <p class="muted">Orange Punkte ziehen verschiebt die Kante, Fläche ziehen oder Pfeiltasten verschieben das ganze Dachteil. Der First bleibt mittig zwischen den Traufen.</p>
+      ${pad()}
+      <div class="btns"><button data-ract="partreset">Diese Fläche zurücksetzen</button>${raw.adjust?.length ? `<button data-ract="allreset">Alle Flächen zurücksetzen</button>` : ""}</div>`;
+    el.querySelectorAll("[data-rn]").forEach((inp) => inp.addEventListener("change", () => {
+      const v = Number(inp.value);
+      if (!Number.isFinite(v)) return;
+      ed.changeRoof((r) => setAdjust(r, k, { lo: Number(adj.lo) || 0, hi: Number(adj.hi) || 0, a: Number(adj.a) || 0, b: Number(adj.b) || 0, [inp.dataset.rn]: v }));
+      ed.renderProps();
+    }));
+    el.querySelector("[data-ract=partreset]").addEventListener("click", () => {
+      ed.changeRoof((r) => setAdjust(r, k, {}));
+      ed.renderProps();
+    });
+    el.querySelector("[data-ract=allreset]")?.addEventListener("click", () => {
+      ed.changeRoof((r) => delete r.adjust);
+      ed.renderProps();
+    });
+    bindPad();
+    return;
+  }
   if (sel) {
     const name = ROOF_ITEMS[sel.type]?.name ?? sel.type;
     const flat = !roofSurfaceAt(model, [sel.x, sel.z])?.out;

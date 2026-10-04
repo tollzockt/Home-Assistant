@@ -87,6 +87,7 @@ export function floorColor(room) {
 export const TEXTURES = [
   ["plaster", "Putz", "wg"],
   ["brick", "Klinker", "wg"],
+  ["timber", "Fachwerk", "w"],
   ["stone", "Naturstein", "wfg"],
   ["wood_v", "Holz senkrecht (Schalung)", "w"],
   ["wood_h", "Holz waagerecht", "w"],

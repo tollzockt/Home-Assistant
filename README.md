@@ -96,11 +96,17 @@ Ansicht **2D**, **2D + 3D** (nebeneinander, auf schmalen Geräten untereinander)
   Norden, Dachfarbe, **Dachdeckung** (Ziegel, Schiefer, Blech, Schindeln) sowie Farbe und Textur der
   **Giebel**. Kamin: Maße, Höhe über Dach, Drehung, Farbe, Textur. „Bisherige PV hier verschiebbar
   machen“ übernimmt die PV nach Himmelsrichtung als einzelne Felder.
+  **Dachflächen anpassen**: Fläche antippen, die orangen Punkte an den Kanten ziehen (oder Werte
+  eintragen), bis die Fläche genau auf den Hauswänden sitzt (gelb gestrichelt); die ganze Fläche ziehen
+  oder mit den Pfeilen schieben. Gespeichert als `roof.adjust` je Dachteil.
 - **Texturen** (nur Bild, kein Relief – schont Tablets): Auswahl neben jeder Farbe. Wände außen und innen
-  (Putz, Klinker, Naturstein, Holz senkrecht/waagerecht, Fassadenpaneele, Beton, Fliesen, Schiefer),
+  (Putz, Klinker, Fachwerk, Naturstein, Holz senkrecht/waagerecht, Fassadenpaneele, Beton, Fliesen, Schiefer),
   Böden (nach Belag automatisch: Dielen, Fliesen, Teppich, Stein, Beton), Gartenflächen (Rasen, Kies,
   Pflaster, Platten, Holzdeck, Asphalt, Erde) und Dach. „Standard“ wählt passend, „glatt“ schaltet ab.
   Die Farbe tönt die Textur. Im Cyberpunk-Stil bleibt alles glatt.
+- **Einzelne Wand gestalten**: Raum wählen, eine blaue Wand **antippen** (nicht ziehen) – oben erscheint
+  „Wand x von y“ mit Farbe und Textur innen (bei Außenwänden auch außen) nur für diese Wand, z. B.
+  **Fachwerk** an einer Wohnzimmerwand. Ein oranger Punkt markiert gestaltete Wände.
 - **Räume zeichnen**: Rechteck ziehen oder freie Form Punkt für Punkt. Eckpunkte rasten am Raster
   und an vorhandenen Ecken ein. Ecken ziehen, über „+“ neue Ecken einfügen.
 - **Einzelne Wände** (Werkzeug „Wand“): Anfang antippen, Ende antippen – fertig ist eine gerade Wand,
@@ -111,7 +117,9 @@ Ansicht **2D**, **2D + 3D** (nebeneinander, auf schmalen Geräten untereinander)
 - **Wände verschieben**: Raum wählen, dann eine blau markierte Wand ziehen. Sie wandert senkrecht (im
   Rasterschritt), angrenzende Räume ziehen mit, damit keine Lücke entsteht. Gemeinsame Ecken wandern
   ebenfalls in allen Räumen mit. Alt beim Ziehen = nur dieser Raum.
-- **Eigenes Dach je Raum** (Schuppen, Carport, Anbau): Art, Neigung, Überstand, Dachfarbe; dazu eine
+- **Eigenes Dach je Raum** (Schuppen, Carport, Anbau): Art, Neigung, Überstand, Firstrichtung bzw.
+  Neigungsrichtung, beim Pultdach „hohe Seite tauschen“, Dachfarbe und Deckung. Wählt man die Etage,
+  verschwindet das Raumdach samt Solarmodulen (man schaut hinein), ebenso mit „Dach“ aus; dazu eine
   **Außenfarbe** der Wände je Raum. Beim Schuppen mit Balkonkraftwerk liegen die Solarmodule auf den
   Dachflächen (Anzahl einstellbar).
 - **Räume zuordnen**: Name, Home-Assistant-Bereich, Bodenbelag (18 Beläge) oder eigene Bodenfarbe,
@@ -154,8 +162,8 @@ Damit HACS sie als Update anbietet, braucht es ein **Release**:
 
 1. Auf GitHub im Repository rechts **Releases → Draft a new release** (bzw. „Create a new release“).
 2. **Choose a tag** → neuen Tag eintippen, genau wie die Version in `manifest.json` mit „v“ davor,
-   z. B. `v0.13.0` → „Create new tag“. Ziel-Zweig: `main`.
-3. Titel z. B. `0.13.0`, kurze Beschreibung, bei „Release label“ **None** (nicht Pre-release),
+   z. B. `v0.13.1` → „Create new tag“. Ziel-Zweig: `main`.
+3. Titel z. B. `0.13.1`, kurze Beschreibung, bei „Release label“ **None** (nicht Pre-release),
    **Publish release**.
 4. In Home Assistant: **HACS → Haus 3D** (ggf. ⋮ → „Informationen aktualisieren“) → **Herunterladen**/
    **Aktualisieren** → Home Assistant **neu starten**.
@@ -195,7 +203,9 @@ floors[]          id, name, elevation, height, ha_floor
   rooms[]         id, name, area_id, points [[x, z], …] in Metern, floor_material,
                   floor_color, wall_color, exterior_color ("#rrggbb", optional),
                   floor_texture, wall_texture, exterior_texture (Textur, "none" = glatt),
-                  roof {type, pitch, overhang, color}, solar_panels (eigenes Dach je Raum)
+                  edge_styles {Kante: {color, texture, exterior_color, exterior_texture}},
+                  roof {type, pitch, overhang, color, direction, flip, texture},
+                  solar_panels (eigenes Dach je Raum)
   openings[]      id, room_id, edge, offset, width, type (window|door|garage), sill, height,
                   hinge, swing, style (passage|glass|front_glass|…), contact, cover
   outdoor[]       id, type (lawn|terrace|path|driveway|pool|bed|hedge|fence|balcony|gravel|paving|
@@ -210,7 +220,8 @@ settings          wall_exterior (0.24), wall_interior (0.12), wall_colors {exter
                   roof {type (none|flat|gable|hip|shed), pitch, overhang, direction (auto|x|z),
                         color, solar {N, E, S, W}, solar_arrays [{dir, cols, rows, orient, left, row}],
                         wing_end (gable|hip), floor, rooms, texture, gable_color, gable_texture,
-                        items [{id, type (chimney|skylight|pv), x, z, …}] (Dach-Ebene)}, north (Grad),
+                        items [{id, type (chimney|skylight|pv), x, z, …}],
+                        adjust [{lo, hi, a, b}] (Dach-Ebene)}, north (Grad),
                   cards [{id, title, icon, entities [{entity, name}]}] (bis 5), quick [{entity, name}],
                   weather (Entität oder "none")
 ```

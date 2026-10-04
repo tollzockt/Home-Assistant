@@ -220,3 +220,27 @@ test("Texturen: Standard je Fläche, eigene Wahl, glatt", async () => {
   assert.ok(textureOptions("r").some(([k]) => k === "roof_tiles"));
   assert.ok(!textureOptions("r").some(([k]) => k === "parquet"));
 });
+
+test("Dachteile von Hand anpassen: verlängern, verbreitern, verschieben", async () => {
+  const { adjustRoofParts, roofModel } = await import("../../custom_components/haus3d/frontend/exterior.js");
+  const fr = { center: [5, 3], u: [1, 0], v: [0, 1], length: 10, width: 6 };
+  const [a] = adjustRoofParts([fr], [{ hi: 1, b: 0.5 }]);
+  assert.equal(a.length, 11);
+  assert.equal(a.width, 6.5);
+  assert.deepEqual(a.center, [5.5, 3.25]);
+  // verschieben: lo −1, hi +1 → gleiche Länge, Mitte +1 entlang u
+  const [m] = adjustRoofParts([fr], [{ lo: -1, hi: 1 }]);
+  assert.deepEqual([m.length, m.center[0]], [10, 6]);
+  assert.equal(adjustRoofParts([fr], [null])[0], fr);
+  const b = { settings: { wall_exterior: 0, roof: { type: "gable", pitch: 30, overhang: 0, adjust: [{ a: 1 }] } }, floors: [{ id: "eg", elevation: 0, height: 2.5, rooms: [rect(0, 0, 10, 6)] }] };
+  assert.equal(roofModel(b).parts[0].width, 7);
+});
+
+test("Pultdach andersherum: hohe Seite getauscht", async () => {
+  const { adjustRoofParts, roofModel, roofSurfaceAt } = await import("../../custom_components/haus3d/frontend/exterior.js");
+  const fr = { center: [0, 0], u: [1, 0], v: [0, 1], length: 4, width: 2 };
+  assert.deepEqual(adjustRoofParts([fr], null, true)[0].v.map((x) => x + 0), [0, -1]);
+  const b = (flip) => ({ settings: { wall_exterior: 0, roof: { type: "shed", pitch: 20, overhang: 0, flip } }, floors: [{ id: "eg", elevation: 0, height: 2.5, rooms: [rect(0, 0, 4, 2)] }] });
+  const hi = (m) => (roofSurfaceAt(m, [2, 0.1]).y > roofSurfaceAt(m, [2, 1.9]).y ? "oben" : "unten");
+  assert.notEqual(hi(roofModel(b(false))), hi(roofModel(b(true))));
+});

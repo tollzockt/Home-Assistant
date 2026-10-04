@@ -142,7 +142,44 @@ export function insertVertex(floor, roomId, i, p) {
     if (o.edge === i && o.offset > cut) return { ...o, edge: i + 1, offset: r3(o.offset - cut) };
     return o;
   });
-  return { ...floor, rooms: floor.rooms.map((r) => (r.id === roomId ? { ...r, points } : r)), openings };
+  // Aussehen je Wand (edge_styles): die geteilte Kante behält es auf beiden Hälften
+  const styles = room.edge_styles ? {} : null;
+  for (const [k, st] of Object.entries(room.edge_styles ?? {})) {
+    const e = Number(k);
+    if (e < i) styles[e] = st;
+    else if (e === i) styles[i] = styles[i + 1] = st;
+    else styles[e + 1] = st;
+  }
+  return { ...floor, rooms: floor.rooms.map((r) => (r.id === roomId ? withStyles({ ...r, points }, styles) : r)), openings };
+}
+
+function withStyles(room, styles) {
+  if (styles && Object.keys(styles).length) room.edge_styles = styles;
+  else delete room.edge_styles;
+  return room;
+}
+
+/**
+ * Aussehen je Wand auf neue Eckpunkte übertragen: jede alte Kante gibt ihren Stil an die neue Kante,
+ * die ihrer Mitte am nächsten liegt.
+ */
+export function remapEdgeStyles(oldPoints, newPoints, styles) {
+  if (!styles) return null;
+  const out = {};
+  for (const [k, st] of Object.entries(styles)) {
+    const e = Number(k);
+    const a = oldPoints[e];
+    const b = oldPoints[(e + 1) % oldPoints.length];
+    if (!a || !b) continue;
+    const mid = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
+    let best = null;
+    for (let i = 0; i < newPoints.length; i++) {
+      const pr = projectOnSegment(mid, newPoints[i], newPoints[(i + 1) % newPoints.length]);
+      if (!best || pr.dist < best.dist) best = { i, dist: pr.dist };
+    }
+    if (best && best.dist < 0.2) out[best.i] = st;
+  }
+  return out;
 }
 
 /** Punkt löschen (mindestens 3 bleiben). Öffnungen der beiden betroffenen Kanten werden entfernt. */
@@ -155,7 +192,15 @@ export function removeVertex(floor, roomId, i) {
   const openings = floor.openings
     .filter((o) => o.room_id !== roomId || o.wall || (o.edge !== i && o.edge !== prev))
     .map((o) => (o.room_id === roomId && !o.wall && o.edge > i ? { ...o, edge: o.edge - 1 } : o));
-  return { ...floor, rooms: floor.rooms.map((r) => (r.id === roomId ? { ...r, points } : r)), openings };
+  // Kanten prev und i werden eine: sie behält den Stil von prev (sonst den von i)
+  const styles = room.edge_styles ? {} : null;
+  const old = room.edge_styles ?? {};
+  for (let e = 0; e < n; e++) {
+    if (e === i) continue;
+    const st = e === prev ? old[prev] ?? old[i] : old[e];
+    if (st) styles[e > i ? e - 1 : e] = st;
+  }
+  return { ...floor, rooms: floor.rooms.map((r) => (r.id === roomId ? withStyles({ ...r, points }, styles) : r)), openings };
 }
 
 /** Raum löschen samt seiner Öffnungen. */
@@ -292,7 +337,7 @@ export function cleanFloor(floor) {
       }
       return { ...o, edge: best.edge, offset: best.offset };
     });
-    out = { ...out, rooms: out.rooms.map((r) => (r.id === room.id ? { ...r, points: pts } : r)), openings };
+    out = { ...out, rooms: out.rooms.map((r) => (r.id === room.id ? withStyles({ ...r, points: pts }, remapEdgeStyles(room.points, pts, room.edge_styles)) : r)), openings };
   }
   return { floor: out, fixed };
 }
