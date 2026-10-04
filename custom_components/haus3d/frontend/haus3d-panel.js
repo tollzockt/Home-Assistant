@@ -15,6 +15,9 @@ import {
   placesOf,
   roomClimate,
   roomLit,
+  agoText,
+  persons,
+  roomPresence,
   groupRoomEntities,
   roomActions,
   stepTarget,
@@ -26,6 +29,7 @@ import { exportFile, normalize, parseImport } from "./model.js";
 import { SIM_WEATHER, Simulator } from "./sim.js";
 import { FUNCTION_KEYS, LEGACY_FUNCTION_KEYS, MAX_CARDS, WHEEL_VISIBLE, labelPlace, nextStyle, normalizeCards, normalizeFunctions, rotateWheel, wheelLayout, wheelPlusAngle } from "./hud.js";
 import { entityAction } from "./actions.js";
+import { entityPlaces, houseStatus, statusChips } from "./status.js";
 import { QUALITY_CHOICES, adaptDpr, resolveQuality } from "./perf.js";
 import { HouseScene } from "./scene.js";
 import { closeGaps } from "./walls.js";
@@ -72,6 +76,8 @@ const LAYERS = [
   ["labels", "Raumnamen"],
   ["climate", "Temperatur & Feuchte"],
   ["energy", "Energieanzeige"],
+  ["status", "Statusleiste (Licht, offen, Schlösser)"],
+  ["presence", "Anwesenheit (Personen, Bewegung)"],
 ];
 
 const DEFAULT_SETTINGS = { style: "auto", deviceMode: "icons", quality: "auto", perfHud: false, layers: Object.fromEntries(LAYERS.map(([k]) => [k, true])) };
@@ -456,6 +462,9 @@ class Haus3DPanel extends HTMLElement {
 
   disconnectedCallback() {
     this._scene?.stop();
+    clearInterval(this._tickTimer);
+    this._tickTimer = null;
+    this._tickers?.clear();
     clearInterval(this._qualityTimer);
     this._qualityTimer = null;
     document.removeEventListener("visibilitychange", this._onVisible);
@@ -471,6 +480,7 @@ class Haus3DPanel extends HTMLElement {
         <header>
           <button class="icon menu" title="Menü"><ha-icon icon="mdi:menu"></ha-icon></button>
           <div class="title">Haus 3D</div>
+          <div class="status" aria-label="Status"><div class="people"></div><div class="chips"></div></div>
           <div class="floors" role="tablist" aria-label="Etage"></div>
           <button class="icon temp" title="Temperaturansicht"><ha-icon icon="mdi:thermometer"></ha-icon></button>
           <button class="icon fit" title="Ansicht zurücksetzen"><ha-icon icon="mdi:fit-to-screen-outline"></ha-icon></button>
@@ -492,6 +502,9 @@ class Haus3DPanel extends HTMLElement {
     const $ = (s) => this.shadowRoot.querySelector(s);
     this._els = {
       floors: $(".floors"),
+      status: $(".status"),
+      people: $(".people"),
+      chips: $(".chips"),
       cards: $(".cards"),
       floorbar: $(".floorbar"),
       wheelL: $(".wheel.left"),
@@ -668,6 +681,8 @@ class Haus3DPanel extends HTMLElement {
     this._byArea = entitiesByArea(hass);
     this._links = buildingLinks(this._building, hass, this._byArea);
     this._computeWatched();
+    this._places = entityPlaces(this._building, hass, this._byArea, this._links);
+    this._chipKeys = null; // Statusleiste neu aufbauen
     this._buildOverlays();
     this._updateStates();
   }
@@ -729,7 +744,7 @@ class Haus3DPanel extends HTMLElement {
         const anchor = this._scene?.anchors.find((a) => a.key === `room:${floor.id}:${room.id}`);
         const el = document.createElement("div");
         el.className = "room";
-        el.innerHTML = `<div class="label"><b></b><div class="clim" hidden></div><div class="warn" hidden></div></div><div class="devs"></div>`;
+        el.innerHTML = `<div class="label"><b></b><div class="clim" hidden></div><div class="occ" hidden></div><div class="warn" hidden></div></div><div class="devs"></div>`;
         el.querySelector("b").textContent = room.name;
         const devs = el.querySelector(".devs");
         if (!threeD) for (const icon of icons.filter((i) => i.room === room.id && !i.manual)) devs.appendChild(this._iconEl(icon));
@@ -737,7 +752,7 @@ class Haus3DPanel extends HTMLElement {
         const pos = anchor?.position.clone() ?? new THREE.Vector3(0, elev, 0);
         pos.y += 0.95; // knapp 1 m über dem Boden (bei Hängen über der Fläche)
         const label = el.firstElementChild;
-        this._overlays.set(`room:${floor.id}:${room.id}`, { el, label, parts: { clim: label.querySelector(".clim"), warn: label.querySelector(".warn") }, floorId: floor.id, position: pos, room });
+        this._overlays.set(`room:${floor.id}:${room.id}`, { el, label, parts: { clim: label.querySelector(".clim"), occ: label.querySelector(".occ"), warn: label.querySelector(".warn") }, floorId: floor.id, position: pos, room });
       }
       // Geräte mit manueller Position (placements) stehen frei an ihrer Stelle
       for (const icon of icons.filter((i) => i.manual && !threeD)) {
@@ -937,6 +952,10 @@ class Haus3DPanel extends HTMLElement {
     const open = new Set();
     const covers = new Map();
     const roomAlerts = new Map();
+    const now = Date.now();
+    const showPresence = this._settings.layers.presence !== false;
+    const holdMs = Math.max(1, Number(this._building.settings?.presence?.hold_minutes) || 5) * 60000;
+    let recent = false;
     // Kontakte, die irgendeiner Öffnung (auf irgendeiner Etage) zugeordnet sind
     const linkedContacts = new Set([...this._links.values()].flatMap((m) => [...m.values()].map((l) => l.contact)).filter(Boolean));
     for (const floor of this._building.floors) {
@@ -970,6 +989,11 @@ class Haus3DPanel extends HTMLElement {
           if (climate.humidity != null) parts.push(`${fmt(climate.humidity, 0)} %`);
           setText(ov.parts.clim, parts.join(" · "));
           setText(ov.parts.warn, unassigned.length ? `${unassigned.length} offen` : "");
+          // Anwesenheit: Bewegung jetzt oder vor kurzem
+          const pr = showPresence ? roomPresence(room, hass, this._byArea, now, holdMs) : { level: null };
+          if (pr.level === "recent") recent = true;
+          setText(ov.parts.occ, pr.level === "occupied" ? "● Bewegung" : pr.level === "recent" ? `Bewegung ${agoText(now - pr.since)}` : "");
+          ov.parts.occ.classList.toggle("now", pr.level === "occupied");
         }
       }
     }
@@ -1006,6 +1030,144 @@ class Haus3DPanel extends HTMLElement {
     this._updateCards();
     this._updateWheelStates();
     this._renderLegend();
+    this._updateStatusBar();
+    this._updatePeople();
+    // „vor n min“ weiterzählen, solange ein Raum „kürzlich“ ist
+    this._needTick("presence", recent);
+  }
+
+  /**
+   * Gemeinsamer Takt (15 s) für zeitabhängige Anzeigen, nur solange ihn jemand braucht
+   * (Anwesenheit „vor n min“, später Hinweise mit Dauer, Ruhemodus).
+   */
+  _needTick(who, on) {
+    this._tickers = this._tickers ?? new Set();
+    if (on) this._tickers.add(who);
+    else this._tickers.delete(who);
+    if (this._tickers.size && !this._tickTimer) this._tickTimer = setInterval(() => this._onTick(), 15000);
+    else if (!this._tickers.size && this._tickTimer) {
+      clearInterval(this._tickTimer);
+      this._tickTimer = null;
+    }
+  }
+
+  _onTick() {
+    if (!this.isConnected || document.hidden) return;
+    if (this._tickers?.has("presence")) this._queueUpdate();
+  }
+
+  /** Statusleiste in der Kopfzeile: Chips werden nur neu gebaut, wenn sich ihre Art ändert. */
+  _updateStatusBar() {
+    const box = this._els?.chips;
+    if (!box || !this._places) return;
+    const show = this._settings.layers.status !== false;
+    this._els.status.hidden = !show && this._settings.layers.presence === false;
+    box.hidden = !show;
+    if (!show) return;
+    const status = houseStatus(this._building, this._hass, this._byArea, this._links, this._places);
+    this._status = status;
+    const chips = statusChips(status);
+    const keys = chips.map((c) => c.key).join(",");
+    if (keys !== this._chipKeys) {
+      this._chipKeys = keys;
+      box.innerHTML = chips.map((c) => `<button class="chip ${c.level}" data-key="${c.key}"><ha-icon icon="${c.icon}"></ha-icon><span></span></button>`).join("");
+      box.querySelectorAll(".chip").forEach((b) => b.addEventListener("click", (ev) => {
+        ev.stopPropagation();
+        this._statusPopup(b.dataset.key);
+      }));
+    }
+    for (const c of chips) {
+      const b = box.querySelector(`.chip[data-key="${c.key}"]`);
+      if (!b) continue;
+      setText(b.querySelector("span"), c.text);
+      b.title = c.text;
+    }
+    this._updateFloorBadges(status.perFloor);
+  }
+
+  /** Zahl offener Fenster bzw. brennender Lichter an den Etagen der Leiste. */
+  _updateFloorBadges(perFloor) {
+    const bar = this._els?.floorbar;
+    if (!bar) return;
+    for (const b of bar.querySelectorAll("[data-floor]")) {
+      const f = perFloor?.get(b.dataset.floor);
+      let badge = b.querySelector(".badge");
+      const n = f ? f.open || f.lights : 0;
+      if (!n || this._settings.layers.status === false) {
+        badge?.remove();
+        continue;
+      }
+      if (!badge) {
+        badge = document.createElement("span");
+        b.appendChild(badge);
+      }
+      badge.className = `badge${f.open ? " warn" : ""}`;
+      badge.textContent = String(n);
+      b.title = [f.open ? `${f.open} offen` : "", f.lights ? `${f.lights} Licht an` : ""].filter(Boolean).join(" · ");
+    }
+  }
+
+  /** Liste zu einem Chip: nach Etage, Tipp springt zum Raum; bei Lichtern „Alle Lichter aus“. */
+  _statusPopup(key) {
+    this._closePopup();
+    const st = this._status;
+    if (!st) return;
+    const hass = this._hass;
+    const list = key === "lights" ? st.lights : key === "open" ? st.open.filter((o) => o.kind !== "garage") : key === "garage" ? st.open.filter((o) => o.kind === "garage") : key === "locks" ? st.unlocked : key === "alarm" && st.alarm ? [st.alarm] : [];
+    const title = { lights: "Licht an", open: "Offen", garage: "Tore offen", locks: "Schlösser offen", alarm: "Alarmanlage", ok: "Alles zu" }[key];
+    const el = document.createElement("div");
+    el.className = "popup statuspop";
+    const floors = [...(this._building.floors ?? [])].sort((a, b) => b.elevation - a.elevation);
+    let html = `<div class="head">${esc(title)} (${list.length})</div><div class="scroll">`;
+    for (const f of floors) {
+      const items = list.filter((x) => x.floorId === f.id);
+      if (!items.length) continue;
+      html += `<div class="sub">${esc(f.name)}</div>`;
+      for (const it of items) {
+        const room = placesOf(f).find((r) => r.id === it.roomId);
+        const name = hass.states[it.entity_id]?.attributes?.friendly_name ?? it.entity_id;
+        html += `<button data-floor="${esc(f.id)}" data-room="${esc(it.roomId ?? "")}" data-entity="${esc(it.entity_id)}"><span>${esc(room?.name ?? "")} · ${esc(name)}${it.state === "tilted" ? " (gekippt)" : ""}</span></button>`;
+      }
+    }
+    if (!list.length) html += `<div class="item"><span>Alle Fenster, Türen und Schlösser sind zu.</span></div>`;
+    html += `</div>`;
+    if (key === "lights" && list.length) html += `<div class="foot"><button class="alloff"><ha-icon icon="mdi:lightbulb-off-outline"></ha-icon><span>Alle Lichter aus</span></button></div>`;
+    el.innerHTML = html;
+    el.querySelectorAll("[data-entity]").forEach((b) => b.addEventListener("click", (ev) => {
+      ev.stopPropagation();
+      this._closePopup();
+      if (b.dataset.room) {
+        this._setFilter(b.dataset.floor);
+        this._selectRoom({ floorId: b.dataset.floor, roomId: b.dataset.room });
+      } else this._moreInfo(b.dataset.entity);
+    }));
+    el.querySelector(".alloff")?.addEventListener("click", (ev) => {
+      ev.stopPropagation();
+      this._closePopup();
+      hass.callService("light", "turn_off", { entity_id: list.map((x) => x.entity_id) }).then(() => this._toast(`${list.length} Lichter aus`)).catch((err) => this._toast(`Fehlgeschlagen: ${err.message ?? err}`));
+    });
+    el.addEventListener("click", (ev) => ev.stopPropagation());
+    this._els.stage.appendChild(el);
+    this._popup = el;
+  }
+
+  /** Personen als runde Bilder (zu Hause farbig, unterwegs grau mit Ort). */
+  _updatePeople() {
+    const box = this._els?.people;
+    if (!box) return;
+    const hide = this._settings.layers.presence === false || this._building?.settings?.presence?.hide_persons;
+    const list = hide ? [] : persons(this._hass);
+    const sig = list.map((p) => `${p.entity_id}|${p.home}|${p.zone}|${p.picture}`).join(";") + (this._settings.initialsOnly ? "|i" : "");
+    if (sig === this._peopleSig) return;
+    this._peopleSig = sig;
+    box.hidden = !list.length;
+    box.innerHTML = list
+      .map((p) => {
+        const pic = p.picture && !this._settings.initialsOnly ? `<img alt="" src="${esc(p.picture)}">` : `<span class="ini">${esc(p.name.slice(0, 2).toUpperCase())}</span>`;
+        return `<button class="avatar${p.home ? " home" : " away"}" data-entity="${esc(p.entity_id)}" title="${esc(`${p.full}: ${p.zone}`)}">${pic}${p.home ? "" : `<small>${esc(p.zone)}</small>`}</button>`;
+      })
+      .join("");
+    box.querySelectorAll(".avatar").forEach((b) => b.addEventListener("click", () => this._moreInfo(b.dataset.entity)));
   }
 
   // ------------------------------------------------------------------ Editor
@@ -1078,6 +1240,11 @@ class Haus3DPanel extends HTMLElement {
     ov.classList.toggle("hide-climate", l.climate === false);
     ov.classList.toggle("hide-devices", l.devices === false);
     if (this._energyEl) this._energyEl.hidden = l.energy === false;
+    if (this._building && this._places) {
+      this._peopleSig = null;
+      this._updateStatusBar();
+      this._updatePeople();
+    }
     this._renderWheels?.();
   }
 
@@ -1500,6 +1667,9 @@ class Haus3DPanel extends HTMLElement {
     const parts = [];
     if (climate.temperature != null) parts.push(`${fmt(climate.temperature)} °C`);
     if (climate.humidity != null) parts.push(`${fmt(climate.humidity, 0)} %`);
+    const pr = this._settings.layers.presence !== false ? roomPresence(room, hass, this._byArea, Date.now(), Math.max(1, Number(this._building.settings?.presence?.hold_minutes) || 5) * 60000) : { level: null };
+    if (pr.level === "occupied") parts.push("Bewegung");
+    else if (pr.level === "recent") parts.push(`Bewegung ${agoText(Date.now() - pr.since)}`);
     p.el.querySelector(".rp-sub").textContent = [floor.name, ...parts].join(" · ") + (room.area_id ? "" : " · kein Bereich zugeordnet");
     const light = p.el.querySelector(".act-light span");
     if (light) {
@@ -1756,6 +1926,7 @@ class Haus3DPanel extends HTMLElement {
       `<button class="arrow" data-step="1" title="Etage tiefer"${idx >= order.length - 1 ? " disabled" : ""}><ha-icon icon="mdi:chevron-down"></ha-icon></button>`;
     bar.querySelectorAll("[data-floor]").forEach((b) => b.addEventListener("click", () => this._setFilter(b.dataset.floor)));
     bar.querySelectorAll("[data-step]").forEach((b) => b.addEventListener("click", () => this._setFilter(order[Math.min(order.length - 1, Math.max(0, idx + Number(b.dataset.step)))])));
+    this._updateFloorBadges(this._status?.perFloor);
   }
 
   /** Eingebaute Funktionen (Umschalter der Ansicht), nach Schlüssel. */
@@ -1787,6 +1958,7 @@ class Haus3DPanel extends HTMLElement {
       labels: layer("labels", "mdi:label-outline", "Raumnamen"),
       devices: layer("devices", "mdi:lightbulb-group-outline", "Geräte"),
       furniture: layer("furniture", "mdi:sofa-outline", "Möbel"),
+      presence: layer("presence", "mdi:motion-sensor", "Anwesenheit"),
       fit: { icon: "mdi:fit-to-screen-outline", name: "Ansicht einpassen", on: false, run: () => this._scene?.fitCamera() },
     };
   }

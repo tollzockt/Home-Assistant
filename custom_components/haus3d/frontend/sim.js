@@ -52,7 +52,7 @@ export class Simulator {
   }
 
   /**
-   * Beispielgeräte für Räume ohne eigene Geräte: Licht, Temperatur und Fensterkontakt je Raum.
+   * Beispielgeräte für Räume ohne eigene Geräte: Licht, Temperatur, Fensterkontakt und Bewegungsmelder je Raum.
    * Sie hängen am Bereich des Raums (oder einem eigenen Sim-Bereich, wenn der Raum keinen hat).
    */
   makeDemo(building, real) {
@@ -73,6 +73,7 @@ export class Simulator {
         add(`light.sim_${slug}`, k % 3 === 0 ? "on" : "off", { friendly_name: `${name} Licht (Sim)` });
         add(`sensor.sim_${slug}_temperatur`, (19.5 + ((k * 1.7) % 5)).toFixed(1), { friendly_name: `${name} Temperatur (Sim)`, device_class: "temperature", unit_of_measurement: "°C" });
         add(`binary_sensor.sim_${slug}_fenster`, "off", { friendly_name: `${name} Fenster (Sim)`, device_class: "window" });
+        add(`binary_sensor.sim_${slug}_bewegung`, k % 4 === 1 ? "on" : "off", { friendly_name: `${name} Bewegung (Sim)`, device_class: "motion" });
         if (!room.area_id) room.area_id = area; // nur in der Sim-Kopie des Gebäudes
         k++;
       }

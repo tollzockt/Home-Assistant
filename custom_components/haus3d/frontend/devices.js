@@ -348,7 +348,9 @@ export function watchedEntities(building, hass, byArea, { links = null, extra = 
           const cls = hass.states[id]?.attributes?.device_class;
           if (cls === "temperature" || cls === "humidity") ids.add(id);
         } else if (iconKind(hass.states[id])) ids.add(id);
+        else if (d === "lock" || d === "alarm_control_panel") ids.add(id); // Statusleiste
       }
+      for (const id of presenceSensors(room, hass, byArea)) ids.add(id); // Anwesenheit
       for (const id of room.panel ?? []) ids.add(id);
       for (const key of ["temperature", "humidity"]) {
         const fixed = room.climate?.[key];
@@ -369,6 +371,7 @@ export function watchedEntities(building, hass, byArea, { links = null, extra = 
   // verknüpfte Kontakte und Rollläden der Öffnungen
   if (links) for (const per of links.values()) for (const l of per.values()) for (const id of [l.contact, l.cover]) put(id);
   for (const id of extra) put(id);
+  for (const id of Object.keys(hass?.states ?? {})) if (id.startsWith("person.")) ids.add(id);
   return [...ids].sort();
 }
 
@@ -446,4 +449,52 @@ export function stepTarget(climate, current, n) {
   const step = climate.step || 0.5;
   const v = Math.round((base + n * step) / step) * step;
   return Math.min(climate.max, Math.max(climate.min, Math.round(v * 100) / 100));
+}
+
+// ------------------------------------------------------------------ Anwesenheit
+
+/** Bewegungs- und Anwesenheitsmelder. */
+export const PRESENCE_CLASSES = ["motion", "occupancy", "presence"];
+
+/** Melder eines Raums: room.presence (eigene Wahl) oder die passenden binary_sensors im Bereich. */
+export function presenceSensors(room, hass, byArea) {
+  if (Array.isArray(room?.presence) && room.presence.length) return room.presence.filter((id) => typeof id === "string");
+  return (byArea.get(room?.area_id) ?? []).filter((id) => domainOf(id) === "binary_sensor" && PRESENCE_CLASSES.includes(hass.states[id]?.attributes?.device_class) && isShown(hass, id));
+}
+
+/**
+ * Anwesenheit im Raum: "occupied" (Melder an), "recent" (vor weniger als holdMs aus), sonst null.
+ * since: Zeitpunkt der letzten Änderung des jüngsten Melders (ms).
+ */
+export function roomPresence(room, hass, byArea, now = Date.now(), holdMs = 5 * 60000) {
+  let best = { level: null, since: null };
+  for (const id of presenceSensors(room, hass, byArea)) {
+    const st = hass.states[id];
+    if (!st || st.state === "unavailable" || st.state === "unknown") continue;
+    const t = Date.parse(st.last_changed ?? st.last_updated ?? "") || null;
+    if (st.state === "on") {
+      if (best.level !== "occupied" || (t && t > (best.since ?? 0))) best = { level: "occupied", since: t };
+    } else if (best.level !== "occupied" && t && now - t < holdMs && t > (best.since ?? 0)) best = { level: "recent", since: t };
+  }
+  return best;
+}
+
+/** „gerade eben“, „vor 3 min“, „vor 2 h“. */
+export function agoText(ms) {
+  if (ms == null || !Number.isFinite(ms) || ms < 60000) return "gerade eben";
+  if (ms < 3600000) return `vor ${Math.floor(ms / 60000)} min`;
+  return `vor ${Math.floor(ms / 3600000)} h`;
+}
+
+/** Personen (person.*): Name (erstes Wort), Bild, zu Hause, Ort. */
+export function persons(hass) {
+  return Object.keys(hass?.states ?? {})
+    .filter((id) => id.startsWith("person."))
+    .sort()
+    .map((id) => {
+      const st = hass.states[id];
+      const full = st.attributes?.friendly_name ?? id.slice(7);
+      const zone = st.state === "home" ? "zu Hause" : st.state === "not_home" ? "unterwegs" : st.state;
+      return { entity_id: id, name: String(full).split(/\s+/)[0], full, picture: st.attributes?.entity_picture ?? null, home: st.state === "home", zone };
+    });
 }
