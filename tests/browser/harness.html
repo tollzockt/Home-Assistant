@@ -87,6 +87,7 @@ const energy = {
   "sensor.pv_ertrag_heute": st("sensor.pv_ertrag_heute", "1.234", { unit_of_measurement: "kWh" }),
 };
 for (const s of Object.values(energy)) add(s, "balkonkraftwerk");
+for (const [id, name] of [["automation.abend", "Abendstimmung"], ["script.garage", "Garage auf"], ["scene.kino", "Kino"], ["button.klingel", "Klingel"]]) add(st(id, "on", { friendly_name: name }), null);
 if (params.get("weather")) add(st("weather.zuhause", params.get("weather"), { friendly_name: "Zuhause" }), null);
 window.calls = [];
 window.events = [];

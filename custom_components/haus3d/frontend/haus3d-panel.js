@@ -22,6 +22,7 @@ import {
 import { ROOF_TYPES, roofSettings, weatherEntity, weatherKind } from "./exterior.js";
 import { exportFile, normalize, parseImport } from "./model.js";
 import { SIM_WEATHER, Simulator } from "./sim.js";
+import { MAX_CARDS, WHEEL_VISIBLE, nextStyle, normalizeCards, quickService, rotateWheel, wheelLayout } from "./hud.js";
 import { HouseScene } from "./scene.js";
 import { closeGaps } from "./walls.js";
 import { EDITOR_STYLE, FloorEditor } from "./editor.js";
@@ -57,6 +58,7 @@ const LAYERS = [
   ["floors", "Böden"],
   ["furniture", "Möbel"],
   ["garden", "Garten"],
+  ["grid", "Raster im Hintergrund"],
   ["roof", "Dach (in „Alle“)"],
   ["weather", "Wetter (Regen, Schnee)"],
   ["solar", "Solarmodule"],
@@ -155,7 +157,7 @@ const STYLE = `
 [hidden] { display: none !important; }
 .hide-labels .label, .hide-devices .devs, .hide-devices .dev.free, .hide-climate .label .clim { display: none !important; }
 .dialog-backdrop { position: absolute; inset: 0; background: rgba(0,0,0,.35); z-index: 10; display: flex; align-items: flex-start; justify-content: flex-end; padding: 8px; }
-.dialog { background: var(--card-background-color, #fff); color: var(--primary-text-color); border-radius: 14px; width: min(360px, 100%); max-height: calc(100% - 16px); overflow: auto; box-shadow: 0 8px 28px rgba(0,0,0,.4); }
+.dialog { background: var(--card-background-color, #fff); color: var(--primary-text-color); border-radius: 14px; width: min(440px, 100%); max-height: calc(100% - 16px); overflow: auto; box-shadow: 0 8px 28px rgba(0,0,0,.4); }
 .dialog-head { display: flex; align-items: center; justify-content: space-between; padding: 6px 6px 6px 16px; font-size: 17px; font-weight: 500; border-bottom: 1px solid var(--divider-color, rgba(127,127,127,.2)); }
 .dialog-body { padding: 4px 16px 16px; }
 .dialog h4 { margin: 14px 0 6px; font-size: 13px; font-weight: 500; color: var(--secondary-text-color); text-transform: uppercase; letter-spacing: .04em; }
@@ -234,6 +236,52 @@ button.icon.menu { display: none; }
 }
 .floors button.sel { background: var(--card-background-color, #fff); color: var(--primary-text-color); }
 .stage { position: relative; flex: 1; min-height: 0; overflow: hidden; }
+header .floors, header .temp, header .fit { display: none; }
+/* Kartenleiste oben rechts: Energie + bis zu 5 eigene Karten, jede einzeln aufklappbar */
+.cards { position: absolute; top: 10px; right: 10px; left: 60px; display: flex; flex-direction: row-reverse; flex-wrap: wrap; align-items: flex-start; gap: 8px; pointer-events: none; z-index: 4; }
+.cards > * { pointer-events: auto; }
+.cards .energy, .cards .card { position: static; }
+.card { background: var(--card-background-color, #fff); color: var(--primary-text-color); border-radius: var(--ha-card-border-radius, 12px); padding: 10px 12px; font-size: 13px; min-width: 170px; max-width: 260px; box-shadow: var(--ha-card-box-shadow, 0 2px 6px rgba(0,0,0,.25)); --mdc-icon-size: 18px; }
+.card h3 { margin: 0 0 6px; font-size: 14px; font-weight: 500; display: flex; align-items: center; gap: 6px; cursor: pointer; user-select: none; min-height: 32px; }
+.card h3 span { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.card h3 .cedit { opacity: .55; }
+.card h3 .cedit:hover { opacity: 1; }
+.card .chev, .energy .chev { transition: transform .2s; }
+.card.collapsed h3 { margin: 0; }
+.card.collapsed .chev { transform: rotate(-90deg); }
+.card.collapsed .row { display: none; }
+.card .row { display: flex; align-items: center; gap: 8px; padding: 2px 0; cursor: pointer; }
+.card .row span { margin-right: auto; color: var(--secondary-text-color); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.card .row b { font-weight: 500; white-space: nowrap; }
+.card .short, .energy .short { display: none; font-weight: 500; margin-left: 4px; }
+.card.collapsed .short, .energy.collapsed .short { display: inline; }
+.cards .addcard { width: 44px; height: 44px; border-radius: 12px; border: 2px dashed var(--primary-color, #03a9f4); background: color-mix(in srgb, var(--card-background-color, #fff) 70%, transparent); color: var(--primary-color, #03a9f4); font-size: 24px; cursor: pointer; display: flex; align-items: center; justify-content: center; }
+/* Etagen-Leiste rechts */
+.floorbar { position: absolute; right: 10px; top: 50%; transform: translateY(-50%); z-index: 4; display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 6px 5px; border-radius: 24px; background: color-mix(in srgb, var(--card-background-color, #fff) 92%, transparent); color: var(--primary-text-color); box-shadow: 0 2px 10px rgba(0,0,0,.25); }
+.floorbar button { border: none; background: none; color: inherit; font: inherit; font-size: 12px; font-weight: 600; min-width: 46px; min-height: 36px; border-radius: 14px; cursor: pointer; padding: 0 6px; }
+.floorbar button.sel { background: var(--primary-color, #03a9f4); color: #fff; }
+.floorbar button.arrow { min-height: 28px; opacity: .65; --mdc-icon-size: 20px; }
+.floorbar button:disabled { opacity: .25; cursor: default; }
+/* Rad-Menüs unten links (Kurzwahl) und unten rechts (Funktionen) */
+.wheel { position: absolute; bottom: 14px; width: 0; height: 0; z-index: 5; }
+.wheel.left { left: 14px; } .wheel.right { right: 14px; }
+.wheel .fab { position: absolute; bottom: 0; width: 56px; height: 56px; border-radius: 50%; border: none; background: #fff; color: #222; box-shadow: 0 4px 16px rgba(0,0,0,.35); cursor: pointer; display: flex; align-items: center; justify-content: center; --mdc-icon-size: 26px; }
+.wheel.left .fab { left: 0; } .wheel.right .fab { right: 0; }
+.wheel .bub { position: absolute; width: 48px; height: 48px; margin: 4px; border-radius: 50%; border: none; cursor: pointer; display: flex; align-items: center; justify-content: center; background: var(--card-background-color, #fff); color: var(--primary-text-color); box-shadow: 0 3px 10px rgba(0,0,0,.3); --mdc-icon-size: 22px; transition: left .25s, right .25s, bottom .25s, opacity .25s, transform .25s; opacity: 0; transform: scale(.4); pointer-events: none; }
+.wheel.open .bub.vis { opacity: 1; transform: scale(1); pointer-events: auto; }
+.wheel .bub.on { background: var(--primary-color, #03a9f4); color: #fff; }
+.wheel .bub .lab { position: absolute; top: 14px; white-space: nowrap; font-size: 11px; padding: 2px 7px; border-radius: 8px; background: rgba(0,0,0,.72); color: #fff; pointer-events: none; }
+.wheel.left .bub .lab { left: 54px; } .wheel.right .bub .lab { right: 54px; }
+.wheel .more { position: absolute; bottom: 62px; font-size: 11px; color: var(--secondary-text-color); white-space: nowrap; opacity: 0; transition: opacity .2s; pointer-events: none; }
+.wheel.left .more { left: 2px; } .wheel.right .more { right: 2px; }
+.wheel.open .more { opacity: .9; }
+.legend { left: 50% !important; transform: translateX(-50%); bottom: 80px !important; }
+.qedit .qrow { display: flex; gap: 6px; align-items: center; margin: 4px 0; }
+.qedit .qrow input { flex: 1; min-width: 0; font: inherit; font-size: 13px; padding: 7px; border-radius: 8px; border: 1px solid var(--divider-color, rgba(127,127,127,.4)); background: var(--primary-background-color, #fff); color: inherit; }
+.qedit .qrow input.nm { flex: 0 0 110px; }
+.pvarr { display: grid; grid-template-columns: 62px 1fr 1fr 66px 1fr 1fr 30px; gap: 4px; align-items: center; font-size: 12px; margin: 3px 0; }
+.pvarr input, .pvarr select { font: inherit; font-size: 12px; padding: 5px 3px; border-radius: 6px; border: 1px solid var(--divider-color, rgba(127,127,127,.4)); background: var(--primary-background-color, #fff); color: var(--primary-text-color); min-width: 0; }
+.pvarr.head { color: var(--secondary-text-color); }
 .house-cfg .swatches { display: flex; flex-wrap: wrap; gap: 4px; margin: 2px 0 6px 96px; }
 .house-cfg .swatches button { width: 22px; height: 22px; border-radius: 6px; border: 1px solid rgba(127,127,127,.5); padding: 0; cursor: pointer; }
 .house-cfg .rc-reset { font: inherit; font-size: 12px; padding: 5px 8px; border-radius: 8px; border: 1px solid var(--divider-color, rgba(127,127,127,.4)); background: none; color: inherit; cursor: pointer; }
@@ -241,7 +289,7 @@ button.icon.menu { display: none; }
 .pvrow { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
 .pvrow label { display: flex; flex-direction: column; font-size: 12px; color: var(--secondary-text-color); }
 .pvrow input { font: inherit; padding: 6px; border-radius: 8px; border: 1px solid var(--divider-color, rgba(127,127,127,.4)); background: var(--primary-background-color, #fff); color: var(--primary-text-color); }
-.simbar { position: absolute; left: 50%; top: 8px; transform: translateX(-50%); z-index: 6; display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; max-width: calc(100% - 24px); padding: 6px 10px; border-radius: 12px; background: repeating-linear-gradient(135deg, #ff9800 0 12px, #fb8c00 12px 24px); color: #1b1b1b; font-size: 13px; box-shadow: 0 2px 10px rgba(0,0,0,.35); }
+.simbar { position: absolute; left: 50%; bottom: 14px; transform: translateX(-50%); z-index: 6; display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; max-width: calc(100% - 24px); padding: 6px 10px; border-radius: 12px; background: repeating-linear-gradient(135deg, #ff9800 0 12px, #fb8c00 12px 24px); color: #1b1b1b; font-size: 13px; box-shadow: 0 2px 10px rgba(0,0,0,.35); }
 .simbar b { letter-spacing: .08em; }
 .simbar select, .simbar input[type=range] { font: inherit; font-size: 12px; border-radius: 6px; border: none; padding: 3px; max-width: 130px; }
 .simbar label { display: inline-flex; align-items: center; gap: 4px; }
@@ -570,12 +618,20 @@ class Haus3DPanel extends HTMLElement {
           <div class="canvas"></div>
           <div class="overlay"></div>
           <div class="msg">Lade Grundriss …</div>
+          <div class="cards"></div>
+          <div class="floorbar" role="tablist" aria-label="Etage"></div>
+          <div class="wheel left"></div>
+          <div class="wheel right"></div>
         </div>
       </div>
       <input type="file" accept="application/json,.json" hidden>`;
     const $ = (s) => this.shadowRoot.querySelector(s);
     this._els = {
       floors: $(".floors"),
+      cards: $(".cards"),
+      floorbar: $(".floorbar"),
+      wheelL: $(".wheel.left"),
+      wheelR: $(".wheel.right"),
       temp: $(".temp"),
       more: $(".more"),
       stage: $(".stage"),
@@ -716,6 +772,8 @@ class Haus3DPanel extends HTMLElement {
       }),
     );
     this._els.floors.hidden = floors.length < 2;
+    this._renderFloorbar(options);
+    this._renderWheels();
     this._els.temp.classList.toggle("on", this._tempMode);
     this._els.more.hidden = !this._hass?.user?.is_admin;
     this.shadowRoot.querySelector(".edit").hidden = !this._hass?.user?.is_admin || !this._scene;
@@ -743,6 +801,9 @@ class Haus3DPanel extends HTMLElement {
     this._links = buildingLinks(this._building, hass, this._byArea);
     this._watched = watchedEntities(this._building, hass, this._byArea);
     for (const links of this._links.values()) for (const l of links.values()) for (const id of [l.contact, l.cover]) if (id) this._watched.push(id);
+    // Karten und Kurzwahl zeigen Zustände: auch beobachten
+    for (const c of normalizeCards(this._building.settings?.cards)) for (const e of c.entities) this._watched.push(e.entity);
+    for (const q of this._building.settings?.quick ?? []) if (q?.entity) this._watched.push(q.entity);
     this._buildOverlays();
     this._watchedRefs = this._watched.map((id) => hass.states[id]);
     this._updateStates();
@@ -819,19 +880,30 @@ class Haus3DPanel extends HTMLElement {
       rows.forEach((r, i) => (el.querySelector(`.row[data-i="${i}"] span`).textContent = r.name));
       el.querySelector("h3").addEventListener("click", () => {
         this._energyCollapsed = el.classList.toggle("collapsed");
+        this._cardState({ energie: this._energyCollapsed });
       });
       el.querySelectorAll(".row").forEach((row) => {
         row.style.cursor = "pointer";
         row.addEventListener("click", () => this._moreInfo(rows[Number(row.dataset.i)].entity));
       });
       // eingeklappt bleibt eingeklappt (auch nach Neuaufbau); Standard: auf schmalen Bildschirmen zu
-      const collapsed = this._energyCollapsed ?? !!window.matchMedia?.("(max-width: 600px)").matches;
+      const collapsed = this._energyCollapsed ?? this._cardState().energie ?? !!window.matchMedia?.("(max-width: 600px)").matches;
       el.classList.toggle("collapsed", collapsed);
-      this._els.stage.appendChild(el);
+      el.querySelector("h3 span").insertAdjacentHTML("afterend", `<b class="short"></b>`);
+      if (this._hass?.user?.is_admin) {
+        el.querySelector(".chev").insertAdjacentHTML("beforebegin", `<ha-icon class="cedit" icon="mdi:pencil-outline" title="Anpassen"></ha-icon>`);
+        el.querySelector(".cedit").addEventListener("click", (ev) => {
+          ev.stopPropagation();
+          this._openSettings();
+          setTimeout(() => this._dialog?.querySelector(".energy-cfg")?.scrollIntoView({ block: "start" }), 50);
+        });
+      }
+      this._els.cards.appendChild(el);
       this._energyEl = el;
       this._energyRows = rows;
       el.hidden = this._settings.layers.energy === false;
     }
+    this._renderCards();
     this._positionOverlays();
   }
 
@@ -976,7 +1048,13 @@ class Haus3DPanel extends HTMLElement {
           : hass.states[r.entity] ? (hass.formatEntityState ? hass.formatEntityState(hass.states[r.entity]) : hass.states[r.entity].state) : "–";
         row.querySelector("b").textContent = text;
       }
+      // eingeklappt: erster Wert als Kurzanzeige
+      const first = this._energyEl.querySelector(".row b");
+      const short = this._energyEl.querySelector(".short");
+      if (short) short.textContent = first?.textContent ?? "";
     }
+    this._updateCards();
+    this._updateWheelStates();
     this._renderLegend();
   }
 
@@ -1052,6 +1130,7 @@ class Haus3DPanel extends HTMLElement {
     ov.classList.toggle("hide-climate", l.climate === false);
     ov.classList.toggle("hide-devices", l.devices === false);
     if (this._energyEl) this._energyEl.hidden = l.energy === false;
+    this._renderWheels?.();
   }
 
   _openSettings() {
@@ -1147,6 +1226,7 @@ class Haus3DPanel extends HTMLElement {
       <label class="en-row"><span>Überstand (m)</span><input data-r="overhang" type="number" min="0" max="1.5" step="0.05" value="${roof.overhang}"></label>
       <label class="en-row"><span>Dachfarbe</span><input type="color" data-rc value="${/^#[0-9a-f]{6}$/i.test(roof.color ?? "") ? roof.color : "#9a4a36"}"><button class="rc-reset" title="Standardfarbe">Standard</button></label>
       <div class="swatches">${["#9a4a36", "#b5523b", "#6e2f25", "#4a3b32", "#3a3d42", "#23262b", "#5f6670", "#8c8f94", "#2f4f3f", "#3f5a78"].map((c) => `<button data-rcs="${c}" style="background:${c}" title="${c}"></button>`).join("")}</div>
+      <label class="en-row"><span>Flügel-Ende</span><select data-r="wing_end"><option value="gable"${roof.wing_end !== "hip" ? " selected" : ""}>Giebel</option><option value="hip"${roof.wing_end === "hip" ? " selected" : ""}>Walm (abgeschrägt)</option></select></label>
       <label class="en-row"><span>First</span><select data-r="direction">${[["auto", "lange Seite"], ["x", "Ost–West im Plan"], ["z", "Nord–Süd im Plan"]].map(([k, n]) => `<option value="${k}"${k === roof.direction ? " selected" : ""}>${n}</option>`).join("")}</select></label>
       <label class="en-row"><span>Wetter</span><select data-w>
         <option value=""${weather === "" ? " selected" : ""}>automatisch${weathers[0] ? ` (${esc(weathers[0])})` : ""}</option>
@@ -1155,9 +1235,35 @@ class Haus3DPanel extends HTMLElement {
       </select></label>
       <h4>PV auf dem Dach (Anzahl Module je Richtung)</h4>
       <div class="pvrow">${[["E", "Ost"], ["S", "Süd"], ["W", "West"], ["N", "Nord"]].map(([k, n]) => `<label><span>${n}</span><input type="number" min="0" max="60" step="1" data-pv="${k}" value="${Number(roof.solar?.[k]) || 0}"></label>`).join("")}</div>
+      <h4>PV-Felder (genaue Anordnung, ersetzt die Anzahl oben)</h4>
+      <div class="pvarrays"></div>
+      <div class="btns"><button class="pvadd">+ PV-Feld</button></div>
       <label class="en-row"><span>Norden</span><select data-north>${[[0, "oben im Plan"], [90, "rechts im Plan"], [180, "unten im Plan"], [270, "links im Plan"]].map(([v, n]) => `<option value="${v}"${Number(this._building?.settings?.north ?? 0) === v ? " selected" : ""}>${n}</option>`).join("")}${[0, 90, 180, 270].includes(Number(this._building?.settings?.north ?? 0)) ? "" : `<option value="${this._building.settings.north}" selected>${this._building.settings.north}°</option>`}</select></label>
       <p class="hint">Das Dach erscheint nur in der Ansicht „Alle“. Wählt man eine Etage, schaut man hinein. Module liegen auf den Dachflächen, die in die Richtung zeigen (L-Dach: Hauptdach und Flügel).</p>
       <div class="btns"><button class="house-save primary">Speichern</button></div>`;
+    // PV-Felder: Richtung, Spalten × Reihen, hoch/quer, Abstand von links (von außen gesehen), ab Reihe
+    const arrays = structuredClone(roof.solar_arrays ?? []);
+    const arrBox = box.querySelector(".pvarrays");
+    const dirs = [["S", "Süd"], ["E", "Ost"], ["W", "West"], ["N", "Nord"]];
+    const drawArrays = () => {
+      arrBox.innerHTML = (arrays.length ? `<div class="pvarr head"><span>Richtung</span><span>Spalten</span><span>Reihen</span><span>Lage</span><span>von links (m)</span><span>ab Reihe</span><span></span></div>` : `<p class="hint">Keine Felder: Module werden nach der Anzahl je Richtung verteilt.</p>`) +
+        arrays.map((a, i) => `<div class="pvarr" data-i="${i}"><select data-k="dir">${dirs.map(([k, n]) => `<option value="${k}"${k === a.dir ? " selected" : ""}>${n}</option>`).join("")}</select><input type="number" min="1" max="20" data-k="cols" value="${a.cols ?? 2}"><input type="number" min="1" max="10" data-k="rows" value="${a.rows ?? 1}"><select data-k="orient"><option value="portrait"${a.orient !== "landscape" ? " selected" : ""}>hoch</option><option value="landscape"${a.orient === "landscape" ? " selected" : ""}>quer</option></select><input type="number" min="0" step="0.1" data-k="left" value="${a.left ?? 0.3}"><input type="number" min="0" max="10" data-k="row" value="${a.row ?? 0}"><button class="icon" data-rm="${i}" title="Feld entfernen"><ha-icon icon="mdi:delete-outline"></ha-icon></button></div>`).join("");
+      arrBox.querySelectorAll(".pvarr[data-i] [data-k]").forEach((inp) =>
+        inp.addEventListener("change", () => {
+          const a = arrays[Number(inp.closest(".pvarr").dataset.i)];
+          a[inp.dataset.k] = inp.tagName === "SELECT" ? inp.value : Number(inp.value);
+        }),
+      );
+      arrBox.querySelectorAll("[data-rm]").forEach((b) => b.addEventListener("click", () => {
+        arrays.splice(Number(b.dataset.rm), 1);
+        drawArrays();
+      }));
+    };
+    drawArrays();
+    box.querySelector(".pvadd").addEventListener("click", () => {
+      arrays.push({ dir: "S", cols: 3, rows: 2, orient: "portrait", left: 0.3, row: 0 });
+      drawArrays();
+    });
     let roofColor = roof.color ?? null;
     const colorInput = box.querySelector("[data-rc]");
     colorInput.addEventListener("input", () => (roofColor = colorInput.value));
@@ -1173,6 +1279,7 @@ class Haus3DPanel extends HTMLElement {
       if (roofColor) next.color = roofColor;
       else delete next.color;
       next.solar = Object.fromEntries([...box.querySelectorAll("[data-pv]")].map((i) => [i.dataset.pv, Math.max(0, Math.round(Number(i.value) || 0))]));
+      next.solar_arrays = arrays.map((a) => ({ dir: a.dir ?? "S", cols: Math.max(1, Math.round(a.cols ?? 1)), rows: Math.max(1, Math.round(a.rows ?? 1)), orient: a.orient === "landscape" ? "landscape" : "portrait", left: Math.max(0, Number(a.left) || 0), row: Math.max(0, Math.round(a.row ?? 0)) }));
       for (const inp of box.querySelectorAll("[data-r]")) next[inp.dataset.r] = inp.type === "number" ? Number(inp.value) : inp.value;
       const w = box.querySelector("[data-w]").value;
       const r = roofSettings({ roof: next }); // begrenzt Neigung und Überstand
@@ -1433,6 +1540,340 @@ class Haus3DPanel extends HTMLElement {
       });
     };
     render();
+  }
+
+  // ------------------------------------------------------------------ Karten, Etagen-Leiste, Rad-Menüs
+
+  /** Auf/zu je Karte (pro Browser). patch setzt Werte, ohne Argument wird gelesen. */
+  _cardState(patch = null) {
+    let st = {};
+    try {
+      st = JSON.parse(localStorage.getItem("haus3d.cards") ?? "{}") ?? {};
+    } catch {
+      st = {};
+    }
+    if (patch) {
+      st = { ...st, ...patch };
+      this._store("haus3d.cards", JSON.stringify(st));
+    }
+    return st;
+  }
+
+  /** Zusatzkarten (settings.cards, bis zu 5) neben „Energie“, dazu „+“ für Admins. */
+  _renderCards() {
+    const box = this._els?.cards;
+    if (!box) return;
+    box.querySelectorAll(".card, .addcard").forEach((x) => x.remove());
+    const cards = normalizeCards(this._building?.settings?.cards);
+    const state = this._cardState();
+    const admin = !!this._hass?.user?.is_admin;
+    this._cardEls = [];
+    for (const c of cards) {
+      const el = document.createElement("div");
+      el.className = "card";
+      el.innerHTML = `<h3><ha-icon icon="${esc(c.icon)}"></ha-icon><span>${esc(c.title)}</span><b class="short"></b>${admin ? `<ha-icon class="cedit" icon="mdi:pencil-outline" title="Karte anpassen"></ha-icon>` : ""}<ha-icon class="chev" icon="mdi:chevron-down"></ha-icon></h3>` +
+        (c.entities.length ? c.entities.map((e, i) => `<div class="row" data-i="${i}"><span>${esc(e.name || this._hass?.states[e.entity]?.attributes?.friendly_name || e.entity)}</span><b>–</b></div>`).join("") : `<div class="row"><span>Noch leer – über den Stift Werte wählen.</span></div>`);
+      el.classList.toggle("collapsed", !!state[c.id]);
+      el.querySelector("h3").addEventListener("click", () => this._cardState({ [c.id]: el.classList.toggle("collapsed") }));
+      el.querySelector(".cedit")?.addEventListener("click", (ev) => {
+        ev.stopPropagation();
+        this._cardDialog(c.id);
+      });
+      el.querySelectorAll(".row[data-i]").forEach((row) => row.addEventListener("click", () => this._moreInfo(c.entities[Number(row.dataset.i)].entity)));
+      box.appendChild(el);
+      this._cardEls.push({ el, card: c });
+    }
+    if (admin && cards.length < MAX_CARDS && this._building) {
+      const add = document.createElement("button");
+      add.className = "addcard";
+      add.title = `Karte hinzufügen (${cards.length}/${MAX_CARDS})`;
+      add.textContent = "+";
+      add.addEventListener("click", () => this._cardDialog(null));
+      box.appendChild(add);
+    }
+    this._updateCards();
+  }
+
+  _updateCards() {
+    const hass = this._hass;
+    for (const { el, card } of this._cardEls ?? []) {
+      card.entities.forEach((e, i) => {
+        const st = hass?.states[e.entity];
+        const b = el.querySelector(`.row[data-i="${i}"] b`);
+        if (b) b.textContent = st ? (hass.formatEntityState ? hass.formatEntityState(st) : `${st.state}${st.attributes.unit_of_measurement ? ` ${st.attributes.unit_of_measurement}` : ""}`) : "–";
+      });
+      const short = el.querySelector(".short");
+      if (short) short.textContent = el.querySelector(".row[data-i] b")?.textContent ?? "";
+    }
+  }
+
+  /** Karte anlegen oder anpassen: Titel, Symbol, Werte (Entität + Name). id = null: neue Karte. */
+  _cardDialog(id) {
+    this._closeDialog();
+    const hass = this._hass;
+    const all = normalizeCards(this._building?.settings?.cards);
+    const card = structuredClone(all.find((c) => c.id === id) ?? { id: `karte_${Date.now().toString(36)}`, title: "Neue Karte", icon: "mdi:card-text-outline", entities: [] });
+    const icons = ["mdi:card-text-outline", "mdi:fire", "mdi:radiator", "mdi:water-boiler", "mdi:thermometer", "mdi:washing-machine", "mdi:server", "mdi:pool", "mdi:car-electric", "mdi:battery-charging", "mdi:weather-partly-cloudy", "mdi:home-automation"];
+    const el = document.createElement("div");
+    el.className = "dialog-backdrop";
+    const render = () => {
+      el.innerHTML = `<div class="dialog qedit" role="dialog" aria-label="Karte">
+        <div class="dialog-head"><span>${id ? "Karte anpassen" : "Neue Karte"}</span><button class="icon close" title="Schließen"><ha-icon icon="mdi:close"></ha-icon></button></div>
+        <div class="dialog-body">
+          <h4>Titel</h4><div class="qrow"><input class="ttl" value="${esc(card.title)}"></div>
+          <h4>Symbol</h4><div class="qrow" style="flex-wrap:wrap">${icons.map((ic) => `<button class="icon ${ic === card.icon ? "on" : ""}" data-icon="${ic}" title="${ic}" style="${ic === card.icon ? "background:var(--primary-color,#03a9f4);color:#fff" : ""}"><ha-icon icon="${ic}"></ha-icon></button>`).join("")}</div>
+          <h4>Werte</h4>
+          ${card.entities.map((e, i) => `<div class="qrow"><input class="nm" data-name="${i}" value="${esc(e.name ?? "")}" placeholder="Name"><input list="card-ents" data-ent="${i}" value="${esc(e.entity)}" placeholder="Entität"><button class="icon" data-rm="${i}" title="Entfernen"><ha-icon icon="mdi:delete-outline"></ha-icon></button></div>`).join("")}
+          <datalist id="card-ents">${Object.keys(hass.states).sort().map((x) => `<option value="${esc(x)}">${esc(hass.states[x].attributes.friendly_name ?? "")}</option>`).join("")}</datalist>
+          <div class="btns"><button class="addv">+ Wert</button></div>
+          <div class="btns">${id ? `<button class="del">Karte löschen</button>` : ""}<button class="save primary">Speichern</button></div>
+        </div></div>`;
+      const sync = () => {
+        card.title = el.querySelector(".ttl").value.trim() || card.title;
+        el.querySelectorAll("[data-ent]").forEach((i) => (card.entities[Number(i.dataset.ent)].entity = i.value.trim()));
+        el.querySelectorAll("[data-name]").forEach((i) => (card.entities[Number(i.dataset.name)].name = i.value.trim() || undefined));
+      };
+      el.querySelectorAll("[data-icon]").forEach((b) => b.addEventListener("click", () => {
+        sync();
+        card.icon = b.dataset.icon;
+        render();
+      }));
+      el.querySelectorAll("[data-rm]").forEach((b) => b.addEventListener("click", () => {
+        sync();
+        card.entities.splice(Number(b.dataset.rm), 1);
+        render();
+      }));
+      el.querySelector(".addv").addEventListener("click", () => {
+        sync();
+        card.entities.push({ entity: "" });
+        render();
+      });
+      el.querySelector(".del")?.addEventListener("click", () => {
+        this._closeDialog();
+        this._saveBuildingSettings({ cards: all.filter((c) => c.id !== id) }, "Karte gelöscht.");
+      });
+      el.querySelector(".save").addEventListener("click", () => {
+        sync();
+        card.entities = card.entities.filter((e) => e.entity.includes("."));
+        const next = id ? all.map((c) => (c.id === id ? card : c)) : [...all, card];
+        this._closeDialog();
+        this._saveBuildingSettings({ cards: next.slice(0, MAX_CARDS) }, "Karte gespeichert.");
+      });
+      el.querySelector(".close").addEventListener("click", () => this._closeDialog());
+    };
+    render();
+    el.addEventListener("click", (ev) => {
+      if (ev.target === el) this._closeDialog();
+    });
+    this._els.stage.appendChild(el);
+    this._dialog = el;
+  }
+
+  /** Etagen-Leiste rechts: ▲ Alle (mit Dach) / Etagen von oben nach unten ▼. */
+  _renderFloorbar(options) {
+    const bar = this._els?.floorbar;
+    if (!bar) return;
+    const floors = [...(this._building?.floors ?? [])].filter((f) => (f.rooms ?? []).length || f.height >= 1).sort((a, b) => b.elevation - a.elevation);
+    const order = ["all", ...floors.map((f) => f.id)];
+    const idx = Math.max(0, order.indexOf(this._filter));
+    bar.hidden = floors.length < 1 || !this._building;
+    bar.innerHTML = `<button class="arrow" data-step="-1" title="Etage höher"${idx <= 0 ? " disabled" : ""}><ha-icon icon="mdi:chevron-up"></ha-icon></button>` +
+      order.map((id) => `<button data-floor="${esc(id)}" role="tab" aria-selected="${id === this._filter}" class="${id === this._filter ? "sel" : ""}">${id === "all" ? "Alle" : esc(floors.find((f) => f.id === id).name)}</button>`).join("") +
+      `<button class="arrow" data-step="1" title="Etage tiefer"${idx >= order.length - 1 ? " disabled" : ""}><ha-icon icon="mdi:chevron-down"></ha-icon></button>`;
+    bar.querySelectorAll("[data-floor]").forEach((b) => b.addEventListener("click", () => this._setFilter(b.dataset.floor)));
+    bar.querySelectorAll("[data-step]").forEach((b) => b.addEventListener("click", () => this._setFilter(order[Math.min(order.length - 1, Math.max(0, idx + Number(b.dataset.step)))])));
+  }
+
+  /** Einträge des Funktionsrads (unten rechts): Umschalter der Ansicht. */
+  _functionItems() {
+    const l = this._settings.layers;
+    const styleName = { auto: "Auto", day: "Tag", night: "Nacht", cyber: "Cyberpunk" }[this._settings.style] ?? "Auto";
+    const layer = (key, icon, name) => ({ icon, name, on: l[key] !== false, run: () => {
+      l[key] = l[key] === false;
+      this._saveSettings();
+      this._scene?.setLayers(l);
+      this._applyOverlayLayers();
+    } });
+    return [
+      layer("flow", "mdi:transmission-tower-export", "Energiefluss"),
+      { icon: "mdi:thermometer", name: "Temperatur", on: this._tempMode, run: () => {
+        this._tempMode = !this._tempMode;
+        this._store("haus3d.temp", this._tempMode ? "1" : "0");
+        this._renderToolbar();
+        this._updateStates();
+      } },
+      { icon: { auto: "mdi:theme-light-dark", day: "mdi:white-balance-sunny", night: "mdi:weather-night", cyber: "mdi:robot" }[this._settings.style] ?? "mdi:theme-light-dark", name: `Stil: ${styleName}`, on: false, run: () => {
+        this._settings.style = nextStyle(this._settings.style);
+        this._saveSettings();
+        this._applyStyle();
+      } },
+      layer("roof", "mdi:home-roof", "Dach"),
+      layer("grid", "mdi:grid", "Raster"),
+      layer("weather", "mdi:weather-pouring", "Wetter"),
+      layer("labels", "mdi:label-outline", "Raumnamen"),
+      layer("devices", "mdi:lightbulb-group-outline", "Geräte"),
+      layer("furniture", "mdi:sofa-outline", "Möbel"),
+      { icon: "mdi:fit-to-screen-outline", name: "Ansicht einpassen", on: false, run: () => this._scene?.fitCamera() },
+    ];
+  }
+
+  /** Einträge der Kurzwahl (unten links): Automationen, Skripte, Szenen … aus settings.quick. */
+  _quickItems() {
+    const hass = this._hass;
+    const items = (this._building?.settings?.quick ?? []).filter((q) => q?.entity).map((q) => {
+      const st = hass?.states[q.entity];
+      const domain = q.entity.split(".")[0];
+      const icon = q.icon || st?.attributes?.icon || { automation: "mdi:robot", script: "mdi:script-text-play", scene: "mdi:palette", button: "mdi:gesture-tap-button", input_button: "mdi:gesture-tap-button", light: "mdi:lightbulb", switch: "mdi:toggle-switch", cover: "mdi:window-shutter", lock: "mdi:lock" }[domain] || "mdi:flash";
+      const name = q.name || st?.attributes?.friendly_name || q.entity;
+      return { icon, name, entity: q.entity, on: st?.state === "on" && !["automation"].includes(domain), run: () => {
+        const [d, svc] = quickService(q.entity, st);
+        hass.callService(d, svc, { entity_id: q.entity }).then(() => this._toast(`${name}: ausgeführt`)).catch((err) => this._toast(`Fehlgeschlagen: ${err.message ?? err}`));
+      } };
+    });
+    if (hass?.user?.is_admin) items.push({ icon: items.length ? "mdi:pencil-outline" : "mdi:plus", name: items.length ? "Kurzwahl bearbeiten" : "Kurzwahl anlegen", on: false, run: () => this._quickDialog() });
+    return items;
+  }
+
+  _renderWheels() {
+    if (!this._els?.wheelL || !this._building) return;
+    this._wheel(this._els.wheelL, "left", this._quickItems(), "mdi:gesture-tap", "Kurzwahl");
+    this._wheel(this._els.wheelR, "right", this._functionItems(), "mdi:tune-variant", "Funktionen");
+  }
+
+  _updateWheelStates() {
+    // Zustände (an/aus) der Kurzwahl ändern sich mit HA: nur neu zeichnen, wenn das Rad offen ist
+    if (this._els?.wheelL?.classList.contains("open")) this._wheel(this._els.wheelL, "left", this._quickItems(), "mdi:gesture-tap", "Kurzwahl");
+  }
+
+  /** Rad-Menü: weißer Knopf, darüber Bubbles im Viertelkreis; mehr als 5 lassen sich durchdrehen (Mausrad/Wischen). */
+  _wheel(box, side, items, icon, title) {
+    const key = `_wheel_${side}`;
+    const st = (this[key] ??= { open: false, offset: 0 });
+    st.offset = Math.min(st.offset, Math.max(0, items.length - 1));
+    const R = 150;
+    const layout = wheelLayout(items.length, st.offset);
+    box.classList.toggle("open", st.open);
+    box.innerHTML = `<button class="fab" title="${title}"><ha-icon icon="${st.open ? "mdi:close" : icon}"></ha-icon></button>` +
+      items.map((it, i) => {
+        const p = layout[i];
+        const a = (p.angle * Math.PI) / 180;
+        const x = 4 + Math.sin(a) * R;
+        const y = 4 + Math.cos(a) * R;
+        return `<button class="bub${p.visible ? " vis" : ""}${it.on ? " on" : ""}" data-i="${i}" title="${esc(it.name)}" style="${side}:${x}px; bottom:${y}px"><ha-icon icon="${esc(it.icon)}"></ha-icon><span class="lab">${esc(it.name)}</span></button>`;
+      }).join("") +
+      (items.length > WHEEL_VISIBLE ? `<div class="more">⟳ drehen: Mausrad oder wischen (${items.length})</div>` : "");
+    box.querySelector(".fab").addEventListener("click", () => {
+      st.open = !st.open;
+      this._wheel(box, side, items, icon, title);
+    });
+    box.querySelectorAll(".bub").forEach((b) => {
+      let longTimer = null;
+      let long = false;
+      b.addEventListener("pointerdown", () => {
+        long = false;
+        const it = items[Number(b.dataset.i)];
+        if (it.entity) longTimer = setTimeout(() => {
+          long = true;
+          this._moreInfo(it.entity);
+        }, 550);
+      });
+      b.addEventListener("pointerup", () => clearTimeout(longTimer));
+      b.addEventListener("pointerleave", () => clearTimeout(longTimer));
+      b.addEventListener("click", () => {
+        if (long || this._wheelDragged) return;
+        items[Number(b.dataset.i)].run();
+        // Umschalter neu zeichnen (an/aus), Kurzwahl bleibt offen
+        if (side === "right") this._wheel(box, side, this._functionItems(), icon, title);
+      });
+    });
+    const turn = (d) => {
+      const next = rotateWheel(st.offset, d, items.length);
+      if (next === st.offset) return;
+      st.offset = next;
+      this._wheel(box, side, items, icon, title);
+    };
+    if (!box._wheelBound) {
+      box._wheelBound = true;
+      box.addEventListener("wheel", (ev) => {
+        if (!box.classList.contains("open")) return;
+        ev.preventDefault();
+        box._turn?.(ev.deltaY > 0 ? 1 : -1);
+      }, { passive: false });
+      // Wischen über die Bubbles dreht das Rad
+      let start = null;
+      box.addEventListener("pointerdown", (ev) => {
+        start = [ev.clientX, ev.clientY];
+        this._wheelDragged = false;
+      });
+      box.addEventListener("pointermove", (ev) => {
+        if (!start) return;
+        const d = side === "left" ? ev.clientX - start[0] - (ev.clientY - start[1]) : -(ev.clientX - start[0]) - (ev.clientY - start[1]);
+        if (Math.abs(d) > 40) {
+          this._wheelDragged = true;
+          box._turn?.(d > 0 ? 1 : -1);
+          start = [ev.clientX, ev.clientY];
+        }
+      });
+      const end = () => {
+        start = null;
+        setTimeout(() => (this._wheelDragged = false), 0);
+      };
+      box.addEventListener("pointerup", end);
+      box.addEventListener("pointercancel", end);
+    }
+    box._turn = turn;
+  }
+
+  /** Kurzwahl bearbeiten: Automationen, Skripte, Szenen, Taster, Schalter. */
+  _quickDialog() {
+    this._closeDialog();
+    const hass = this._hass;
+    const list = structuredClone(this._building?.settings?.quick ?? []);
+    const domains = ["automation", "script", "scene", "button", "input_button", "switch", "light", "input_boolean", "cover", "lock", "fan"];
+    const el = document.createElement("div");
+    el.className = "dialog-backdrop";
+    const render = () => {
+      el.innerHTML = `<div class="dialog qedit" role="dialog" aria-label="Kurzwahl">
+        <div class="dialog-head"><span>Kurzwahl</span><button class="icon close" title="Schließen"><ha-icon icon="mdi:close"></ha-icon></button></div>
+        <div class="dialog-body">
+          <p class="hint">Antippen löst aus: Automation (trigger), Skript/Szene (starten), Taster (drücken), sonst umschalten. Lange drücken öffnet die Details. Mehr als 5 lassen sich im Rad durchdrehen.</p>
+          ${list.map((q, i) => `<div class="qrow"><input class="nm" data-name="${i}" value="${esc(q.name ?? "")}" placeholder="Name"><input list="quick-ents" data-ent="${i}" value="${esc(q.entity ?? "")}" placeholder="automation.…"><button class="icon" data-up="${i}" title="nach oben"><ha-icon icon="mdi:arrow-up"></ha-icon></button><button class="icon" data-rm="${i}" title="Entfernen"><ha-icon icon="mdi:delete-outline"></ha-icon></button></div>`).join("") || `<p class="hint">Noch keine Einträge.</p>`}
+          <datalist id="quick-ents">${Object.keys(hass.states).filter((x) => domains.includes(x.split(".")[0])).sort().map((x) => `<option value="${esc(x)}">${esc(hass.states[x].attributes.friendly_name ?? "")}</option>`).join("")}</datalist>
+          <div class="btns"><button class="addq">+ Eintrag</button><button class="save primary">Speichern</button></div>
+        </div></div>`;
+      const sync = () => {
+        el.querySelectorAll("[data-ent]").forEach((i) => (list[Number(i.dataset.ent)].entity = i.value.trim()));
+        el.querySelectorAll("[data-name]").forEach((i) => (list[Number(i.dataset.name)].name = i.value.trim() || undefined));
+      };
+      el.querySelectorAll("[data-rm]").forEach((b) => b.addEventListener("click", () => {
+        sync();
+        list.splice(Number(b.dataset.rm), 1);
+        render();
+      }));
+      el.querySelectorAll("[data-up]").forEach((b) => b.addEventListener("click", () => {
+        sync();
+        const i = Number(b.dataset.up);
+        if (i > 0) [list[i - 1], list[i]] = [list[i], list[i - 1]];
+        render();
+      }));
+      el.querySelector(".addq").addEventListener("click", () => {
+        sync();
+        list.push({ entity: "" });
+        render();
+      });
+      el.querySelector(".save").addEventListener("click", () => {
+        sync();
+        this._closeDialog();
+        this._saveBuildingSettings({ quick: list.filter((q) => q.entity?.includes(".")) }, "Kurzwahl gespeichert.");
+      });
+      el.querySelector(".close").addEventListener("click", () => this._closeDialog());
+    };
+    render();
+    el.addEventListener("click", (ev) => {
+      if (ev.target === el) this._closeDialog();
+    });
+    this._els.stage.appendChild(el);
+    this._dialog = el;
   }
 
   _renderLegend() {

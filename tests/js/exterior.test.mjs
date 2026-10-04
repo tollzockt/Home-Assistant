@@ -142,3 +142,21 @@ test("PV: belegte Bereiche (Flügel) werden ausgespart", async () => {
   const slots = panelSlots({ length: 10, width: 9 }, { tan: 0.7, count: 50, blocked: [[-5, 0]] });
   assert.ok(slots.length > 0 && slots.every((p) => p.s - 0.5 >= 0 - 1e-9));
 });
+
+test("PV-Felder: Spalten × Reihen, quer, von links, Kehle", async () => {
+  const { panelArraySlots, blockedAt } = await import("../../custom_components/haus3d/frontend/exterior.js");
+  const part = { length: 15, width: 9 };
+  const tan = Math.tan((35 * Math.PI) / 180);
+  // 3 × 4 quer, ganz links: 12 Module, linke Kante bei s = -7.5 + 0.3 (Rand) ... hier left = 0.3
+  const a = panelArraySlots(part, { tan, cols: 3, rows: 4, orient: "landscape", left: 0.3 });
+  assert.equal(a.length, 12);
+  assert.ok(Math.abs(Math.min(...a.map((p) => p.s - p.w / 2)) - -7.2) < 1e-6);
+  // gespiegelt (flip -1): gleiches Feld am anderen Ende
+  const b = panelArraySlots(part, { tan, cols: 3, rows: 4, orient: "landscape", left: 0.3, flip: -1 });
+  assert.ok(Math.abs(Math.max(...b.map((p) => p.s + p.w / 2)) - 7.2) < 1e-6);
+  // Kehle: unten breit gesperrt, weiter oben frei
+  assert.deepEqual(blockedAt([{ c: 0, hw: 3 }], 1), [[-2, 2]]);
+  assert.deepEqual(blockedAt([{ c: 0, hw: 3 }], 3.5), []);
+  const v = panelArraySlots(part, { tan, cols: 1, rows: 4, orient: "landscape", left: 8.5, blocked: [{ c: 0, hw: 3.75 }] });
+  assert.ok(v.length > 0 && v.length < 4); // unten gesperrt, oben frei
+});

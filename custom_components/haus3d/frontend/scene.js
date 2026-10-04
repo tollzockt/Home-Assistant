@@ -5,7 +5,7 @@ import * as THREE from "./vendor/three.module.min.js";
 import { OrbitControls } from "./vendor/OrbitControls.js";
 import { buildDevice, buildFurniture, furnitureMaterials } from "./furniture.js";
 import { floorColor } from "./model.js";
-import { compassOf, freeEdges, panelSlots, roofFloor, roofParts, roofRooms, roofSettings, roomRoofGroups, scatter, seeded } from "./exterior.js";
+import { compassOf, freeEdges, panelArraySlots, panelSlots, roofFloor, roofParts, roofRooms, roofSettings, roomRoofGroups, scatter, seeded } from "./exterior.js";
 import { centroid, computeWalls, labelPoint, pieceFootprint, pointInPolygon, wallPieces } from "./walls.js";
 
 const OUTDOOR = {
@@ -335,12 +335,16 @@ export class HouseScene {
     this._buildRoof(building);
     this._buildEnergy(building);
     if (this._weather) this.setWeather(this._weather, { force: true });
-    if (this.style === "cyber") {
+    {
+      // Raster im Hintergrund (alle Stile, Ebene „grid“)
       const lowest = Math.min(0, ...(building.floors ?? []).map((f) => f.elevation ?? 0));
-      const grid = new THREE.GridHelper(120, 120, 0xff2bd6, 0x2a1450);
+      const dark = this.style === "night" || this.dark;
+      const [c1, c2, op] = this.style === "cyber" ? [0xff2bd6, 0x2a1450, 0.55] : dark ? [0x3d4f7a, 0x1d2740, 0.7] : [0x9aa6b2, 0xc9d1d9, 0.6];
+      const grid = new THREE.GridHelper(120, 120, c1, c2);
       grid.position.y = lowest - 0.08;
       grid.material.transparent = true;
-      grid.material.opacity = 0.55;
+      grid.material.opacity = op;
+      grid.userData.layer = "grid";
       this.root.add(grid);
     }
     this.setFilter(this.filter, { fit: !keepCamera });
@@ -952,7 +956,7 @@ export class HouseScene {
         holder.add(inner);
         const top = (floor.elevation ?? 0) + (floor.height ?? 2.5);
         const res = this._roofGeometry(rooms, roof, top, wall, inner);
-        this._roofPanels(inner, res, roof.solar, building.settings?.north ?? 0);
+        this._roofPanels(inner, res, roof.solar, building.settings?.north ?? 0, roof.solar_arrays);
         this.roofMeshes.push(...res.meshes);
         for (const m of res.meshes) m.userData.roof = true;
         this.roofHolder = holder;
@@ -978,8 +982,8 @@ export class HouseScene {
    * PV-Module auf dem Hausdach nach Himmelsrichtung: solar = {N, E, S, W} (Anzahl je Richtung).
    * Je Richtung werden die passenden Dachflächen (größte zuerst) von der Traufe aufwärts belegt.
    */
-  _roofPanels(parent, res, solar, north) {
-    if (!solar || !["gable", "hip", "shed"].includes(res.type)) return;
+  _roofPanels(parent, res, solar, north, arrays = []) {
+    if ((!solar && !arrays?.length) || !["gable", "hip", "shed"].includes(res.type)) return;
     const group = new THREE.Group();
     group.userData.layer = "solar";
     const faces = [];
@@ -990,44 +994,68 @@ export class HouseScene {
         faces.push({ fr, sg, out, dir: compassOf(out, north) });
       }
     }
-    const pw = 1.0;
-    const pl = 1.7;
+    // je Fläche: gesperrte Bereiche (anderes Dachteil darüber) und Lage im Raum
+    for (const f of faces) {
+      const { fr, sg } = f;
+      const W = fr.width / 2;
+      const blocked = [];
+      const tr = res.type === "shed" ? [-W, W] : sg > 0 ? [0, W] : [-W, 0];
+      for (const q of res.parts) {
+        if (q === fr) continue;
+        const corners = [-1, 1].flatMap((a) => [-1, 1].map((b) => [q.center[0] + (a * q.length * q.u[0] + b * q.width * q.v[0]) / 2, q.center[1] + (a * q.length * q.u[1] + b * q.width * q.v[1]) / 2]));
+        const loc = corners.map(([x, z]) => [(x - fr.center[0]) * fr.u[0] + (z - fr.center[1]) * fr.u[1], (x - fr.center[0]) * fr.v[0] + (z - fr.center[1]) * fr.v[1]]);
+        const ts = loc.map((p) => p[1]);
+        if (Math.max(...ts) <= tr[0] + 0.05 || Math.min(...ts) >= tr[1] - 0.05) continue;
+        const ss = loc.map((p) => p[0]);
+        // Flügel quer zum First: nur die Kehle ist bedeckt (wird zum First hin schmaler)
+        if (Math.abs(q.u[0] * fr.u[0] + q.u[1] * fr.u[1]) < 0.5) blocked.push({ c: (Math.min(...ss) + Math.max(...ss)) / 2, hw: q.width / 2 });
+        else blocked.push([Math.min(...ss) - 0.05, Math.max(...ss) + 0.05]);
+      }
+      f.blocked = blocked;
+      // Flügel: das Stück im Hauptdach regelt die Kehle (blocked), nicht die harte Grenze inner
+      if (blocked.some((x) => !Array.isArray(x))) f.fr = { ...fr, inner: [0, 0], hipEnds: fr.hipEnds };
+      // „links“ von außen gesehen: Blick zur Fläche, rechte Hand = (out.z, -out.x)
+      f.flip = f.out[1] * fr.u[0] - f.out[0] * fr.u[1] > 0 ? 1 : -1;
+    }
+    const place = (f, slots) => {
+      const { sg, out } = f;
+      const fr = f.fr;
+      const W = fr.width / 2;
+      const U = new THREE.Vector3(fr.u[0], 0, fr.u[1]);
+      const down = new THREE.Vector3(out[0], -res.tan, out[1]).normalize();
+      const N = new THREE.Vector3().crossVectors(down, U).normalize();
+      if (N.y < 0) N.negate();
+      const Z = new THREE.Vector3().crossVectors(U, N);
+      const q = new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().makeBasis(U, N, Z));
+      for (const { s, x, w = 1.0, l = 1.7 } of slots) {
+        const t = res.type === "shed" ? -fr.width / 2 + x : sg * (W - x);
+        const y = res.eave + x * res.tan;
+        const panel = new THREE.Mesh(new THREE.BoxGeometry(w, 0.04, l), [this.mats.solarFrame, this.mats.solarFrame, this.mats.solar, this.mats.solarFrame, this.mats.solarFrame, this.mats.solarFrame]);
+        panel.quaternion.copy(q);
+        panel.position.set(fr.center[0] + s * fr.u[0] + t * fr.v[0], y, fr.center[1] + s * fr.u[1] + t * fr.v[1]).addScaledVector(N, 0.07);
+        group.add(panel);
+      }
+    };
+    // PV-Felder (genaue Anordnung) haben Vorrang vor der Anzahl je Richtung
+    if (arrays?.length) {
+      for (const a of arrays) {
+        const f = faces.filter((x) => x.dir === a.dir).sort((p, q) => q.fr.length - p.fr.length)[0];
+        if (!f) continue;
+        const slots = panelArraySlots(f.fr, { tan: res.tan, type: res.type, cols: Math.max(1, Number(a.cols) || 1), rows: Math.max(1, Number(a.rows) || 1), orient: a.orient === "landscape" ? "landscape" : "portrait", left: Math.max(0, Number(a.left) || 0), row: Math.max(0, Number(a.row) || 0), flip: f.flip, hipEnds: f.fr.hipEnds ?? [false, false], blocked: f.blocked });
+        place(f, slots);
+      }
+      if (group.children.length) parent.add(group);
+      return;
+    }
     for (const dir of ["S", "E", "W", "N"]) {
       let left = Math.max(0, Math.round(Number(solar[dir]) || 0));
       for (const f of faces.filter((x) => x.dir === dir).sort((a, b) => b.fr.length - a.fr.length)) {
         if (left <= 0) break;
-        const { fr, sg, out } = f;
-        const W = fr.width / 2;
+        const { fr } = f;
         const [openLo, openHi] = fr.open ?? [false, false];
-        // Bereiche dieser Fläche, über denen ein anderes Dachteil liegt (Flügel eines L-Dachs)
-        const blocked = [];
-        const tr = res.type === "shed" ? [-W, W] : sg > 0 ? [0, W] : [-W, 0];
-        for (const q of res.parts) {
-          if (q === fr) continue;
-          const corners = [-1, 1].flatMap((a) => [-1, 1].map((b) => [q.center[0] + (a * q.length * q.u[0] + b * q.width * q.v[0]) / 2, q.center[1] + (a * q.length * q.u[1] + b * q.width * q.v[1]) / 2]));
-          const loc = corners.map(([x, z]) => [(x - fr.center[0]) * fr.u[0] + (z - fr.center[1]) * fr.u[1], (x - fr.center[0]) * fr.v[0] + (z - fr.center[1]) * fr.v[1]]);
-          const ts = loc.map((p) => p[1]);
-          if (Math.max(...ts) <= tr[0] + 0.05 || Math.min(...ts) >= tr[1] - 0.05) continue;
-          const ss = loc.map((p) => p[0]);
-          blocked.push([Math.min(...ss) - 0.15, Math.max(...ss) + 0.15]);
-        }
-        const slots = panelSlots(fr, { tan: res.tan, count: left, type: res.type, hipEnds: res.type === "hip" ? [!openLo, !openHi] : [false, false], blocked });
+        const slots = panelSlots(fr, { tan: res.tan, count: left, type: res.type, hipEnds: fr.hipEnds ?? [!openLo && res.type === "hip", !openHi && res.type === "hip"], blocked: f.blocked });
         left -= slots.length;
-        const U = new THREE.Vector3(fr.u[0], 0, fr.u[1]);
-        const down = new THREE.Vector3(out[0], -res.tan, out[1]).normalize();
-        const N = new THREE.Vector3().crossVectors(down, U).normalize();
-        if (N.y < 0) N.negate();
-        const Z = new THREE.Vector3().crossVectors(U, N);
-        const q = new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().makeBasis(U, N, Z));
-        for (const { s, x } of slots) {
-          // t: Abstand quer zum First (Plan), y: Höhe auf der Dachfläche
-          const t = res.type === "shed" ? -fr.width / 2 + x : sg * (W - x);
-          const y = res.eave + x * res.tan;
-          const panel = new THREE.Mesh(new THREE.BoxGeometry(pw, 0.04, pl), [this.mats.solarFrame, this.mats.solarFrame, this.mats.solar, this.mats.solarFrame, this.mats.solarFrame, this.mats.solarFrame]);
-          panel.quaternion.copy(q);
-          panel.position.set(fr.center[0] + s * fr.u[0] + t * fr.v[0], y, fr.center[1] + s * fr.u[1] + t * fr.v[1]).addScaledVector(N, 0.07);
-          group.add(panel);
-        }
+        place(f, slots);
       }
     }
     if (group.children.length) parent.add(group);
@@ -1068,9 +1096,13 @@ export class HouseScene {
         meshes.push(slab);
       } else if (roof.type === "gable" || roof.type === "hip") {
         const ridge = eave + W * tan;
-        const hip = roof.type === "hip";
-        const rLo = hip && !openLo ? Math.max(0, L - W) : L;
-        const rHi = hip && !openHi ? Math.max(0, L - W) : L;
+        // Walm an den freien Enden; beim Satteldach optional am freien Ende eines Flügels (roof.wing_end)
+        const wingHip = roof.type === "gable" && roof.wing_end === "hip" && (openLo || openHi);
+        const hipLo = !openLo && (roof.type === "hip" || (wingHip && openHi));
+        const hipHi = !openHi && (roof.type === "hip" || (wingHip && openLo));
+        fr.hipEnds = [hipLo, hipHi];
+        const rLo = hipLo ? Math.max(0, L - W) : L;
+        const rHi = hipHi ? Math.max(0, L - W) : L;
         // Stück im Nachbardach (inner): ohne seitlichen Überstand, sonst schaut es unter dessen Giebel heraus
         const [inLo, inHi] = fr.inner ?? [0, 0];
         const sA = -L + Math.min(inLo, L);
@@ -1081,9 +1113,9 @@ export class HouseScene {
           if (inHi) quad(roofPos, P(sB, sg * Wi, top), P(L, sg * Wi, top), P(L, 0, ridge), P(sB, 0, ridge));
         }
         const yi = eave + (W - Wi) * tan;
-        if (hip && !openLo) tri(roofPos, P(-L, -W, eave), P(-L, W, eave), P(-rLo, 0, ridge));
+        if (hipLo) tri(roofPos, P(-L, -W, eave), P(-L, W, eave), P(-rLo, 0, ridge));
         else if (!openLo) tri(gablePos, P(-Llo, -Wi, yi), P(-Llo, Wi, yi), P(-Llo, 0, ridge));
-        if (hip && !openHi) tri(roofPos, P(L, -W, eave), P(L, W, eave), P(rHi, 0, ridge));
+        if (hipHi) tri(roofPos, P(L, -W, eave), P(L, W, eave), P(rHi, 0, ridge));
         else if (!openHi) tri(gablePos, P(Lhi, -Wi, yi), P(Lhi, Wi, yi), P(Lhi, 0, ridge));
       } else if (roof.type === "shed") {
         const yAt = (t) => eave + (t + W) * tan;

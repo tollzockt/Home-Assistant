@@ -20,7 +20,10 @@ dort lassen sich direkt einlesen, und Exporte von Haus 3D kann NeonPlan wieder �
   **Dachfarbe** frei wählbar. **PV-Module auf dem Dach**: Anzahl je Himmelsrichtung (Ost, Süd, West,
   Nord); sie liegen hochkant von der Traufe aufwärts auf den Dachflächen, die in diese Richtung zeigen
   (beim L-Dach z. B. Süd auf dem Hauptdach, Ost und West auf dem Flügel), ohne die Bereiche, über denen
-  ein anderes Dachteil liegt. Dazu „Norden“ einstellen (oben, rechts, unten oder links im Plan). Sichtbar nur in der Ansicht
+  ein anderes Dachteil liegt (beim L-Dach nur die Kehle). Dazu „Norden“ einstellen (oben, rechts, unten
+  oder links im Plan). **PV-Felder** für die genaue Anordnung: je Feld Richtung, Spalten × Reihen, hoch
+  oder quer, Abstand von links in Metern (von außen auf die Dachfläche gesehen) und Startreihe ab der
+  Traufe; Felder ersetzen die Anzahl je Richtung. **Flügel-Ende** beim L-Dach: Giebel oder Walm. Sichtbar nur in der Ansicht
   „Alle“; wählt man eine Etage, schaut man hinein.
 - **Balkon und Geländer**: Gartenfläche der Art „Balkon“ wird als Platte auf Höhe der Etage gebaut, mit
   Geländer an allen Kanten, die nicht am Haus liegen (Glas, Stäbe oder Holz, Höhe einstellbar). Auch
@@ -32,7 +35,18 @@ dort lassen sich direkt einlesen, und Exporte von Haus 3D kann NeonPlan wieder �
 - **Wetter**: Bei Regen, Schauer, Gewitter, Schnee oder Hagel (Zustand einer `weather.*`-Entität) fällt
   draußen Regen oder Schnee, nicht in den Räumen. Bei Schnee werden Rasen, Wege und Dach weiß, bei
   Gewitter blitzt es. Die Wetter-Entität ist einstellbar (Standard: die erste vorhandene).
-- **Etagen-Umschalter** (Alle / KG / EG …), Kamera drehen, zoomen und verschieben mit Maus oder Fingern.
+- **Bedienung über der 3D-Ansicht**:
+  - **Etagen-Leiste rechts** (▲ Alle mit Dach / EG / KG … ▼).
+  - **Karten oben rechts**: „Energie“ plus bis zu **5 eigene Karten** (Stift: Titel, Symbol, Werte;
+    „+“ legt eine neue an). Jede Karte klappt einzeln auf und zu, eingeklappt zeigt sie einen Kurzwert.
+  - **Weißer Punkt unten links – Kurzwahl**: Automationen (werden ausgelöst), Skripte, Szenen, Taster,
+    Schalter, Lichter. Antippen führt aus, lange drücken zeigt Details. Bearbeiten über den Stift-Eintrag.
+  - **Weißer Punkt unten rechts – Funktionen**: Energiefluss, Temperaturansicht, Stil durchschalten
+    (Auto → Tag → Nacht → Cyberpunk), Dach, Raster, Wetter, Raumnamen, Geräte, Möbel, Ansicht einpassen.
+  - Beide Menüs zeigen bis zu 5 Einträge im Viertelkreis; sind es mehr, dreht man sie wie ein Rad
+    (Mausrad oder wischen).
+  - **Raster im Hintergrund** in allen Stilen (abschaltbar).
+- Kamera drehen, zoomen und verschieben mit Maus oder Fingern.
   Auf schmalen Bildschirmen gibt es einen Menü-Knopf für die HA-Seitenleiste. Hell/Dunkel folgt HA.
 - **Geräte automatisch im Raum**: Für jeden Raum mit `area_id` erscheinen die Entitäten des Bereichs
   (Licht, Schalter, Lüfter, Rollladen, Klima, Fenster-/Tür-/Garagenkontakte). Versteckte Entitäten sowie
@@ -124,8 +138,8 @@ Damit HACS sie als Update anbietet, braucht es ein **Release**:
 
 1. Auf GitHub im Repository rechts **Releases → Draft a new release** (bzw. „Create a new release“).
 2. **Choose a tag** → neuen Tag eintippen, genau wie die Version in `manifest.json` mit „v“ davor,
-   z. B. `v0.11.0` → „Create new tag“. Ziel-Zweig: `main`.
-3. Titel z. B. `0.11.0`, kurze Beschreibung, bei „Release label“ **None** (nicht Pre-release),
+   z. B. `v0.12.0` → „Create new tag“. Ziel-Zweig: `main`.
+3. Titel z. B. `0.12.0`, kurze Beschreibung, bei „Release label“ **None** (nicht Pre-release),
    **Publish release**.
 4. In Home Assistant: **HACS → Haus 3D** (ggf. ⋮ → „Informationen aktualisieren“) → **Herunterladen**/
    **Aktualisieren** → Home Assistant **neu starten**.
@@ -176,7 +190,9 @@ floors[]          id, name, elevation, height, ha_floor
 settings          wall_exterior (0.24), wall_interior (0.12), wall_colors {exterior, interior},
                   energy {…, extra: [{entity, name}]},
                   roof {type (none|flat|gable|hip|shed), pitch, overhang, direction (auto|x|z),
-                        color, solar {N, E, S, W}, floor, rooms}, north (Grad),
+                        color, solar {N, E, S, W}, solar_arrays [{dir, cols, rows, orient, left, row}],
+                        wing_end (gable|hip), floor, rooms}, north (Grad),
+                  cards [{id, title, icon, entities [{entity, name}]}] (bis 5), quick [{entity, name}],
                   weather (Entität oder "none")
 ```
 

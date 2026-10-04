@@ -32,6 +32,12 @@ async function shot(name, query, viewport, deviceScaleFactor = 1) {
   await page.screenshot({ path: `${out}/${name}.png` });
   return page;
 }
+// Funktionsrad unten rechts: aufklappen, Eintrag antippen, zuklappen
+async function fnToggle(page, name) {
+  await page.locator("haus3d-panel .wheel.right .fab").click();
+  await page.locator(`haus3d-panel .wheel.right .bub[title="${name}"]`).click();
+  await page.locator("haus3d-panel .wheel.right .fab").click();
+}
 const desk = await shot("desktop-hell", "", { width: 1280, height: 800 });
 // Klick auf ein Licht schaltet, Rechtsklick öffnet den Dialog
 const info = await desk.evaluate(() => {
@@ -45,12 +51,12 @@ await dev.click({ button: "middle" });
 await desk.waitForTimeout(200);
 const calls = await desk.evaluate(() => ({ calls: window.calls.filter((c) => c.service), events: window.events }));
 // Temperaturansicht + Etage EG
-await desk.locator("haus3d-panel .temp").click();
-await desk.locator("haus3d-panel .floors button", { hasText: "EG" }).click();
+await fnToggle(desk, "Temperatur");
+await desk.locator("haus3d-panel .floorbar button[data-floor]", { hasText: "EG" }).click();
 await desk.waitForTimeout(1500);
 await desk.screenshot({ path: `${out}/desktop-temperatur-eg.png` });
-await desk.locator("haus3d-panel .floors button", { hasText: "KG" }).click();
-await desk.locator("haus3d-panel .temp").click();
+await desk.locator("haus3d-panel .floorbar button[data-floor]", { hasText: "KG" }).click();
+await fnToggle(desk, "Temperatur");
 await desk.waitForTimeout(1500);
 await desk.screenshot({ path: `${out}/desktop-kg.png` });
 const phone = await shot("handy-dunkel", "?dark&narrow", { width: 390, height: 844 }, 2);
@@ -65,13 +71,14 @@ if (hidpi.canvas.join() !== hidpi.stage.join()) errors.push(`HiDPI: Canvas ${hid
 const menuVisible = await (await shot("desktop-menu", "", { width: 1280, height: 800 })).evaluate(() => getComputedStyle(window.panel.shadowRoot.querySelector(".menu")).display);
 if (menuVisible !== "none") errors.push(`Menüknopf auf breitem Bildschirm sichtbar (${menuVisible})`);
 // Cyberpunk-Stil (Umschalter im Kopf)
+for (const p of browser.contexts().flatMap((c) => c.pages())) await p.close(); // Rechenzeit freigeben
 const cyber = await shot("desktop-cyber", "", { width: 1280, height: 800 });
 await cyber.locator("haus3d-panel .gear").click();
 await cyber.locator("haus3d-panel .seg[data-key=style] button", { hasText: "Cyberpunk" }).click();
 await cyber.locator("haus3d-panel .dialog .close").click();
 await cyber.waitForTimeout(1500);
 await cyber.screenshot({ path: `${out}/desktop-cyber.png` });
-await cyber.locator("haus3d-panel .floors button", { hasText: "EG" }).click();
+await cyber.locator("haus3d-panel .floorbar button[data-floor]", { hasText: "EG" }).click();
 await cyber.waitForTimeout(1500);
 await cyber.screenshot({ path: `${out}/desktop-cyber-eg.png` });
 // Einstellungen: Geräte als 3D-Objekte, dann Raum anklicken (erst Etage, dann Raum)
@@ -81,7 +88,7 @@ await set.waitForTimeout(300);
 await set.screenshot({ path: `${out}/einstellungen.png` });
 await set.locator("haus3d-panel .seg[data-key=deviceMode] button", { hasText: "3D-Objekte" }).click();
 await set.locator("haus3d-panel .dialog .close").click();
-await set.locator("haus3d-panel .floors button", { hasText: "EG" }).click();
+await set.locator("haus3d-panel .floorbar button[data-floor]", { hasText: "EG" }).click();
 await set.waitForTimeout(1200);
 await set.screenshot({ path: `${out}/desktop-3d.png` });
 const box = await set.locator("haus3d-panel canvas").boundingBox();
@@ -90,6 +97,7 @@ await set.waitForTimeout(1200);
 await set.screenshot({ path: `${out}/raum-gewaehlt.png` });
 const roomPanel = await set.evaluate(() => window.panel.shadowRoot.querySelector(".roompanel")?.innerText ?? null);
 // Editor: Raum ziehen, Bereich zuweisen, Fenster setzen, Möbel platzieren, rückgängig, speichern
+for (const p of browser.contexts().flatMap((c) => c.pages())) await p.close(); // Rechenzeit freigeben
 const ed = await shot("editor", "", { width: 1280, height: 800 });
 await ed.locator("haus3d-panel .edit").click();
 await ed.waitForTimeout(500);
@@ -139,8 +147,9 @@ const saved = await ed.evaluate(() => {
     editorOpen: !!window.panel._editor };
 });
 // Etappe 1: zwei Raumfenster, verschieben, Gerät ausblenden, Nacht-Stil, Animation
+for (const p of browser.contexts().flatMap((c) => c.pages())) await p.close(); // Rechenzeit freigeben
 const e1 = await shot("etappe1", "", { width: 1280, height: 800 });
-await e1.locator("haus3d-panel .floors button", { hasText: "EG" }).click();
+await e1.locator("haus3d-panel .floorbar button[data-floor]", { hasText: "EG" }).click();
 await e1.waitForTimeout(800);
 const openRoom = (floorName, roomName) => e1.evaluate(([fn, rn]) => {
   const p = window.panel; const f = p._building.floors.find((x) => x.name === fn);
@@ -189,7 +198,7 @@ const outside = await dach.evaluate(() => {
   const sc = window.panel._scene;
   return { roof: sc.roofMeshes.length, roofVisible: sc._roofShown(), weather: sc.weather?.drops.length ?? 0, labelsHidden: [...window.panel.shadowRoot.querySelectorAll(".label")].filter((l) => l.style.display === "none" || l.hidden).length };
 });
-await dach.locator("haus3d-panel .floors button", { hasText: "EG" }).click();
+await dach.locator("haus3d-panel .floorbar button[data-floor]", { hasText: "EG" }).click();
 await dach.waitForTimeout(1200);
 outside.roofInEg = await dach.evaluate(() => window.panel._scene._roofShown());
 await dach.screenshot({ path: `${out}/eg-regen-balkon.png` });
@@ -351,6 +360,62 @@ await sm.waitForTimeout(1200);
 const afterStop = await sm.evaluate(() => ({ lamp: window.panel._hass.states["light.wohnzimmer_decke"].state, bar: !!window.panel.shadowRoot.querySelector(".simbar"), demo: Object.keys(window.panel._hass.states).filter((e) => e.includes(".sim_")).length }));
 console.log(JSON.stringify({ simulation: { simDialog, simState, saves, afterStop } }));
 if (simState.newCalls !== 0 || saves !== 0) errors.push(`Simulation hat echte Aufrufe gemacht: ${simState.newCalls} / ${saves}`);
+// Etappe HUD: Karten, Etagen-Leiste, Kurzwahl-Rad (mit Drehen), Funktionsrad, PV-Felder, Walm am Flügel
+for (const p of browser.contexts().flatMap((c) => c.pages())) await p.close();
+const hud = await shot("hud", "?roof=gable&lhaus&garden", { width: 1280, height: 800 });
+// Karte anlegen
+await hud.locator("haus3d-panel .cards .addcard").click();
+await hud.locator("haus3d-panel .qedit .ttl").fill("Heizung");
+await hud.locator("haus3d-panel .qedit button[data-icon='mdi:fire']").click();
+await hud.locator("haus3d-panel .qedit .addv").click();
+await hud.locator("haus3d-panel .qedit input[data-ent='0']").fill("sensor.bad_temperatur");
+await hud.locator("haus3d-panel .qedit input[data-name='0']").fill("Bad");
+await hud.locator("haus3d-panel .qedit .addv").click();
+await hud.locator("haus3d-panel .qedit input[data-ent='1']").fill("climate.bad");
+await hud.locator("haus3d-panel .qedit .save").click();
+await hud.waitForTimeout(600);
+// Kurzwahl mit 7 Einträgen anlegen (mehr als 5: Rad dreht)
+await hud.evaluate(async () => {
+  const p = window.panel;
+  await p._saveBuildingSettings({ quick: ["automation.abend", "script.garage", "scene.kino", "button.klingel", "light.bar", "switch.kaffeemaschine", "light.kueche"].map((entity) => ({ entity })) }, "ok");
+});
+await hud.waitForTimeout(500);
+await hud.locator("haus3d-panel .wheel.left .fab").click();
+await hud.waitForTimeout(400);
+const wheel1 = await hud.evaluate(() => [...window.panel.shadowRoot.querySelectorAll(".wheel.left .bub.vis")].map((b) => b.title));
+await hud.locator("haus3d-panel .wheel.left .bub.vis").first().click();
+await hud.waitForTimeout(300);
+const quickCall = await hud.evaluate(() => window.calls.filter((c) => c.service).at(-1));
+await hud.mouse.move(150, 650);
+await hud.mouse.wheel(0, 120);
+await hud.waitForTimeout(400);
+const wheel2 = await hud.evaluate(() => [...window.panel.shadowRoot.querySelectorAll(".wheel.left .bub.vis")].map((b) => b.title));
+await hud.locator("haus3d-panel .wheel.right .fab").click();
+await hud.waitForTimeout(400);
+await hud.screenshot({ path: `${out}/hud-offen.png` });
+// Funktionsrad: Raster aus, Stil durchschalten
+await hud.locator('haus3d-panel .wheel.right .bub[title="Raster"]').click();
+const gridOff = await hud.evaluate(() => window.panel._settings.layers.grid === false);
+await hud.locator("haus3d-panel .wheel.right .bub[title^='Stil']").click();
+const styleNow = await hud.evaluate(() => window.panel._settings.style);
+await hud.locator('haus3d-panel .wheel.right .bub[title="Raster"]').click();
+await hud.locator("haus3d-panel .wheel.right .fab").click();
+await hud.locator("haus3d-panel .wheel.left .fab").click();
+// Etagen-Leiste: Pfeil runter von „Alle“
+await hud.locator("haus3d-panel .floorbar button[data-step='1']").click();
+const floorNow = await hud.evaluate(() => window.panel._filter);
+await hud.locator("haus3d-panel .floorbar button[data-floor='all']").click();
+// PV-Felder + Walm am Flügel (Norden unten im Plan)
+await hud.evaluate(async () => {
+  const p = window.panel;
+  await p._saveBuildingSettings({ north: 180, roof: { type: "gable", pitch: 35, overhang: 0.4, wing_end: "hip", solar_arrays: [{ dir: "S", cols: 3, rows: 2, orient: "landscape", left: 0.3, row: 0 }, { dir: "W", cols: 2, rows: 2, orient: "portrait", left: 0.5, row: 0 }] } }, "ok");
+});
+await hud.waitForTimeout(1200);
+const pv = await hud.evaluate(() => { let n = 0; window.panel._scene.roofHolder?.traverse((o) => { if (o.isMesh && o.geometry?.parameters?.depth !== undefined && o.geometry.parameters.height === 0.04) n++; }); return n; });
+await hud.screenshot({ path: `${out}/hud-pv.png` });
+const cardTxt = await hud.evaluate(() => [...window.panel.shadowRoot.querySelectorAll(".cards .card")].map((c) => c.innerText.replace(/\s+/g, " ")));
+console.log(JSON.stringify({ hud: { cardTxt, wheel1, wheel2, quickCall, gridOff, styleNow, floorNow, pv } }));
+if (wheel1.length !== 5 || wheel1.join() === wheel2.join()) errors.push(`Rad dreht nicht: ${wheel1} / ${wheel2}`);
 console.log(JSON.stringify({ info, calls, hidpi, roomPanel, saved, moved: { x: Math.round(moved.x), y: Math.round(moved.y) }, hiddenSaved, anim, errors: errors.filter((e) => !e.includes("404")) }, null, 1));
 await browser.close();
 server.close();

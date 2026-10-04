@@ -510,7 +510,7 @@ export function panelSlots(part, { tan, count, type = "gable", hipEnds = [false,
     const hi = L - margin - (inHi || 0) - (hipEnds[1] ? x1 : 0);
     // freie Abschnitte der Reihe (ohne Bereiche, die von anderen Dachteilen bedeckt sind)
     let free = [[lo, hi]];
-    for (const [b0, b1] of blocked) free = free.flatMap(([a, b]) => (b1 <= a || b0 >= b ? [[a, b]] : [[a, Math.min(b, b0)], [Math.max(a, b1), b]].filter(([c, d]) => d - c > 0)));
+    for (const [b0, b1] of blockedAt(blocked, x0)) free = free.flatMap(([a, b]) => (b1 <= a || b0 >= b ? [[a, b]] : [[a, Math.min(b, b0)], [Math.max(a, b1), b]].filter(([c, d]) => d - c > 0)));
     for (const [a, b] of free.sort((p, q) => q[1] - q[0] - (p[1] - p[0]))) {
       const cols = Math.floor((b - a + gap) / (pw + gap));
       if (cols <= 0 || out.length >= count) continue;
@@ -518,6 +518,67 @@ export function panelSlots(part, { tan, count, type = "gable", hipEnds = [false,
       const used = n * pw + (n - 1) * gap;
       const start = (a + b) / 2 - used / 2 + pw / 2;
       for (let k = 0; k < n; k++) out.push({ s: Math.round((start + k * (pw + gap)) * 1000) / 1000, x: Math.round(((x0 + x1) / 2) * 1000) / 1000 });
+    }
+  }
+  return out;
+}
+
+/**
+ * Bedeckte Bereiche einer Dachfläche je Höhe: Rechteck {a, b} oder Kehle {c, hw} (Flügel eines L-Dachs:
+ * bei gleicher Neigung schrumpft die bedeckte Breite mit dem Abstand x von der Traufe: hw − x).
+ * @returns {number[][]} gesperrte s-Abschnitte für ein Modul, das bei x0 (Unterkante) beginnt
+ */
+export function blockedAt(blocked, x0) {
+  const out = [];
+  for (const b of blocked ?? []) {
+    if (Array.isArray(b)) out.push(b);
+    else if (b.c !== undefined) {
+      const hw = b.hw - x0;
+      if (hw > 0) out.push([b.c - hw, b.c + hw]);
+    }
+  }
+  return out;
+}
+
+/**
+ * PV-Feld (Spalten × Reihen) auf einer Dachfläche: Plätze der Modulmitten.
+ * @param {object} part Dachteil (length, width, inner)
+ * @param {object} o
+ * @param {number} o.tan Neigung
+ * @param {number} o.cols Module nebeneinander (entlang der Traufe)
+ * @param {number} o.rows Reihen die Fläche hinauf
+ * @param {"portrait"|"landscape"} [o.orient] hochkant (1,0 × 1,7) oder quer (1,7 × 1,0)
+ * @param {number} [o.left] Abstand der linken Feldkante vom linken Flächenrand in m (von außen gesehen)
+ * @param {number} [o.row] erste Reihe (0 = an der Traufe)
+ * @param {number} [o.flip] 1 oder -1: Richtung von „links nach rechts“ entlang s
+ * @returns {{s:number, x:number, w:number, l:number}[]} Mitte (s, x) sowie Modulbreite w und -länge l
+ */
+export function panelArraySlots(part, { tan, cols = 1, rows = 1, orient = "portrait", left = 0, row = 0, flip = 1, type = "gable", hipEnds = [false, false], blocked = [] }) {
+  const L = part.length / 2;
+  const W = type === "shed" ? part.width : part.width / 2;
+  const cos = Math.cos(Math.atan(tan));
+  const w = orient === "landscape" ? 1.7 : 1.0; // entlang der Traufe
+  const l = orient === "landscape" ? 1.0 : 1.7; // die Neigung hinauf
+  const gap = 0.05;
+  const margin = 0.3;
+  const [inLo, inHi] = part.inner ?? [0, 0];
+  const out = [];
+  for (let r = row; r < row + rows; r++) {
+    const x0 = margin + r * (l + gap) * cos;
+    const x1 = x0 + l * cos;
+    if (x1 > W - 0.1) break;
+    const lo = -L + margin + (inLo || 0) + (hipEnds[0] ? x1 : 0);
+    const hi = L - margin - (inHi || 0) - (hipEnds[1] ? x1 : 0);
+    const block = blockedAt(blocked, x0);
+    for (let c = 0; c < cols; c++) {
+      // Position von links (von außen gesehen) in s umrechnen
+      const fromLeft = left + c * (w + gap);
+      const sLeft = flip > 0 ? -L + fromLeft : L - fromLeft - w;
+      const a = sLeft;
+      const b = sLeft + w;
+      if (a < lo - 1e-6 || b > hi + 1e-6) continue;
+      if (block.some(([p, q]) => b > p && a < q)) continue;
+      out.push({ s: Math.round(((a + b) / 2) * 1000) / 1000, x: Math.round(((x0 + x1) / 2) * 1000) / 1000, w, l });
     }
   }
   return out;
