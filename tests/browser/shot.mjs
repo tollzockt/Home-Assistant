@@ -294,6 +294,43 @@ const saved3 = await e3.evaluate(() => {
   return { floor: wz.floor_material, wall: wz.wall_color, cyl: { color: cyl.color, name: cyl.name } };
 });
 console.log(JSON.stringify({ catalog, searchHits, magnet, nudged, pick3d: { hit: pick3d.hit, id: pick3d.id }, saved3 }));
+// Simulation: Schalten ohne echte Aufrufe, Dialog, Wetter, Beispielgeräte, lokales Speichern
+for (const p of browser.contexts().flatMap((c) => c.pages())) await p.close();
+const sm = await shot("simulation", "?lhaus", { width: 1280, height: 800 });
+await sm.locator("haus3d-panel .gear").click();
+await sm.locator("haus3d-panel .simtoggle").click();
+await sm.waitForTimeout(800);
+const callsBefore = await sm.evaluate(() => window.calls.filter((c) => c.service).length);
+const lamp = sm.locator('haus3d-panel .dev[title^="light.wohnzimmer_decke"]');
+await lamp.click();
+await sm.waitForTimeout(400);
+await lamp.click({ button: "right" });
+await sm.waitForTimeout(300);
+const simDialog = await sm.evaluate(() => !!window.panel.shadowRoot.querySelector(".simdlg"));
+await sm.locator("haus3d-panel .simdlg button[data-set=on]").click();
+await sm.locator("haus3d-panel .simbar select[data-sim=weather]").selectOption("snowy");
+await sm.locator("haus3d-panel .simbar select[data-sim=daytime]").selectOption("night");
+await sm.locator("haus3d-panel .simbar input[data-sim=demo]").check();
+await sm.waitForTimeout(1500);
+await sm.screenshot({ path: `${out}/simulation.png` });
+const simState = await sm.evaluate(() => {
+  const p = window.panel;
+  return { lamp: p._hass.states["light.wohnzimmer_decke"].state, realLamp: p._realHass.states["light.wohnzimmer_decke"].state,
+    weather: p._scene._weather?.kind ?? null, night: p.hasAttribute("night"), demo: Object.keys(p._hass.states).filter((e) => e.includes(".sim_")).length,
+    newCalls: window.calls.filter((c) => c.service).length };
+});
+simState.newCalls -= callsBefore;
+// Grundriss in der Simulation speichern: geht nicht ans Backend
+const saves = await sm.evaluate(async () => {
+  const before = window.calls.filter((c) => c.type === "haus3d/building/save").length;
+  await window.panel._hass.callWS({ type: "haus3d/building/save", building: window.panel._building, revision: window.panel._revision });
+  return window.calls.filter((c) => c.type === "haus3d/building/save").length - before;
+});
+await sm.locator("haus3d-panel .simbar button[data-sim=stop]").click();
+await sm.waitForTimeout(1200);
+const afterStop = await sm.evaluate(() => ({ lamp: window.panel._hass.states["light.wohnzimmer_decke"].state, bar: !!window.panel.shadowRoot.querySelector(".simbar"), demo: Object.keys(window.panel._hass.states).filter((e) => e.includes(".sim_")).length }));
+console.log(JSON.stringify({ simulation: { simDialog, simState, saves, afterStop } }));
+if (simState.newCalls !== 0 || saves !== 0) errors.push(`Simulation hat echte Aufrufe gemacht: ${simState.newCalls} / ${saves}`);
 console.log(JSON.stringify({ info, calls, hidpi, roomPanel, saved, moved: { x: Math.round(moved.x), y: Math.round(moved.y) }, hiddenSaved, anim, errors: errors.filter((e) => !e.includes("404")) }, null, 1));
 await browser.close();
 server.close();

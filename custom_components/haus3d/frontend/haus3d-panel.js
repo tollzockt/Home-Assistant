@@ -21,6 +21,7 @@ import {
 } from "./devices.js";
 import { ROOF_TYPES, roofSettings, weatherEntity, weatherKind } from "./exterior.js";
 import { exportFile, normalize, parseImport } from "./model.js";
+import { SIM_WEATHER, Simulator } from "./sim.js";
 import { HouseScene } from "./scene.js";
 import { closeGaps } from "./walls.js";
 import { EDITOR_STYLE, FloorEditor } from "./editor.js";
@@ -233,6 +234,14 @@ button.icon.menu { display: none; }
 }
 .floors button.sel { background: var(--card-background-color, #fff); color: var(--primary-text-color); }
 .stage { position: relative; flex: 1; min-height: 0; overflow: hidden; }
+.simbar { position: absolute; left: 50%; top: 8px; transform: translateX(-50%); z-index: 6; display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; max-width: calc(100% - 24px); padding: 6px 10px; border-radius: 12px; background: repeating-linear-gradient(135deg, #ff9800 0 12px, #fb8c00 12px 24px); color: #1b1b1b; font-size: 13px; box-shadow: 0 2px 10px rgba(0,0,0,.35); }
+.simbar b { letter-spacing: .08em; }
+.simbar select, .simbar input[type=range] { font: inherit; font-size: 12px; border-radius: 6px; border: none; padding: 3px; max-width: 130px; }
+.simbar label { display: inline-flex; align-items: center; gap: 4px; }
+.simbar button { font: inherit; font-size: 12px; padding: 4px 9px; border-radius: 7px; border: none; background: rgba(0,0,0,.75); color: #fff; cursor: pointer; }
+.simdlg .row { display: flex; gap: 8px; align-items: center; margin: 8px 0; }
+.simdlg input[type=number], .simdlg input[type=text] { flex: 1; min-width: 0; font: inherit; padding: 7px; border-radius: 8px; border: 1px solid var(--divider-color, rgba(127,127,127,.4)); background: var(--primary-background-color, #fff); color: inherit; }
+.simdlg input[type=range] { flex: 1; }
 .canvas { position: absolute; inset: 0; }
 .overlay { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
 .room {
@@ -357,7 +366,10 @@ class Haus3DPanel extends HTMLElement {
     this._watchedRefs = [];
   }
 
-  set hass(hass) {
+  set hass(real) {
+    this._realHass = real;
+    // Simulation: Schicht über dem echten hass, nichts geht an Home Assistant
+    const hass = this._sim ? this._sim.wrap(real, { building: this._building, onChange: () => this._simChanged(), onToast: (t) => this._toast(t) }) : real;
     const prev = this._hass;
     this._hass = hass;
     if (!this._built) return;
@@ -386,7 +398,130 @@ class Haus3DPanel extends HTMLElement {
   }
 
   get hass() {
-    return this._hass;
+    return this._realHass ?? this._hass;
+  }
+
+  // ------------------------------------------------------------------ Simulation
+
+  /** Simulation an/aus. Beim Start wird der Grundriss kopiert; beim Beenden der echte neu geladen. */
+  async _setSim(on) {
+    this._settings.sim = !!on;
+    this._saveSettings();
+    if (on && !this._sim) {
+      this._sim = new Simulator();
+      if (this._building) {
+        this._simBase = structuredClone(this._building); // echter Stand, für Beispielgeräte an/aus
+        this._sim.building = structuredClone(this._building);
+        this._sim.revision = this._revision ?? 0;
+        if (this._settings.simDemo) this._sim.makeDemo(this._sim.building, this._realHass);
+        this._setBuilding(this._sim.building, this._sim.revision, { keepCamera: true });
+      }
+      this._toast("Simulation an: nichts wird wirklich geschaltet oder gespeichert.");
+    } else if (!on && this._sim) {
+      this._sim = null;
+      this.hass = this._realHass;
+      this._toast("Simulation beendet, echte Zustände.");
+      await this._load();
+    }
+    this._renderSimBar();
+    this._simChanged();
+  }
+
+  _simChanged() {
+    if (this._realHass) this.hass = this._realHass;
+  }
+
+  _renderSimBar() {
+    this._simBar?.remove();
+    this._simBar = null;
+    if (!this._sim || !this._els) return;
+    const sim = this._sim;
+    const el = document.createElement("div");
+    el.className = "simbar";
+    el.innerHTML = `<b>SIMULATION</b>
+      <label>Wetter <select data-sim="weather">${SIM_WEATHER.map(([k, n]) => `<option value="${k}"${k === sim.weather ? " selected" : ""}>${n}</option>`).join("")}</select></label>
+      <label>Tageszeit <select data-sim="daytime">${[["", "wie echt"], ["day", "Tag"], ["night", "Nacht"]].map(([k, n]) => `<option value="${k}"${k === sim.daytime ? " selected" : ""}>${n}</option>`).join("")}</select></label>
+      <label>Solar <input type="range" min="0" max="1600" step="20" data-sim="solar" value="${sim.solar ?? 0}"><span class="sv">${sim.solar === null ? "echt" : `${sim.solar} W`}</span></label>
+      <label><input type="checkbox" data-sim="demo"${this._settings.simDemo ? " checked" : ""}> Beispielgeräte</label>
+      <button data-sim="reset">Zurücksetzen</button><button data-sim="stop">Beenden</button>`;
+    el.querySelector("[data-sim=weather]").addEventListener("change", (ev) => {
+      sim.weather = ev.target.value;
+      sim._cache = null;
+      this._simChanged();
+    });
+    el.querySelector("[data-sim=daytime]").addEventListener("change", (ev) => {
+      sim.daytime = ev.target.value;
+      sim._cache = null;
+      this._simChanged();
+    });
+    el.querySelector("[data-sim=solar]").addEventListener("input", (ev) => {
+      sim.solar = Number(ev.target.value);
+      sim._cache = null;
+      el.querySelector(".sv").textContent = `${sim.solar} W`;
+      this._simChanged();
+    });
+    el.querySelector("[data-sim=demo]").addEventListener("change", (ev) => {
+      this._settings.simDemo = ev.target.checked;
+      this._saveSettings();
+      // frische Kopie des Grundrisses (Beispielgeräte vergeben Bereiche nur in der Kopie)
+      sim.clearDemo();
+      sim.building = structuredClone(this._simBase ?? this._building);
+      const n = this._settings.simDemo ? sim.makeDemo(sim.building, this._realHass) : 0;
+      this._setBuilding(sim.building, sim.revision, { keepCamera: true });
+      this._simChanged();
+      if (this._settings.simDemo) this._toast(n === 1 ? "1 Raum ohne Geräte hat Beispielgeräte bekommen." : n ? `${n} Räume ohne Geräte haben Beispielgeräte bekommen.` : "Alle Räume haben schon Geräte.");
+    });
+    el.querySelector("[data-sim=reset]").addEventListener("click", () => {
+      sim.reset();
+      this._renderSimBar();
+      this._simChanged();
+    });
+    el.querySelector("[data-sim=stop]").addEventListener("click", () => this._setSim(false));
+    this._els.stage.appendChild(el);
+    this._simBar = el;
+  }
+
+  /** Dialog statt „Weitere Infos“: Zustand des Geräts in der Simulation setzen. */
+  _simDialog(entityId) {
+    this._closeDialog();
+    const st = this._hass.states[entityId];
+    const domain = domainOf(entityId);
+    const name = st?.attributes?.friendly_name ?? entityId;
+    const el = document.createElement("div");
+    el.className = "dialog-backdrop";
+    const onOff = ["light", "switch", "fan", "input_boolean", "binary_sensor", "automation", "siren", "humidifier"].includes(domain);
+    const cls = st?.attributes?.device_class;
+    const labels = domain === "binary_sensor" && ["window", "door", "opening", "garage_door"].includes(cls) ? ["Offen", "Zu"] : ["An", "Aus"];
+    let body = "";
+    if (onOff) body = `<div class="btns"><button data-set="on" class="${st?.state === "on" ? "primary" : ""}">${labels[0]}</button><button data-set="off" class="${st?.state !== "on" ? "primary" : ""}">${labels[1]}</button></div>`;
+    else if (domain === "cover") body = `<div class="btns"><button data-svc="open_cover">Auf</button><button data-svc="close_cover">Zu</button></div><div class="row"><span>Position</span><input type="range" min="0" max="100" step="5" data-pos value="${st?.attributes?.current_position ?? (st?.state === "open" ? 100 : 0)}"><span class="pv">${st?.attributes?.current_position ?? ""} %</span></div>`;
+    else if (domain === "lock") body = `<div class="btns"><button data-svc="unlock">Aufschließen</button><button data-svc="lock">Abschließen</button></div>`;
+    else if (domain === "climate") body = `<div class="row"><span>Soll</span><input type="number" step="0.5" data-temp value="${st?.attributes?.temperature ?? 21}"><button data-act="temp">Setzen</button></div>`;
+    else body = `<div class="row"><input type="${/^-?\d+(\.\d+)?$/.test(st?.state ?? "") ? "number" : "text"}" step="any" data-val value="${esc(st?.state ?? "")}"><button data-act="val">Setzen</button></div>`;
+    el.innerHTML = `<div class="dialog simdlg" role="dialog" aria-label="Simulation">
+      <div class="dialog-head"><span>${esc(name)}</span><button class="icon close" title="Schließen"><ha-icon icon="mdi:close"></ha-icon></button></div>
+      <div class="dialog-body"><p class="hint">Simulation: ${esc(entityId)} ist gerade „${esc(st?.state ?? "unbekannt")}“. Änderungen bleiben in der Simulation.</p>${body}</div></div>`;
+    const done = () => {
+      this._simChanged();
+      this._closeDialog();
+    };
+    el.querySelectorAll("[data-set]").forEach((b) => b.addEventListener("click", () => {
+      this._sim.set(entityId, b.dataset.set, {}, st);
+      done();
+    }));
+    el.querySelectorAll("[data-svc]").forEach((b) => b.addEventListener("click", () => this._hass.callService(domain, b.dataset.svc, { entity_id: entityId }).then(() => this._closeDialog())));
+    el.querySelector("[data-pos]")?.addEventListener("change", (ev) => this._hass.callService("cover", "set_cover_position", { entity_id: entityId, position: Number(ev.target.value) }).then(() => this._closeDialog()));
+    el.querySelector("[data-act=temp]")?.addEventListener("click", () => this._hass.callService("climate", "set_temperature", { entity_id: entityId, temperature: Number(el.querySelector("[data-temp]").value) }).then(() => this._closeDialog()));
+    el.querySelector("[data-act=val]")?.addEventListener("click", () => {
+      this._sim.set(entityId, el.querySelector("[data-val]").value, {}, st);
+      done();
+    });
+    el.querySelector(".close").addEventListener("click", () => this._closeDialog());
+    el.addEventListener("click", (ev) => {
+      if (ev.target === el) this._closeDialog();
+    });
+    this._els.stage.appendChild(el);
+    this._dialog = el;
   }
 
   set narrow(value) {
@@ -494,6 +629,8 @@ class Haus3DPanel extends HTMLElement {
     try {
       const res = await this._hass.callWS({ type: "haus3d/building/get" });
       this._setBuilding(res.building, res.revision);
+      // Simulation war in diesem Browser an: wieder starten (Band oben zeigt es deutlich)
+      if (this._settings.sim && !this._sim) this._setSim(true);
     } catch (err) {
       this._showMessage(`Grundriss konnte nicht geladen werden: ${err.message ?? err.code ?? err}`);
     } finally {
@@ -759,6 +896,7 @@ class Haus3DPanel extends HTMLElement {
   }
 
   _moreInfo(entityId) {
+    if (this._sim) return this._simDialog(entityId);
     this.dispatchEvent(new CustomEvent("hass-more-info", { detail: { entityId }, bubbles: true, composed: true }));
   }
 
@@ -932,6 +1070,9 @@ class Haus3DPanel extends HTMLElement {
             ${LAYERS.map(([k, name]) => `<label><input type="checkbox" data-layer="${k}"${st.layers[k] !== false ? " checked" : ""}><span>${name}</span></label>`).join("")}
           </div>
           <p class="hint">Darstellung und Einblenden gelten für dieses Gerät/diesen Browser.</p>
+          <h4>Simulation</h4>
+          <p class="hint">Zum Ausprobieren: Schalten, Wetter, Tag/Nacht und Solarleistung werden nur simuliert, nichts geht an echte Geräte, der Grundriss wird nicht gespeichert.</p>
+          <div class="btns"><button class="simtoggle${this._sim ? "" : " primary"}">${this._sim ? "Simulation beenden" : "Simulation starten"}</button></div>
           ${this._hass?.user?.is_admin ? `<h4>Haus & Wetter (für alle)</h4><div class="house-cfg"></div><h4>Energie-Anzeige (für alle)</h4><div class="energy-cfg"></div>` : ""}
         </div>
       </div>`;
@@ -961,6 +1102,10 @@ class Haus3DPanel extends HTMLElement {
     el.querySelector(".close").addEventListener("click", () => this._closeDialog());
     el.addEventListener("click", (ev) => {
       if (ev.target === el) this._closeDialog();
+    });
+    el.querySelector(".simtoggle").addEventListener("click", () => {
+      this._closeDialog();
+      this._setSim(!this._sim);
     });
     const cfg = el.querySelector(".energy-cfg");
     if (cfg) this._renderEnergyConfig(cfg);

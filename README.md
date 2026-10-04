@@ -51,6 +51,13 @@ dort lassen sich direkt einlesen, und Exporte von Haus 3D kann NeonPlan wieder �
 - **Einstellungen** (Zahnrad): Stil **Auto** (Tag/Nacht nach `sun.sun`), **Tag**, **Nacht** oder
   **Cyberpunk**, Geräte als Symbole oder 3D-Objekte, Ebenen (Wände, Möbel, Geräte, Garten …) ein/aus.
 - **Tablet-tauglich**: größere Schaltflächen bei Touch-Bedienung.
+- **Simulationsmodus** (Zahnrad → Simulation starten, gilt nur für diesen Browser): zum gefahrlosen
+  Ausprobieren. Schalten ändert nur simulierte Zustände, es geht **kein Dienstaufruf** an Home
+  Assistant. Langes Drücken öffnet statt „Weitere Infos“ einen Simulationsdialog (an/aus, Fenster
+  offen/zu, Rollladen-Position, Solltemperatur, Messwerte). Ein oranges Band oben zeigt den Modus und
+  stellt Wetter (Sonne bis Gewitter, Schnee, Hagel), Tag/Nacht und Solarleistung ein. „Beispielgeräte“
+  gibt Räumen ohne eigene Geräte ein Licht, einen Temperatursensor und einen Fensterkontakt. Änderungen
+  am Grundriss bleiben in der Simulation lokal; beim Beenden wird der echte Stand neu geladen.
 - **Import/Export, Verlauf** (nur für Admins, Menü ⋮): JSON exportieren/importieren, Stand sichern, einen
   der letzten 20 Stände wiederherstellen. Vor jedem Speichern wird der alte Stand automatisch gesichert.
 - Läuft **komplett offline**: Three.js und OrbitControls liegen im Paket, kein CDN.
@@ -107,8 +114,8 @@ Damit HACS sie als Update anbietet, braucht es ein **Release**:
 
 1. Auf GitHub im Repository rechts **Releases → Draft a new release** (bzw. „Create a new release“).
 2. **Choose a tag** → neuen Tag eintippen, genau wie die Version in `manifest.json` mit „v“ davor,
-   z. B. `v0.8.2` → „Create new tag“. Ziel-Zweig: `main`.
-3. Titel z. B. `0.8.2`, kurze Beschreibung, bei „Release label“ **None** (nicht Pre-release),
+   z. B. `v0.9.0` → „Create new tag“. Ziel-Zweig: `main`.
+3. Titel z. B. `0.9.0`, kurze Beschreibung, bei „Release label“ **None** (nicht Pre-release),
    **Publish release**.
 4. In Home Assistant: **HACS → Haus 3D** (ggf. ⋮ → „Informationen aktualisieren“) → **Herunterladen**/
    **Aktualisieren** → Home Assistant **neu starten**.
