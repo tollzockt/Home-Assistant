@@ -39,14 +39,16 @@ import { SIM_WEATHER, Simulator } from "./sim.js";
 import { FUNCTION_KEYS, LEGACY_FUNCTION_KEYS, MAX_CARDS, WHEEL_VISIBLE, labelPlace, nextStyle, migrateView, nextView, normalizeCards, normalizeFunctions, rotateWheel, wheelLayout, wheelPlusAngle } from "./hud.js";
 import { entityAction } from "./actions.js";
 import { entityPlaces, houseStatus, statusChips } from "./status.js";
+import { allSecure, checklist, checklistCalls, routineCall } from "./security.js";
 import { ALERT_DEFAULTS, evaluateAlerts, exteriorOpenings, normalizeAlerts, visibleAlerts } from "./alerts.js";
 import { QUALITY_CHOICES, adaptDpr, resolveQuality } from "./perf.js";
+import { SHORT_CHOICES, SURPLUS_DEFAULTS, batteryState, batteryText, gridState, gridText, suggestEnergy } from "./energy.js";
 import { HouseScene } from "./scene.js";
 import { closeGaps } from "./walls.js";
 import { EDITOR_STYLE, FloorEditor } from "./editor.js";
 import { PANEL_STYLE } from "./panel-style.js";
 
-import { LONG_PRESS_MS, esc, plural, ENERGY_CORE, energyRows, LAYERS, DEFAULT_SETTINGS, loadSettings, fmt, ICONS, CONTACT_ICONS, DOMAIN_ICONS, SENSOR_ICONS, fmtPower, setText, iconFor, isActive } from "./panel-util.js";
+import { LONG_PRESS_MS, esc, plural, ENERGY_CORE, ENERGY_GROUPS, energyRows, LAYERS, DEFAULT_SETTINGS, loadSettings, fmt, ICONS, CONTACT_ICONS, DOMAIN_ICONS, SENSOR_ICONS, fmtPower, setText, iconFor, isActive } from "./panel-util.js";
 
 export const DialogMethods = {
   /** Dialog statt „Weitere Infos“: Zustand des Geräts in der Simulation setzen. */
@@ -107,9 +109,106 @@ export const DialogMethods = {
     this._popup = el;
   },
 
+  /**
+   * Gute-Nacht-Check bzw. „Haus verlassen“ (security.js): offene Fenster/Türen (nur Anzeige, Tipp
+   * springt hin), Tore, Schlösser, Lichter, Rollläden – angehakte Einträge je Abschnitt oder alle mit
+   * „Fertig“ erledigen; danach das eingestellte Skript.
+   */
+  _checkSheet(mode = "goodnight") {
+    this._closePopup();
+    this._closeDialog();
+    const hass = this._hass;
+    const b = this._building;
+    const status = houseStatus(b, hass, this._byArea, this._links, this._places);
+    const sections = checklist(status, hass, b, this._places ?? new Map(), { mode, keepOn: b.settings?.routines?.keep_on ?? [] });
+    const el = document.createElement("div");
+    el.className = "dialog-backdrop sheet-backdrop";
+    const run = async (calls, needConfirm) => {
+      if (needConfirm && !(await this._confirm("Tore schließen?", "Schließen"))) return false;
+      for (const c of calls) await this._hass.callService(c.domain, c.service, c.data).catch((err) => this._toast(`Fehlgeschlagen: ${err.message ?? err}`));
+      return true;
+    };
+    const render = () => {
+      const done = allSecure(sections);
+      el.innerHTML = `<div class="dialog sheet" role="dialog" aria-label="Gute Nacht">
+        <div class="dialog-head"><span class="seg mode"><button data-mode="goodnight" class="${mode === "goodnight" ? "sel" : ""}">Gute Nacht</button><button data-mode="leave" class="${mode === "leave" ? "sel" : ""}">Haus verlassen</button></span><button class="icon close" title="Schließen"><ha-icon icon="mdi:close"></ha-icon></button></div>
+        <div class="dialog-body">
+          ${done ? `<p class="allok"><ha-icon icon="mdi:check-circle"></ha-icon> Alles zu und aus.</p>` : ""}
+          ${sections.map((sec, si) => !sec.items.length ? "" : `<h4>${esc(sec.title)} (${sec.items.length})</h4>
+            ${sec.items.map((it, ii) => `<div class="crow">${sec.info ? `<ha-icon icon="mdi:window-open-variant"></ha-icon>` : `<input type="checkbox" data-s="${si}" data-i="${ii}"${it.checked ? " checked" : ""}>`}<button class="go" data-s="${si}" data-i="${ii}"></button></div>`).join("")}
+            ${sec.info ? `<p class="hint">Fenster und Türen bitte von Hand schließen – Tipp auf eine Zeile zeigt den Raum.</p>` : `<div class="btns"><button class="secrun" data-s="${si}">${esc({ garage: "Tore schließen", locks: "Abschließen", lights: "Lichter aus", covers: "Rollläden runter" }[sec.key] ?? "Ausführen")}</button></div>`}`).join("")}
+          <div class="btns"><button class="finish primary">${mode === "goodnight" ? "Fertig – Gute Nacht" : "Fertig – Haus verlassen"}</button></div>
+        </div></div>`;
+      el.querySelectorAll(".go").forEach((g) => {
+        const it = sections[Number(g.dataset.s)].items[Number(g.dataset.i)];
+        g.textContent = it.label;
+        g.addEventListener("click", () => {
+          if (!it.floorId || !it.roomId) return;
+          this._closeDialog();
+          this._setFilter(it.floorId);
+          this._selectRoom({ floorId: it.floorId, roomId: it.roomId });
+        });
+      });
+      el.querySelectorAll("input[data-s]").forEach((c) => c.addEventListener("change", () => (sections[Number(c.dataset.s)].items[Number(c.dataset.i)].checked = c.checked)));
+      el.querySelectorAll(".secrun").forEach((btn) => btn.addEventListener("click", async () => {
+        const sec = sections[Number(btn.dataset.s)];
+        const calls = checklistCalls([sec]);
+        if (!calls.length) return;
+        if (await run(calls, sec.confirm)) {
+          sec.items = sec.items.filter((i) => !i.checked);
+          this._toast(`${sec.title}: erledigt`);
+          render();
+        }
+      }));
+      el.querySelectorAll("[data-mode]").forEach((m) => m.addEventListener("click", () => this._checkSheet(m.dataset.mode)));
+      el.querySelector(".close").addEventListener("click", () => this._closeDialog());
+      el.querySelector(".finish").addEventListener("click", async () => {
+        const garage = sections.find((x) => x.key === "garage");
+        const needConfirm = !!garage?.items.some((i) => i.checked);
+        if (!(await run(checklistCalls(sections), needConfirm))) return;
+        const r = routineCall(b.settings?.routines, mode, hass);
+        if (r) {
+          if (!r.exists) this._toast(`${r.data.entity_id} gibt es nicht.`);
+          else await this._hass.callService(r.domain, r.service, r.data).catch((err) => this._toast(`Fehlgeschlagen: ${err.message ?? err}`));
+        }
+        this._closeDialog();
+        this._toast(mode === "goodnight" ? "Gute Nacht!" : "Bis später!");
+      });
+    };
+    render();
+    el.addEventListener("click", (ev) => {
+      if (ev.target === el) this._closeDialog();
+    });
+    this._els.stage.appendChild(el);
+    this._dialog = el;
+  },
+
+  /** Abläufe & Sicherheit (für alle): Skripte für Gute Nacht / Haus verlassen, anbleiben, Schlösser. */
+  _renderRoutinesConfig(box) {
+    const hass = this._hass;
+    const r = this._building?.settings?.routines ?? {};
+    const sec = this._building?.settings?.security ?? {};
+    const runnable = Object.keys(hass.states).filter((id) => ["script", "scene", "automation", "button", "input_button"].includes(id.split(".")[0])).sort();
+    const opts = (list) => list.map((id) => `<option value="${esc(id)}">${esc(hass.states[id]?.attributes?.friendly_name ?? "")}</option>`).join("");
+    box.innerHTML = `<label class="en-row"><span>Skript bei „Gute Nacht“</span><input list="rt-run" data-rt="goodnight" value="${esc(r.goodnight ?? "")}" placeholder="script.…"></label>
+      <label class="en-row"><span>Skript bei „Haus verlassen“</span><input list="rt-run" data-rt="leave" value="${esc(r.leave ?? "")}" placeholder="script.…"></label>
+      <label class="en-row"><span>Darf anbleiben</span><input data-rt="keep_on" value="${esc((r.keep_on ?? []).join(", "))}" placeholder="light.flur_nacht, …"></label>
+      <label class="en-row"><span>Weitere Schlösser</span><input data-rt="locks" value="${esc((sec.locks ?? []).join(", "))}" placeholder="lock.…"></label>
+      <datalist id="rt-run">${opts(runnable)}</datalist>
+      <div class="btns"><button class="rt-save primary">Speichern</button></div>`;
+    const list = (v) => v.split(/[,\s]+/).map((x) => x.trim()).filter((x) => x.includes(".")).slice(0, 50);
+    box.querySelector(".rt-save").addEventListener("click", () => {
+      const val = (k) => box.querySelector(`[data-rt="${k}"]`).value.trim();
+      const routines = { goodnight: val("goodnight") || null, leave: val("leave") || null, keep_on: list(val("keep_on")) };
+      const security = { ...sec, locks: list(val("locks")) };
+      this._saveBuildingSettings({ routines, security }, "Abläufe gespeichert.");
+    });
+  },
+
   /** Liste zu einem Chip: nach Etage, Tipp springt zum Raum; bei Lichtern „Alle Lichter aus“. */
   _statusPopup(key) {
     this._closePopup();
+    if (key === "ok") return this._checkSheet("goodnight"); // „Alles zu“ → Gute-Nacht-Check
     const st = this._status;
     if (!st) return;
     const hass = this._hass;
@@ -181,7 +280,7 @@ export const DialogMethods = {
           <h4>Simulation</h4>
           <p class="hint">Zum Ausprobieren: Schalten, Wetter, Tag/Nacht und Solarleistung werden nur simuliert, nichts geht an echte Geräte, der Grundriss wird nicht gespeichert.</p>
           <div class="btns"><button class="simtoggle${this._sim ? "" : " primary"}">${this._sim ? "Simulation beenden" : "Simulation starten"}</button></div>
-          ${this._hass?.user?.is_admin ? `<h4>Haus & Wetter (für alle)</h4><div class="house-cfg"></div><h4>Hinweise (für alle)</h4><div class="alerts-cfg"></div><h4>Energie-Anzeige (für alle)</h4><div class="energy-cfg"></div>` : ""}
+          ${this._hass?.user?.is_admin ? `<h4>Haus & Wetter (für alle)</h4><div class="house-cfg"></div><h4>Hinweise (für alle)</h4><div class="alerts-cfg"></div><h4>Abläufe & Sicherheit (für alle)</h4><div class="routines-cfg"></div><h4>Energie-Anzeige (für alle)</h4><div class="energy-cfg"></div>` : ""}
         </div>
       </div>`;
     const syncSeg = () => {
@@ -227,6 +326,8 @@ export const DialogMethods = {
     if (house) this._renderHouseConfig(house);
     const al = el.querySelector(".alerts-cfg");
     if (al) this._renderAlertsConfig(al);
+    const rt = el.querySelector(".routines-cfg");
+    if (rt) this._renderRoutinesConfig(rt);
     this._els.stage.appendChild(el);
     this._dialog = el;
   },
@@ -336,13 +437,54 @@ export const DialogMethods = {
     const hass = this._hass;
     const energy = structuredClone(this._building?.settings?.energy ?? {});
     energy.extra = [...(energy.extra ?? [])].map((x) => (typeof x === "string" ? { entity: x } : x));
+    energy.ueberschuss = { ...SURPLUS_DEFAULTS, ...(energy.ueberschuss ?? {}) };
+    let found = null; // Vorschläge aus HA-Energie
+    const names = Object.fromEntries(ENERGY_CORE.map(([k, , n]) => [k, n]));
     const opts = `<datalist id="en-all">${Object.keys(hass.states).filter((id) => /^(sensor|binary_sensor|input_number|number)\./.test(id)).sort().map((id) => `<option value="${esc(id)}">${esc(hass.states[id].attributes.friendly_name ?? "")}</option>`).join("")}</datalist>`;
+    const row = (k) => `<label class="en-row"><span>${names[k]}</span><input list="en-all" data-core="${k}" value="${esc(energy[k] ?? "")}" placeholder="– keine –"></label>`;
+    const num = (k, label, min, max, step, v) => `<label class="en-row"><span>${label}</span><input type="number" data-num="${k}" min="${min}" max="${max}" step="${step}" value="${v ?? ""}"></label>`;
+    // Vorschau „aktuell: lädt 120 W“ mit dem gerade gewählten Vorzeichen
+    const preview = () => {
+      const st = (k) => (energy[k] ? hass.states[energy[k]] : null);
+      const v = energyValues({ energy }, hass);
+      const lang = hass.locale?.language;
+      const bat = st("akku_leistung") ? batteryText(batteryState(v.akku_ladestand, v.akku_leistung, { invert: !!energy.akku_invert }), Date.now(), lang) : null;
+      const grid = st("netz") ? gridText(gridState(v.netz, !!energy.netz_invert), lang) : null;
+      box.querySelector(".pv-akku").textContent = bat ? `aktuell: ${bat}` : "";
+      box.querySelector(".pv-netz").textContent = grid ? `aktuell: ${grid}` : "";
+    };
     const render = () => {
-      box.innerHTML = `${ENERGY_CORE.map(([k, , name]) => `<label class="en-row"><span>${name}</span><input list="en-all" data-core="${k}" value="${esc(energy[k] ?? "")}" placeholder="– keine –"></label>`).join("")}
+      box.innerHTML = `<div class="btns left"><button class="en-ha"><ha-icon icon="mdi:import"></ha-icon> Aus HA-Energie übernehmen</button></div>
+        <div class="en-found"></div>
+        ${ENERGY_GROUPS.map(([title, keys]) => `<h4>${title}</h4>${keys.map(row).join("")}`).join("")}
+        ${num("akku_kapazitaet", "Kapazität (kWh)", 0, 1000, 0.1, energy.akku_kapazitaet)}
+        ${num("akku_reserve", "Reserve (%)", 0, 100, 1, energy.akku_reserve ?? 10)}
+        <label class="chkrow"><input type="checkbox" data-inv="akku_invert"${energy.akku_invert ? " checked" : ""}> Vorzeichen Akku umkehren <small class="pv-akku muted"></small></label>
+        <label class="chkrow"><input type="checkbox" data-inv="netz_invert"${energy.netz_invert ? " checked" : ""}> Vorzeichen Netz umkehren <small class="pv-netz muted"></small></label>
+        <p class="hint">Zeigt „lädt“ statt „entlädt“ (oder „Bezug“ statt „Einspeisung“)? Vorzeichen umkehren.</p>
+        <h4>Überschuss-Ampel</h4>
+        <div class="row3"><div>${num("hoch", "gut ab (W)", 0, 100000, 10, energy.ueberschuss.hoch)}</div><div>${num("mittel", "etwas ab (W)", 0, 100000, 10, energy.ueberschuss.mittel)}</div></div>
+        <p class="hint">Ohne Netz-Sensor zählt die Einspeisung des Balkonkraftwerks als Überschuss (Näherung).</p>
+        <label class="en-row"><span>Eingeklappt</span><select data-kurz>${SHORT_CHOICES.map(([k, n]) => `<option value="${k}"${(energy.kurz ?? "") === k ? " selected" : ""}>${n}</option>`).join("")}</select></label>
+        <h4>Weitere Werte</h4>
         ${energy.extra.map((x, i) => `<div class="en-row"><input data-extra-name="${i}" value="${esc(x.name ?? "")}" placeholder="Name"><input list="en-all" data-extra="${i}" value="${esc(x.entity ?? "")}"><button class="icon" data-rm="${i}" title="Entfernen"><ha-icon icon="mdi:delete-outline"></ha-icon></button></div>`).join("")}
         ${opts}
         <div class="btns"><button class="en-add">+ Wert hinzufügen</button><button class="en-save primary">Speichern</button></div>`;
-      box.querySelectorAll("[data-core]").forEach((i) => i.addEventListener("change", () => (energy[i.dataset.core] = i.value.trim() || null)));
+      box.querySelectorAll("[data-core]").forEach((i) => i.addEventListener("change", () => {
+        energy[i.dataset.core] = i.value.trim() || null;
+        preview();
+      }));
+      box.querySelectorAll("[data-num]").forEach((i) => i.addEventListener("change", () => {
+        const k = i.dataset.num;
+        const v = i.value === "" ? null : Number(i.value);
+        if (k === "hoch" || k === "mittel") energy.ueberschuss[k] = v ?? SURPLUS_DEFAULTS[k];
+        else energy[k] = v;
+      }));
+      box.querySelectorAll("[data-inv]").forEach((c) => c.addEventListener("change", () => {
+        energy[c.dataset.inv] = c.checked;
+        preview();
+      }));
+      box.querySelector("[data-kurz]").addEventListener("change", (ev) => (energy.kurz = ev.target.value));
       box.querySelectorAll("[data-extra]").forEach((i) => i.addEventListener("change", () => (energy.extra[Number(i.dataset.extra)].entity = i.value.trim())));
       box.querySelectorAll("[data-extra-name]").forEach((i) => i.addEventListener("change", () => (energy.extra[Number(i.dataset.extraName)].name = i.value.trim() || undefined)));
       box.querySelectorAll("[data-rm]").forEach((b) => b.addEventListener("click", () => {
@@ -353,6 +495,19 @@ export const DialogMethods = {
         energy.extra.push({ entity: "" });
         render();
       });
+      // HA-Energie: nur Vorschläge zeigen und Felder füllen, gespeichert wird erst mit „Speichern“
+      box.querySelector(".en-ha").addEventListener("click", async () => {
+        let prefs = null;
+        try {
+          prefs = await hass.callWS({ type: "energy/get_prefs" });
+        } catch (err) {
+          prefs = null;
+        }
+        found = Object.entries(suggestEnergy(prefs, hass)).map(([key, v]) => ({ key, ...v, checked: true }));
+        drawFound();
+      });
+      drawFound();
+      preview();
       box.querySelector(".en-save").addEventListener("click", async () => {
         const building = structuredClone(this._building);
         building.settings.energy = { ...energy, extra: energy.extra.filter((x) => x.entity) };
@@ -363,6 +518,28 @@ export const DialogMethods = {
         } catch (err) {
           this._toast(`Speichern fehlgeschlagen: ${err.message ?? err.code}`);
         }
+      });
+    };
+    const drawFound = () => {
+      const fb = box.querySelector(".en-found");
+      if (!found) return (fb.innerHTML = "");
+      if (!found.length) return (fb.innerHTML = `<p class="hint">Im HA-Energie-Dashboard ist nichts eingerichtet – Werte bitte von Hand wählen.</p>`);
+      fb.innerHTML = `<h4>Gefunden</h4>${found.map((f, i) => `<label class="chkrow"><input type="checkbox" data-f="${i}"${f.checked ? " checked" : ""}><span class="fl"></span></label>`).join("")}
+        <div class="btns"><button class="f-no">Abbrechen</button><button class="f-ok primary">Übernehmen</button></div>`;
+      fb.querySelectorAll("[data-f]").forEach((c) => {
+        const f = found[Number(c.dataset.f)];
+        c.nextElementSibling.textContent = `${f.label}: ${f.entity}`;
+        c.addEventListener("change", () => (f.checked = c.checked));
+      });
+      fb.querySelector(".f-no").addEventListener("click", () => {
+        found = null;
+        drawFound();
+      });
+      fb.querySelector(".f-ok").addEventListener("click", () => {
+        for (const f of found.filter((x) => x.checked)) energy[f.key] = f.entity;
+        found = null;
+        render();
+        this._toast("Übernommen – zum Behalten „Speichern“ tippen.");
       });
     };
     render();

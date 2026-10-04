@@ -91,8 +91,20 @@ const energy = {
   akku_leistung: st("sensor.akku_leistung", "-32", { unit_of_measurement: "W" }),
   ertrag_heute: st("sensor.pv_ertrag_heute", "1.234", { unit_of_measurement: "kWh" }),
 };
+// ?netz=450: Netz-Leistung (positiv = Bezug)
+if (params.has("netz")) energy.netz = st("sensor.netz_leistung", params.get("netz") || "450", { unit_of_measurement: "W", device_class: "power" });
 data.settings = { ...(data.settings ?? {}), energy: { ...(data.settings?.energy ?? {}), ...Object.fromEntries(Object.entries(energy).map(([k, v]) => [k, v.entity_id])) } };
-for (const s of Object.values(energy)) add(s, "gartenhaus");
+for (const s of Object.values(energy)) add(s, "gartenhaus", { device_id: /akku/.test(s.entity_id) ? "akku" : "bkw" });
+// HA-Energie-Einstellungen: Stromzähler (Gerät „zaehler“) und Akku-Zähler
+add(st("sensor.zaehler_bezug", "1234.5", { device_class: "energy", unit_of_measurement: "kWh" }), null, { device_id: "zaehler" });
+add(st("sensor.zaehler_leistung", "-210", { device_class: "power", unit_of_measurement: "W" }), null, { device_id: "zaehler" });
+add(st("sensor.akku_entladen", "12.5", { device_class: "energy", unit_of_measurement: "kWh" }), null, { device_id: "akku" });
+energy.akku_ladestand.attributes.device_class = "battery";
+energy.akku_leistung.attributes.device_class = "power";
+const energyPrefs = { energy_sources: [
+  { type: "grid", flow_from: [{ stat_energy_from: "sensor.zaehler_bezug" }], flow_to: [] },
+  { type: "battery", stat_energy_from: "sensor.akku_entladen", stat_energy_to: "sensor.akku_entladen" },
+] };
 for (const [id, name] of [["automation.abend", "Abendstimmung"], ["script.garage", "Garage auf"], ["scene.kino", "Kino"], ["button.klingel", "Klingel"]]) add(st(id, "on", { friendly_name: name }), null);
 // ?person: zwei Personen (eine zu Hause mit Bild), ?motion: Bewegung in der Küche (jetzt) und im Bad (vor 2 min)
 if (params.has("person")) {
@@ -128,6 +140,7 @@ const hass = {
     window.calls.push(msg);
     if (msg.type === "haus3d/building/get") return { building: data, revision: 1 };
     if (msg.type === "haus3d/building/save") return { building: msg.building, revision: (msg.revision ?? 1) + 1 };
+    if (msg.type === "energy/get_prefs") return params.has("noprefs") ? {} : structuredClone(energyPrefs);
     return {};
   },
   callService: async (domain, service, d) => { window.calls.push({ domain, service, ...d }); },

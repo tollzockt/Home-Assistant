@@ -3,7 +3,7 @@
 import { labelPoint, pointInPolygon } from "./walls.js";
 
 export const CONTACT_CLASSES = ["window", "door", "opening", "garage_door"];
-const ICON_DOMAINS = ["light", "switch", "fan", "cover", "climate"];
+const ICON_DOMAINS = ["light", "switch", "fan", "cover", "climate", "lock"];
 const TOGGLE_DOMAINS = ["light", "switch", "fan", "cover"];
 // Rollläden vor Fenstern/Glastüren bzw. Tore vor Garagenöffnungen (wie bei NeonPlan)
 const BLIND_CLASSES = [undefined, null, "shutter", "blind", "awning", "shade", "curtain", "window"];
@@ -234,7 +234,8 @@ export function buildingLinks(building, hass, byArea) {
     const rooms = new Map((floor.rooms ?? []).map((r) => [r.id, r]));
     const sorted = [...(floor.openings ?? [])].sort((a, b) => a.id.localeCompare(b.id));
     for (const o of sorted) {
-      const link = { contact: null, cover: null };
+      // Kippsensor nur ausdrücklich (o.tilt), nie automatisch zugeordnet
+      const link = { contact: null, cover: null, tilt: o.tilt && o.tilt !== "none" ? o.tilt : null };
       links.set(o.id, link);
       const ids = byArea.get(rooms.get(o.room_id)?.area_id) ?? [];
       if (o.contact && o.contact !== "none") link.contact = o.contact;
@@ -315,6 +316,9 @@ export function energyValues(settings, hass) {
     akku_ladestand: num(st("akku_ladestand")),
     akku_leistung: powerW(st("akku_leistung")),
     ertrag_heute: energyKWh(st("ertrag_heute")),
+    haus_pv: powerW(st("haus_pv")),
+    netz: powerW(st("netz")),
+    verbrauch: powerW(st("verbrauch")),
   };
 }
 
@@ -386,7 +390,8 @@ export function watchedEntities(building, hass, byArea, { links = null, extra = 
   for (const q of Array.isArray(s.quick) ? s.quick : []) put(q?.entity);
   for (const f of Array.isArray(s.functions) ? s.functions : []) put(f?.entity);
   // verknüpfte Kontakte und Rollläden der Öffnungen
-  if (links) for (const per of links.values()) for (const l of per.values()) for (const id of [l.contact, l.cover]) put(id);
+  if (links) for (const per of links.values()) for (const l of per.values()) for (const id of [l.contact, l.cover, l.tilt]) put(id);
+  for (const id of Array.isArray(s.security?.locks) ? s.security.locks : []) put(id);
   for (const id of extra) put(id);
   for (const id of Object.keys(hass?.states ?? {})) if (id.startsWith("person.")) ids.add(id);
   return [...ids].sort();

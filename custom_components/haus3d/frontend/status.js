@@ -17,6 +17,8 @@ export function entityPlaces(building, hass, byArea, links = null) {
       for (const id of room.panel ?? []) if (!map.has(id)) map.set(id, { floorId: floor.id, roomId: room.id });
     }
   }
+  // zusätzliche Schlösser ohne Raum (Abläufe & Sicherheit)
+  for (const id of Array.isArray(building?.settings?.security?.locks) ? building.settings.security.locks : []) if (!map.has(id)) map.set(id, { floorId: null, roomId: null });
   for (const floor of building?.floors ?? []) {
     const per = links?.get(floor.id);
     if (!per) continue;
@@ -49,8 +51,13 @@ function openKind(id, st) {
  * Was ist los im Haus.
  * @returns {{lights: object[], open: object[], unlocked: object[], alarm: object|null, perFloor: Map<string, {lights: number, open: number}>}}
  */
-export function houseStatus(building, hass, byArea, links = null, places = entityPlaces(building, hass, byArea, links), tilts = new Map()) {
+export function houseStatus(building, hass, byArea, links = null, places = entityPlaces(building, hass, byArea, links), tilts = null) {
   const out = { lights: [], open: [], unlocked: [], alarm: null, perFloor: new Map() };
+  // Kippsensoren der Öffnungen: Kontakt → Kippsensor
+  if (!tilts) {
+    tilts = new Map();
+    if (links) for (const per of links.values()) for (const l of per.values()) if (l.contact && l.tilt) tilts.set(l.contact, l.tilt);
+  }
   const floorOf = (fid) => {
     if (!out.perFloor.has(fid)) out.perFloor.set(fid, { lights: 0, open: 0 });
     return out.perFloor.get(fid);

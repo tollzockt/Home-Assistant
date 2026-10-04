@@ -114,6 +114,8 @@ export class Simulator {
       };
       put(e.solar, Math.round(this.solar));
       put(e.einspeisung, Math.round(this.solar * 0.92));
+      // Netz: Einspeisung als negativer Bezug (bzw. umgekehrt, wenn das Vorzeichen gedreht ist)
+      put(e.netz, Math.round(this.solar * 0.92) * (e.netz_invert ? 1 : -1));
     }
     const entities = Object.keys(this.demo.entities).length ? { ...real.entities, ...this.demo.entities } : real.entities;
     const sim = this;
@@ -142,6 +144,8 @@ export class Simulator {
           sim.revision = (msg.revision ?? sim.revision) + 1;
           return { building: structuredClone(sim.building), revision: sim.revision };
         }
+        // nur lesende Abfragen gehen an Home Assistant
+        if (["energy/get_prefs", "recorder/statistics_during_period", "history/history_during_period"].includes(msg.type)) return real.callWS(msg);
         if (String(msg.type).startsWith("haus3d/history")) throw new Error("In der Simulation gibt es keinen Verlauf.");
         throw new Error(`Simulation: ${msg.type} ist gesperrt.`);
       },

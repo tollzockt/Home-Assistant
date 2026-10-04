@@ -63,3 +63,25 @@ def test_frontend_files_stay_small() -> None:
     # über 128 KiB hängt die Auslieferung im Test-Webserver; große Teile in eigene Module auslagern
     big = {f.name: f.stat().st_size for f in (PKG / "frontend").glob("*.js") if f.stat().st_size > 125_000}
     assert big == {}
+
+
+def test_energy_card_keys_kept_and_coerced() -> None:
+    energy = {
+        "netz": "sensor.netz_leistung",
+        "netz_invert": "true",
+        "akku_invert": True,
+        "akku_kapazitaet": "1.6",
+        "akku_reserve": 250,
+        "kurz": "akku",
+        "ueberschuss": {"hoch": "800", "mittel": "abc"},
+        "pv_zaehler": 5,
+    }
+    e = validate_building(_building(energy=energy))["settings"]["energy"]
+    assert e["netz"] == "sensor.netz_leistung"
+    assert e["netz_invert"] is True and e["akku_invert"] is True
+    assert e["akku_kapazitaet"] == 1.6
+    assert e["akku_reserve"] == 10  # außerhalb 0..100 → Standard
+    assert e["kurz"] == "akku"
+    assert e["ueberschuss"] == {"hoch": 800.0, "mittel": 150}
+    assert e["pv_zaehler"] is None
+    assert validate_building(_building(energy={"kurz": "quatsch", "ueberschuss": 3}))["settings"]["energy"]["kurz"] == ""

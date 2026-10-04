@@ -52,9 +52,19 @@ export const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
 export const ENERGY_CORE = [
   ["solar", "mdi:white-balance-sunny", "Solar"],
   ["einspeisung", "mdi:transmission-tower-import", "Einspeisung"],
+  ["haus_pv", "mdi:solar-power-variant", "PV Dach"],
+  ["netz", "mdi:transmission-tower", "Netz"],
+  ["verbrauch", "mdi:home-lightning-bolt-outline", "Verbrauch"],
   ["akku_ladestand", "mdi:battery", "Akku"],
   ["akku_leistung", "mdi:battery-charging", "Akkuleistung"],
   ["ertrag_heute", "mdi:counter", "Ertrag heute"],
+];
+
+/** Gruppen der Energie-Einstellungen. */
+export const ENERGY_GROUPS = [
+  ["Balkonkraftwerk", ["solar", "einspeisung", "ertrag_heute"]],
+  ["Haus", ["haus_pv", "netz", "verbrauch"]],
+  ["Akku", ["akku_ladestand", "akku_leistung"]],
 ];
 
 /** Zeilen der Energie-Anzeige: feste Werte des Balkonkraftwerks plus frei gewählte (settings.energy.extra). */
@@ -111,6 +121,7 @@ export const ICONS = {
   fan: ["mdi:fan", "mdi:fan-off"],
   cover: ["mdi:window-shutter-open", "mdi:window-shutter"],
   climate: ["mdi:thermostat", "mdi:thermostat"],
+  lock: ["mdi:lock-open-variant", "mdi:lock"],
 };
 export const CONTACT_ICONS = {
   window: ["mdi:window-open-variant", "mdi:window-closed-variant"],
@@ -171,6 +182,7 @@ export function isActive(kind, stateObj) {
   if (kind === "cover" || kind === "contact") return isOpen(stateObj);
   if (kind === "other") return ["on", "open", "playing", "unlocked", "cleaning", "home", "heat", "cool"].includes(stateObj.state);
   if (kind === "climate") return !["off", "unavailable", "unknown"].includes(stateObj.state);
+  if (kind === "lock") return stateObj.state !== "locked"; // offen = auffällig
   return stateObj.state === "on";
 }
 

@@ -98,6 +98,7 @@ OPENING_SCHEMA = vol.Schema(
         vol.Optional("style", default=None): vol.Any(None, vol.In(OPENING_STYLES)),
         vol.Optional("cover", default=None): _ENTITY,
         vol.Optional("contact", default=None): _ENTITY,
+        vol.Optional("tilt", default=None): _soft(_ENTITY, None),
     },
     extra=vol.ALLOW_EXTRA,
 )
@@ -138,8 +139,28 @@ FLOOR_SCHEMA = vol.Schema(
     extra=vol.ALLOW_EXTRA,
 )
 
+_SURPLUS = vol.Schema(
+    {
+        vol.Optional("hoch"): _soft(vol.All(vol.Coerce(float), vol.Range(min=0, max=100000)), 600),
+        vol.Optional("mittel"): _soft(vol.All(vol.Coerce(float), vol.Range(min=0, max=100000)), 150),
+    },
+    extra=vol.ALLOW_EXTRA,
+)
+
 ENERGY_SCHEMA = vol.Schema(
-    {vol.Optional(key, default=value): _soft(_ENTITY, None) for key, value in DEFAULT_ENERGY.items()},
+    {
+        **{vol.Optional(key, default=value): _soft(_ENTITY, None) for key, value in DEFAULT_ENERGY.items()},
+        # Energie-Karte 2.0: ohne Standardwert, damit der Startstand nur leere IDs enthält
+        vol.Optional("netz_invert"): _soft(vol.Boolean(), False),
+        vol.Optional("akku_invert"): _soft(vol.Boolean(), False),
+        vol.Optional("akku_kapazitaet"): _soft(vol.Any(None, vol.All(vol.Coerce(float), vol.Range(min=0, max=1000))), None),
+        vol.Optional("akku_reserve"): _soft(vol.All(vol.Coerce(float), vol.Range(min=0, max=100)), 10),
+        vol.Optional("kurz"): _soft(vol.In(["", "akku", "solar", "netz", "verbrauch", "ueberschuss"]), ""),
+        vol.Optional("ueberschuss"): _soft(_SURPLUS, dict),
+        vol.Optional("pv_zaehler"): _soft(_ENTITY, None),
+        vol.Optional("bezug_zaehler"): _soft(_ENTITY, None),
+        vol.Optional("einspeise_zaehler"): _soft(_ENTITY, None),
+    },
     extra=vol.ALLOW_EXTRA,
 )
 

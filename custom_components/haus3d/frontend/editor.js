@@ -1656,10 +1656,10 @@ export class FloorEditor {
       const o = f.openings.find((x) => x.id === sel.id);
       if (!o) return this._clearSel();
       const typeName = { window: "Fenster", door: "Tür", garage: "Garagentor" }[o.type];
-      const linkField = (key, label, domains, filter) => {
+      const linkField = (key, label, domains, filter, auto = true) => {
         const v = o[key];
-        const mode = v === "none" ? "none" : v ? "fix" : "auto";
-        return `<label>${label}</label><select data-linkmode="${key}"><option value="auto"${mode === "auto" ? " selected" : ""}>automatisch (Bereich)</option><option value="none"${mode === "none" ? " selected" : ""}>keiner</option><option value="fix"${mode === "fix" ? " selected" : ""}>bestimmter …</option></select>
+        const mode = v === "none" ? "none" : typeof v === "string" ? "fix" : auto ? "auto" : "none";
+        return `<label>${label}</label><select data-linkmode="${key}">${auto ? `<option value="auto"${mode === "auto" ? " selected" : ""}>automatisch (Bereich)</option>` : ""}<option value="none"${mode === "none" ? " selected" : ""}>keiner</option><option value="fix"${mode === "fix" ? " selected" : ""}>bestimmter …</option></select>
           ${mode === "fix" ? `<input data-link="${key}" list="dl_${key}" value="${esc(v)}" placeholder="Entität">${entityList(`dl_${key}`, domains, filter)}` : ""}`;
       };
       el.innerHTML = `<h3>${typeName}</h3>
@@ -1673,6 +1673,7 @@ export class FloorEditor {
           <div><label>Flügel</label><select data-o="leaves"><option value="1"${o.leaves !== 2 ? " selected" : ""}>1</option><option value="2"${o.leaves === 2 ? " selected" : ""}>2</option></select></div></div>` : ""}
         ${linkField("contact", "Kontakt (offen/zu)", ["binary_sensor", "sensor"], (s) => ["window", "door", "opening", "garage_door", undefined].includes(s.attributes.device_class))}
         ${linkField("cover", o.type === "garage" ? "Tor-Antrieb" : "Rollladen", ["cover"])}
+        ${o.type === "window" ? linkField("tilt", "Kippsensor (optional)", ["binary_sensor", "sensor"], undefined, false) : ""}
         <p class="muted">Im Plan entlang der Wand ziehen oder mit den Pfeilen schieben.</p>
         ${pad()}
         <div class="btns"><button data-act="del" class="danger">Löschen</button></div>`;

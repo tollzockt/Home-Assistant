@@ -35,4 +35,7 @@ DEFAULT_ENERGY = {
     "akku_ladestand": None,
     "akku_leistung": None,
     "ertrag_heute": None,
+    "haus_pv": None,
+    "netz": None,
+    "verbrauch": None,
 }

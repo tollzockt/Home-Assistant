@@ -10,6 +10,9 @@ export const DEFAULT_ENERGY = {
   akku_ladestand: null,
   akku_leistung: null,
   ertrag_heute: null,
+  haus_pv: null,
+  netz: null,
+  verbrauch: null,
 };
 
 /** Liest eine Datei: rohes Gebäude, NeonPlan-Export oder NeonPlan-Backup. Wirft bei Fehlern. */

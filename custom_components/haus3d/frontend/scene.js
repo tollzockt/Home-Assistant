@@ -228,6 +228,8 @@ export class HouseScene {
           glassAlert: std({ color: ALERT, emissive: 0xff1744, emissiveIntensity: 1, transparent: true, opacity: 0.55, depthWrite: false, side: THREE.DoubleSide }),
           frame: std({ color: 0x1b0f33, emissive: 0x00e5ff, emissiveIntensity: 0.7 }),
           frameAlert: std({ color: 0xff1744, emissive: 0xff1744, emissiveIntensity: 1.2 }),
+          frameOk: std({ color: 0x00e676, emissive: 0x00e676, emissiveIntensity: 0.6 }),
+          frameWarn: std({ color: 0xffab00, emissive: 0xffab00, emissiveIntensity: 0.9 }),
           door: std({ color: 0x24123f, emissive: 0xff2bd6, emissiveIntensity: 0.35 }),
           frontDoor: std({ color: 0x24123f, emissive: 0xff2bd6, emissiveIntensity: 0.6 }),
           garage: std({ color: 0x1b0f33, emissive: 0x7c4dff, emissiveIntensity: 0.45 }),
@@ -258,6 +260,9 @@ export class HouseScene {
           glassAlert: std({ color: ALERT, transparent: true, opacity: 0.45, depthWrite: false, side: THREE.DoubleSide }),
           frame: std({ color: 0xfafafa, roughness: 0.6 }),
           frameAlert: std({ color: ALERT, emissive: ALERT, emissiveIntensity: 0.5 }),
+          // Sicherheitsansicht: zu = grün, gekippt = orange
+          frameOk: std({ color: 0x43a047, emissive: 0x2e7d32, emissiveIntensity: 0.35 }),
+          frameWarn: std({ color: 0xffa000, emissive: 0xff8f00, emissiveIntensity: 0.5 }),
           door: std({ color: 0x8d6e63, roughness: 0.7 }),
           frontDoor: std({ color: 0x455a64, roughness: 0.6 }),
           garage: std({ color: 0xd5d5d5, roughness: 0.5, metalness: 0.2 }),
@@ -1467,14 +1472,18 @@ export class HouseScene {
       }
       for (const [openingId, item] of entry.openings) {
         const key = `${floorId}:${openingId}`;
-        const open = s.open.has(key);
-        for (const m of item.frames) m.material = open ? this.mats.frameAlert : this.mats.frame;
+        // Sicherheitsansicht: gekippt orange, zu grün (nur Öffnungen mit Kontakt)
+        const tilted = !!s.security?.tilted.has(key);
+        const open = s.open.has(key) && !tilted;
+        const ok = !!s.security?.closed.has(key);
+        const frame = open ? this.mats.frameAlert : tilted ? this.mats.frameWarn : ok ? this.mats.frameOk : this.mats.frame;
+        for (const m of item.frames) m.material = frame;
         for (const p of item.panes) p.material = open ? this.mats.glassAlert : this.mats.glass;
-        for (const solid of item.solids) solid.material = open ? this.mats.frameAlert : solid.userData.base;
+        for (const solid of item.solids) solid.material = open || tilted ? frame : solid.userData.base;
         const closed = s.covers.get(key);
         // Ziele setzen; die Bewegung macht _animate() Bild für Bild
         item.anim = item.anim ?? { open: open ? 1 : 0, cover: null };
-        item.anim.openTarget = open ? 1 : 0;
+        item.anim.openTarget = open ? 1 : tilted ? 0.3 : 0;
         if (item.garage) {
           item.anim.coverTarget = closed == null ? (open ? 0.15 : 1) : Math.max(0.08, closed);
           item.garage.material = open ? this.mats.frameAlert : this.mats.garage;

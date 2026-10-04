@@ -5,6 +5,7 @@ import { test } from "node:test";
 import {
   buildingIcons,
   buildingLinks,
+  iconKind,
   coverClosedFraction,
   energyKWh,
   isOpen,
@@ -282,4 +283,17 @@ test("Raumklima: Taupunkt, absolute Feuchte, Lüften-Rat, Thermostat, Bodenfarbe
   assert.equal(d.viewColor("humidity", null), null);
   assert.notDeepEqual(d.viewColor("humidity", 70), d.viewColor("humidity", 50));
   assert.ok(d.viewColor("power", 2000)[0] > d.viewColor("power", 10)[0]); // rot bei viel Leistung
+});
+
+test("Schloss als Symbol; Kippsensor nur ausdrücklich verknüpft und nicht doppelt automatisch", () => {
+  assert.equal(iconKind({ entity_id: "lock.haustuer", state: "locked", attributes: {} }), "lock");
+  const h = makeHass([
+    [st("binary_sensor.wz_fenster", "on", { device_class: "window" }), { area_id: "wohnzimmer" }],
+    [st("binary_sensor.wz_kipp", "on", { device_class: "window" }), { area_id: "wohnzimmer" }],
+  ]);
+  const f = { id: "eg", rooms: [room], openings: [{ id: "f1", room_id: room.id, edge: 0, type: "window", contact: null, cover: null, tilt: "binary_sensor.wz_kipp" }, { id: "f2", room_id: room.id, edge: 1, type: "window", contact: null, cover: null }] };
+  const links = buildingLinks({ floors: [f] }, h, entitiesByArea(h)).get("eg");
+  assert.equal(links.get("f1").tilt, "binary_sensor.wz_kipp");
+  assert.equal(links.get("f2").tilt, null);
+  assert.ok(![links.get("f1").contact, links.get("f2").contact].includes("binary_sensor.wz_kipp"));
 });

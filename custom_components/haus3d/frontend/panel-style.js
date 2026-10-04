@@ -39,6 +39,21 @@ export const PANEL_STYLE = `
 .dialog .btns { display: flex; gap: 8px; margin-top: 10px; }
 .dialog .btns button { flex: 1; font: inherit; padding: 9px; border-radius: 8px; border: 1px solid var(--divider-color, rgba(127,127,127,.4)); background: none; color: inherit; cursor: pointer; }
 .dialog .btns .primary { background: var(--primary-color, #03a9f4); color: #fff; border-color: transparent; }
+.btns.left { justify-content: flex-start; }
+.btns.left button { display: inline-flex; align-items: center; gap: 6px; }
+.energy-cfg .row3 { display: flex; gap: 8px; }
+.energy-cfg .row3 > div { flex: 1; min-width: 0; }
+.energy-cfg .row3 .en-row span { width: auto; }
+.chkrow small { margin-left: auto; color: var(--secondary-text-color); font-size: 12px; }
+.chkrow .fl { overflow-wrap: anywhere; }
+.sheet-backdrop { align-items: flex-end; justify-content: center; }
+.dialog.sheet { width: min(520px, 100%); border-radius: 16px 16px 0 0; }
+.sheet .dialog-head .seg { flex: 1; margin-right: 8px; }
+.crow { display: flex; align-items: center; gap: 10px; min-height: 40px; }
+.crow input { width: 20px; height: 20px; margin: 0; flex: none; }
+.crow ha-icon { --mdc-icon-size: 20px; color: var(--warning-color, #ff9800); flex: none; }
+.crow .go { flex: 1; text-align: left; border: none; background: none; color: inherit; font: inherit; padding: 8px 0; cursor: pointer; }
+.allok { display: flex; align-items: center; gap: 8px; color: var(--success-color, #43a047); font-weight: 500; }
 .hint { font-size: 12px; color: var(--secondary-text-color); margin: 14px 0 0; }
 .roompanel { position: absolute; left: 12px; top: 12px; width: min(320px, calc(100% - 24px)); max-height: 60%; overflow: auto; z-index: 4; touch-action: pan-y; overscroll-behavior: contain;
   background: var(--card-background-color, #fff); color: var(--primary-text-color); border-radius: 14px; box-shadow: 0 4px 18px rgba(0,0,0,.35); }
@@ -284,6 +299,20 @@ header .floors, header .temp, header .fit { display: none; }
 .energy .row span:nth-child(2) { margin-right: auto; color: var(--secondary-text-color); }
 .energy .row b { font-weight: 500; }
 .energy.collapsed .row { display: none; }
+.energy .row { flex-wrap: wrap; }
+.energy .row.import b { color: var(--error-color, #e53935); }
+.energy .row.export b { color: var(--success-color, #43a047); }
+.energy .bbar { flex-basis: 100%; height: 5px; border-radius: 3px; background: rgba(127,127,127,.25); overflow: hidden; margin: 2px 0 2px 26px; }
+.energy .bbar > i { display: block; height: 100%; background: var(--success-color, #43a047); transition: width .4s; }
+.energy .bbar.mid > i { background: #fbc02d; }
+.energy .bbar.low > i { background: var(--error-color, #e53935); }
+.energy .sdot { width: 10px; height: 10px; border-radius: 50%; flex: none; background: #9e9e9e; }
+.energy .sdot.hoch { background: #43a047; box-shadow: 0 0 6px #43a047; }
+.energy .sdot.mittel { background: #fbc02d; }
+.energy.setup h3 { margin: 0; color: var(--primary-color, #03a9f4); }
+.energy.setup .x { --mdc-icon-size: 16px; opacity: .6; }
+@media (pointer: coarse) { .energy .row { min-height: 34px; } }
+@media (max-width: 1100px) { .alerting .cards { top: 66px; } }
 .legend {
   position: absolute; left: 12px; bottom: 12px; padding: 8px 10px; border-radius: 10px; font-size: 12px;
   background: var(--card-background-color, #fff); box-shadow: 0 1px 4px rgba(0,0,0,.25);
