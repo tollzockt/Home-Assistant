@@ -40,6 +40,12 @@ export const PANEL_STYLE = `
 .dialog .btns button { flex: 1; font: inherit; padding: 9px; border-radius: 8px; border: 1px solid var(--divider-color, rgba(127,127,127,.4)); background: none; color: inherit; cursor: pointer; }
 .dialog .btns .primary { background: var(--primary-color, #03a9f4); color: #fff; border-color: transparent; }
 .en-row .nstep { flex: none; min-width: 48px; min-height: 40px; font: inherit; border-radius: 8px; border: 1px solid var(--divider-color, rgba(127,127,127,.4)); background: none; color: inherit; cursor: pointer; }
+.pvbadge { position: absolute; left: 0; top: 0; display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; min-height: 30px; border-radius: 15px; border: none; background: rgba(13,35,72,.88); color: #fff; font: inherit; font-size: 12px; cursor: pointer; white-space: nowrap; pointer-events: auto; box-shadow: 0 2px 6px rgba(0,0,0,.35); }
+.pvbadge .pn { opacity: .8; }
+.pvbadge b { font-weight: 600; color: #ffd54f; }
+.pvpop .item { display: flex; justify-content: space-between; gap: 12px; padding: 6px 12px; }
+.pvpop .item span { color: var(--secondary-text-color); }
+.pvpop .hint { padding: 0 12px 8px; }
 .btns.left { justify-content: flex-start; }
 .btns.left button { display: inline-flex; align-items: center; gap: 6px; }
 .energy-cfg .row3 { display: flex; gap: 8px; }

@@ -9,7 +9,7 @@ import { colorKey } from "./light.js";
 import { floorColor, textureFor } from "./model.js";
 import { getTexture, planarUVs } from "./textures.js";
 import { ambientInterval, lodState, resolveQuality, shouldRender } from "./perf.js";
-import { ROOF_ITEMS, adjustRoofParts, findPvShed, freeEdges, panelArraySlots, panelSlots, pvLayout, roofFaces, roofFloor, roofParts, roofRooms, roofSettings, roofSurfaceAt, roomRoofGroups, scatter, seeded } from "./exterior.js";
+import { ROOF_ITEMS, adjustRoofParts, findPvShed, freeEdges, panelArraySlots, panelSlots, pvLayout, roofFaces, roofFloor, roofParts, roofRooms, roofSettings, roofSurfaceAt, roomRoofGroups, scatter, seeded, panelBasis } from "./exterior.js";
 import { centroid, computeWalls, labelPoint, pieceFootprint, pointInPolygon, wallPieces } from "./walls.js";
 
 const OUTDOOR = {
@@ -29,6 +29,33 @@ const OUTDOOR = {
 
 const SLAB = 0.15;
 const WARM = new THREE.Color(0xffb347);
+/**
+ * Sammelt PV-Module (je eine Matrix) und macht daraus ein InstancedMesh: 2 statt etwa 6
+ * Zeichenaufrufe je Modul. Einheitsmodul 1 × 0,04 × 1 m, die Matrix skaliert auf Breite/Länge.
+ */
+class PanelBatch {
+  constructor(mats, data = {}) {
+    this.mats = mats;
+    this.data = data;
+    this.list = [];
+  }
+
+  push(matrix) {
+    this.list.push(matrix.clone());
+  }
+
+  mesh() {
+    if (!this.list.length) return null;
+    const inst = new THREE.InstancedMesh(new THREE.BoxGeometry(1, 0.04, 1), this.mats, this.list.length);
+    this.list.forEach((m, i) => inst.setMatrixAt(i, m));
+    inst.instanceMatrix.needsUpdate = true;
+    inst.computeBoundingSphere();
+    inst.computeBoundingBox();
+    Object.assign(inst.userData, this.data);
+    return inst;
+  }
+}
+
 // Grund-Deckkraft des Licht-Glühens je Stil (nie mats.glow.opacity lesen: Blitze verändern es)
 const STYLE_GLOW = { night: 0.32, cyber: 0.22, standard: 0.16 };
 const ALERT = 0xe53935;
@@ -409,6 +436,7 @@ export class HouseScene {
     this.warnings = [];
     this.lampBulbs.clear();
     this.heatParts = [];
+    this.pvFields = new Map(); // PV-Feld-ID → {mesh, solar, …} (Dach-Ebene)
     for (const floor of building.floors ?? []) this._buildFloor(floor, building.settings ?? {}, footing(building.floors, floor));
     this._buildRoof(building);
     this._buildEnergy(building);
@@ -542,8 +570,12 @@ export class HouseScene {
       entry.group.traverse((o) => o.isMesh && (o.userData.entity || o.userData.room || (furniture && o.userData.furniture)) && targets.push(o));
       if (furniture) entry.garden.traverse((o) => o.isMesh && o.userData.furniture && targets.push(o));
     }
-    if (this._roofShown()) targets.push(...this.roofMeshes);
+    if (this._roofShown()) {
+      for (const f of this.pvFields?.values() ?? []) targets.push(f.mesh);
+      targets.push(...this.roofMeshes);
+    }
     for (const hit of this.raycaster.intersectObjects(targets.filter(visible), false)) {
+      if (hit.object.userData.pvField) return { pvField: hit.object.userData.pvField };
       if (hit.object.userData.roof) return null;
       if (furniture && hit.object.userData.furniture) return { furniture: hit.object.userData.furniture };
       if (hit.object.userData.entity) return { entity_id: hit.object.userData.entity };
@@ -1062,6 +1094,7 @@ export class HouseScene {
   /** Dach über der obersten Etage (settings.roof, nur in „Alle“) und eigene Dächer einzelner Räume (room.roof). */
   _buildRoof(building) {
     this.roofHolder = null;
+    this.roofModel = null;
     this.roofMeshes = [];
     this.roomRoofs = new Map(); // roomId -> {parts, eave, tan, type}
     const wall = building.settings?.wall_exterior ?? 0.24;
@@ -1077,6 +1110,7 @@ export class HouseScene {
         const top = (floor.elevation ?? 0) + (floor.height ?? 2.5);
         const res = this._roofGeometry(rooms, roof, top, wall, inner, { settings: building.settings });
         const model = { roof, parts: res.parts, top, eave: res.eave, tan: res.tan };
+        this.roofModel = model; // für Kenndaten der PV-Felder (gleiche Flächen wie im Bild)
         const items = Array.isArray(roof.items) ? roof.items : [];
         // verschiebbare PV-Felder (Dach-Ebene im Editor) ersetzen die Angaben je Richtung
         if (!items.some((it) => it.type === "pv")) this._roofPanels(inner, model, building.settings?.north ?? 0);
@@ -1108,19 +1142,63 @@ export class HouseScene {
     }
   }
 
-  /** Ein PV-Modul (oder Dachfenster) flach auf der Dachfläche: Mitte p (Grundriss), Höhe y, Richtung hangabwärts out. */
+  /**
+   * Ein PV-Modul (oder Dachfenster) flach auf der Dachfläche: Mitte p (Grundriss), Höhe y, Richtung
+   * hangabwärts out. Ziel ist ein PanelBatch (Module) oder eine Gruppe (eigenes Mesh, Dachfenster).
+   */
   _panelOnRoof(group, p, y, out, tan, w, l, mats, along = null) {
-    const o = out ?? [-(along?.[1] ?? 0), along?.[0] ?? 1];
-    const U = new THREE.Vector3(o[1], 0, -o[0]);
-    const down = out ? new THREE.Vector3(out[0], -tan, out[1]).normalize() : new THREE.Vector3(o[0], 0, o[1]);
-    const N = new THREE.Vector3().crossVectors(down, U).normalize();
-    if (N.y < 0) N.negate();
-    const Z = new THREE.Vector3().crossVectors(U, N);
+    const b = panelBasis(out, tan, along);
+    const [U, N, Z] = [b.U, b.N, b.Z].map((v) => new THREE.Vector3(...v));
+    const q = new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().makeBasis(U, N, Z));
+    const pos = new THREE.Vector3(p[0], y, p[1]).addScaledVector(N, 0.07);
+    if (group instanceof PanelBatch) {
+      group.push(new THREE.Matrix4().compose(pos, q, new THREE.Vector3(w, 1, l)));
+      return null;
+    }
     const panel = new THREE.Mesh(new THREE.BoxGeometry(w, 0.04, l), mats);
-    panel.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(U, N, Z));
-    panel.position.set(p[0], y, p[1]).addScaledVector(N, 0.07);
+    panel.quaternion.copy(q);
+    panel.position.copy(pos);
     group.add(panel);
     return panel;
+  }
+
+  /** Materialien eines PV-Felds: eigene Kopie der Moduloberseite (glänzt je nach Leistung). */
+  _pvMats() {
+    const f = this.mats.solarFrame;
+    return [f, f, this.mats.solar.clone(), f, f, f];
+  }
+
+  /** PV-Feld fertigstellen: InstancedMesh einhängen, für Leistung/Auswahl und Schild merken. */
+  _finishPvField(batch, parent, id, label = null) {
+    const inst = batch.mesh();
+    if (!inst) return null;
+    parent.add(inst);
+    if (id) {
+      const solar = Array.isArray(inst.material) ? inst.material[2] : null;
+      const box = inst.boundingBox ?? new THREE.Box3();
+      const c = box.getCenter(new THREE.Vector3());
+      this.pvFields.set(id, { mesh: inst, solar, base: solar?.emissiveIntensity ?? 0, baseColor: solar?.emissive.getHex() ?? 0, label });
+      this.anchors.push({ key: `pv:${id}`, floorId: null, roof: true, position: new THREE.Vector3(c.x, box.max.y + 0.35, c.z) });
+    }
+    return inst;
+  }
+
+  /**
+   * Leistung je PV-Feld (Map id → Anteil 0..1 der Spitzenleistung): Module glänzen leicht, ohne
+   * Neuaufbau.
+   */
+  setPvPower(ratios) {
+    let changed = false;
+    for (const [id, f] of this.pvFields ?? []) {
+      if (!f.solar) continue;
+      const r = Math.min(1, Math.max(0, Number(ratios?.get(id)) || 0));
+      const want = f.base + 0.3 * r;
+      if (Math.abs(f.solar.emissiveIntensity - want) < 0.01) continue;
+      if (!f.baseColor) f.solar.emissive.setHex(r > 0 ? 0x4f8fe8 : 0x000000);
+      f.solar.emissiveIntensity = want;
+      changed = true;
+    }
+    if (changed) this.invalidate();
   }
 
   /**
@@ -1135,12 +1213,13 @@ export class HouseScene {
     group.userData.layer = "solar";
     const faces = roofFaces(model, north);
     const mats = [this.mats.solarFrame, this.mats.solarFrame, this.mats.solar, this.mats.solarFrame, this.mats.solarFrame, this.mats.solarFrame];
+    const batch = new PanelBatch(mats);
     const place = (f, slots) => {
       const fr = f.fr;
       for (const { s, x, w = 1.0, l = 1.7 } of slots) {
         const t = roof.type === "shed" ? -fr.width / 2 + x : f.sg * (fr.width / 2 - x);
         const p = [fr.center[0] + s * fr.u[0] + t * fr.v[0], fr.center[1] + s * fr.u[1] + t * fr.v[1]];
-        this._panelOnRoof(group, p, model.eave + x * tan, f.out, tan, w, l, mats);
+        this._panelOnRoof(batch, p, model.eave + x * tan, f.out, tan, w, l, mats);
       }
     };
     if (arrays?.length) {
@@ -1160,6 +1239,7 @@ export class HouseScene {
         }
       }
     }
+    this._finishPvField(batch, group, null);
     if (group.children.length) parent.add(group);
   }
 
@@ -1176,11 +1256,13 @@ export class HouseScene {
       if (!Number.isFinite(it?.x) || !Number.isFinite(it?.z)) continue;
       if (it.type === "pv") {
         const lay = pvLayout(model, it);
+        const batch = new PanelBatch(this._pvMats(), { pvField: it.id ?? null });
         for (const [i, p] of lay.panels.entries()) {
           const hit = roofSurfaceAt(model, p);
           if (!hit || !lay.fits[i]) continue;
-          this._panelOnRoof(solar, p, hit.y, hit.out ? lay.out : null, model.tan, lay.w, lay.l, pvMats, lay.along);
+          this._panelOnRoof(batch, p, hit.y, hit.out ? lay.out : null, model.tan, lay.w, lay.l, pvMats, lay.along);
         }
+        this._finishPvField(batch, solar, it.id ?? null, it.name ?? null);
       } else if (it.type === "skylight") {
         const hit = roofSurfaceAt(model, [it.x, it.z]);
         if (!hit) continue;
@@ -1344,6 +1426,10 @@ export class HouseScene {
     const pw = 1.0;
     const pd = 1.7;
     const rowDepth = pd * Math.cos(tilt) + 0.3;
+    const rack = new PanelBatch([this.mats.solarFrame, this.mats.solarFrame, this.mats.solar, this.mats.solarFrame, this.mats.solarFrame, this.mats.solarFrame]);
+    // Gestell: um yaw gedreht, Modul um -tilt geneigt (Nordkante oben)
+    const rot = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), yaw).multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), -tilt));
+    const scale = new THREE.Vector3(pw, 1, pd);
     const nx = Math.max(1, Math.floor((a1 - a0 - 0.2) / (pw + 0.05)));
     const nz = Math.max(1, Math.floor((b1 - b0 - 0.2) / rowDepth));
     for (let i = 0; i < nx; i++) {
@@ -1352,15 +1438,10 @@ export class HouseScene {
         const lb = b0 + (j + 0.5) * ((b1 - b0) / nz);
         const [px, pz] = toPlan([la, lb]);
         if (!pointInPolygon([px, pz], shed.room.points)) continue;
-        const holder = new THREE.Group();
-        holder.rotation.y = yaw;
-        holder.position.set(px, top + 0.35, pz);
-        const panel = new THREE.Mesh(new THREE.BoxGeometry(pw, 0.04, pd), [this.mats.solarFrame, this.mats.solarFrame, this.mats.solar, this.mats.solarFrame, this.mats.solarFrame, this.mats.solarFrame]);
-        panel.rotation.x = -tilt; // Nordkante (+z) oben
-        holder.add(panel);
-        solar.add(holder);
+        rack.push(new THREE.Matrix4().compose(new THREE.Vector3(px, top + 0.35, pz), rot, scale));
       }
     }
+    this._finishPvField(rack, solar, null);
     solar.userData.layer = "solar";
     // ohne eigenes Dach: Platte mit Modulen ist das Dach (Ebene „roof“ und Etagenwahl wie Raumdächer)
     const wrap = new THREE.Group();
@@ -1385,6 +1466,7 @@ export class HouseScene {
     const perSlope = Math.ceil(count / slopes.length);
     const fit = Math.max(1, Math.floor((2 * L - 0.3) / (pw + 0.05)));
     let left = count;
+    const batch = new PanelBatch([this.mats.solarFrame, this.mats.solarFrame, this.mats.solar, this.mats.solarFrame, this.mats.solarFrame, this.mats.solarFrame]);
     for (const sg of slopes) {
       const n = Math.min(perSlope, fit, left);
       left -= n;
@@ -1397,15 +1479,15 @@ export class HouseScene {
       let N = new THREE.Vector3().crossVectors(down, U).normalize();
       if (N.y < 0) N.negate();
       const Z = new THREE.Vector3().crossVectors(U, N);
-      const basis = new THREE.Matrix4().makeBasis(U, N, Z);
+      const q = new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().makeBasis(U, N, Z));
+      const scale = new THREE.Vector3(pw, 1, pd);
       for (let k = 0; k < n; k++) {
         const s = (k - (n - 1) / 2) * (pw + 0.05);
-        const panel = new THREE.Mesh(new THREE.BoxGeometry(pw, 0.04, pd), [this.mats.solarFrame, this.mats.solarFrame, this.mats.solar, this.mats.solarFrame, this.mats.solarFrame, this.mats.solarFrame]);
-        panel.quaternion.setFromRotationMatrix(basis);
-        panel.position.set(fr.center[0] + s * fr.u[0] + t * fr.v[0], y, fr.center[1] + s * fr.u[1] + t * fr.v[1]).addScaledVector(N, 0.06);
-        group.add(panel);
+        const pos = new THREE.Vector3(fr.center[0] + s * fr.u[0] + t * fr.v[0], y, fr.center[1] + s * fr.u[1] + t * fr.v[1]).addScaledVector(N, 0.06);
+        batch.push(new THREE.Matrix4().compose(pos, q, scale));
       }
     }
+    this._finishPvField(batch, group, null);
   }
 
   /** Energieflusslinie vom Schuppen zum Haus. */

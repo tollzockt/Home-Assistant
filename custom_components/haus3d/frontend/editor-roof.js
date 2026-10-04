@@ -2,7 +2,7 @@
 // Dachfenster, PV-Felder) setzen und verschieben, Dach-Einstellungen. Wird von FloorEditor benutzt.
 
 import { allIds, newId } from "./edit-ops.js";
-import { ROOF_ITEMS, ROOF_TYPES, legacyPvItems, pvLayout, roofModel, roofSettings, roofSurfaceAt } from "./exterior.js";
+import { ROOF_ITEMS, ROOF_TYPES, compass16, fieldInfo, legacyPvItems, pvLayout, roofModel, roofSettings, roofSurfaceAt } from "./exterior.js";
 import { COLOR_SWATCHES, textureOptions } from "./model.js";
 
 export const ROOF_TOOLS = [
@@ -22,6 +22,20 @@ export const ROOF_HINTS = {
 const r3 = (v) => Math.round(v * 1000) / 1000;
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
 const isHex = (v) => /^#[0-9a-f]{6}$/i.test(v ?? "");
+
+/** „Ausrichtung 205° (SSW) · Neigung 35° · 12 Module = 4,80 kWp“ */
+export function pvInfoLine(f) {
+  const kwp = f.kwp.toLocaleString("de-DE", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const dir = f.azimuth === null ? "flach" : `Ausrichtung ${Math.round(f.azimuth)}° (${compass16(f.azimuth)}) · Neigung ${Math.round(f.tilt)}°`;
+  return `${dir} · ${f.count} Module = ${kwp} kWp`;
+}
+
+function pvDatalists(hass) {
+  const ids = Object.keys(hass?.states ?? {}).filter((id) => id.startsWith("sensor.")).sort();
+  const cls = (id) => hass.states[id]?.attributes?.device_class;
+  const opt = (id) => `<option value="${esc(id)}">${esc(hass.states[id]?.attributes?.friendly_name ?? "")}</option>`;
+  return `<datalist id="dl_pvw">${ids.filter((id) => cls(id) === "power").map(opt).join("")}</datalist><datalist id="dl_pve">${ids.filter((id) => cls(id) === "energy").map(opt).join("")}</datalist>`;
+}
 
 /** Auswahlfeld für eine Textur (data-tex=key). kind: w (Wand), f (Boden), r (Dach), g (Gelände). */
 export function textureField(key, label, value, kind) {
@@ -296,7 +310,13 @@ export function roofProps(ed, el, pad, bindPad) {
       body = `<div class="row2">${num("cols", "Spalten (nebeneinander)", sel.cols ?? 1, 1, ' min="1" max="30"')}${num("rows", "Reihen (die Neigung hinauf)", sel.rows ?? 1, 1, ' min="1" max="15"')}</div>
         <label>Module</label><select data-rs="orient"><option value="portrait"${sel.orient !== "landscape" ? " selected" : ""}>hochkant (1,0 × 1,7 m)</option><option value="landscape"${sel.orient === "landscape" ? " selected" : ""}>quer (1,7 × 1,0 m)</option></select>
         ${flat ? num("rotation", "Drehung (°) auf dem Flachdach", sel.rotation ?? 0, 15) : ""}
-        <p class="muted">${n} · richtet sich nach der Dachfläche unter der Mitte, Reihe 1 unten an der Traufe.</p>`;
+        <p class="muted">${n} · richtet sich nach der Dachfläche unter der Mitte, Reihe 1 unten an der Traufe.</p>
+        <label>Name</label><input data-rt="name" value="${esc(sel.name ?? "")}" placeholder="z. B. PV Süd">
+        <label>Leistung (Entität)</label><input data-rt="entity" list="dl_pvw" value="${esc(sel.entity ?? "")}" placeholder="– geschätzt aus „PV Dach“ –">
+        <label>Ertrag heute (Entität)</label><input data-rt="energy_entity" list="dl_pve" value="${esc(sel.energy_entity ?? "")}" placeholder="– keine –">
+        ${num("wp", "Modulleistung (Wp)", sel.wp ?? "", 5, ' min="50" max="1000" placeholder="400"')}
+        ${pvDatalists(ed.hass)}
+        <p class="muted pvinfo">${pvInfoLine(fieldInfo(model, sel, Number(ed.b.settings?.north) || 0))}</p>`;
     } else if (sel.type === "chimney") {
       body = `<div class="row3">${num("w", "Breite", sel.w)}${num("d", "Tiefe", sel.d)}${num("h", "über Dach", sel.h ?? ROOF_ITEMS.chimney.h)}</div>
         ${num("rotation", "Drehung (°)", sel.rotation ?? 0, 15)}
@@ -315,9 +335,11 @@ export function roofProps(ed, el, pad, bindPad) {
       const v = Number(inp.value);
       if (!Number.isFinite(v)) return;
       const k = inp.dataset.rn;
+      if (k === "wp" && (inp.value === "" || v <= 0)) return upd((it) => delete it.wp);
       upd((it) => (it[k] = k === "cols" || k === "rows" ? Math.max(1, Math.round(v)) : k === "rotation" ? ((v % 360) + 360) % 360 : Math.max(0, v)));
     }));
     el.querySelectorAll("[data-rs]").forEach((inp) => inp.addEventListener("change", () => upd((it) => (it[inp.dataset.rs] = inp.value))));
+    el.querySelectorAll("[data-rt]").forEach((inp) => inp.addEventListener("change", () => upd((it) => setKey(it, inp.dataset.rt, inp.value.trim() || null))));
     el.querySelectorAll("[data-tex]").forEach((inp) => inp.addEventListener("change", () => upd((it) => setKey(it, "texture", inp.value))));
     bindColor((r, key, v) => setKey(r.items.find((y) => y.id === sel.id), key, v));
     el.querySelector("[data-ract=del]").addEventListener("click", () => ed.deleteSelection());

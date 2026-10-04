@@ -30,7 +30,7 @@ import {
   temperatureColor,
   watchedEntities,
 } from "./devices.js";
-import { ROOF_TYPES, roofSettings, weatherEntity, weatherKind } from "./exterior.js";
+import { ROOF_TYPES, compass16, fieldInfo, roofModel, roofSettings, weatherEntity, weatherKind } from "./exterior.js";
 import { exportFile, normalize, parseImport } from "./model.js";
 import { SIM_WEATHER, Simulator } from "./sim.js";
 import { FUNCTION_KEYS, LEGACY_FUNCTION_KEYS, MAX_CARDS, WHEEL_VISIBLE, labelPlace, nextStyle, migrateView, nextView, normalizeCards, normalizeFunctions, rotateWheel, wheelLayout, wheelPlusAngle } from "./hud.js";
@@ -38,7 +38,7 @@ import { entityAction } from "./actions.js";
 import { entityPlaces, houseStatus, openState, statusChips } from "./status.js";
 import { ALERT_DEFAULTS, evaluateAlerts, exteriorOpenings, normalizeAlerts, visibleAlerts } from "./alerts.js";
 import { QUALITY_CHOICES, adaptDpr, resolveQuality } from "./perf.js";
-import { batteryState, batteryText, ema, formatPower, gridState, gridText, surplus } from "./energy.js";
+import { batteryState, batteryText, ema, fieldPower, formatPower, gridState, gridText, surplus } from "./energy.js";
 import { sunFromHass } from "./sun.js";
 import { lightLook, roomLight } from "./light.js";
 import { HouseScene } from "./scene.js";
@@ -617,6 +617,25 @@ class Haus3DPanel extends HTMLElement {
         this._overlays.set(`icon:${floor.id}:${icon.entity_id}`, { el, floorId: floor.id, position: new THREE.Vector3(icon.x, elev + (icon.y ?? 1.3), icon.z), free: true });
       }
     }
+    // PV-Felder auf dem Dach: Schild mit Leistung (eigener Sensor oder „ca.“), Tipp → Infokarte
+    this._pvInfo = this._pvFieldInfo();
+    for (const a of this._scene.anchors) {
+      if (!a.key.startsWith("pv:")) continue;
+      const id = a.key.slice(3);
+      const info = this._pvInfo.get(id);
+      if (!info) continue;
+      const el = document.createElement("button");
+      el.className = "pvbadge";
+      el.innerHTML = `<span class="pn"></span><b></b>`;
+      el.querySelector(".pn").textContent = info.short;
+      el.addEventListener("click", (ev) => {
+        ev.stopPropagation();
+        this._pvCard(id);
+      });
+      el.addEventListener("pointerdown", (ev) => ev.stopPropagation());
+      layer.appendChild(el);
+      this._overlays.set(a.key, { el, floorId: null, roof: true, pvField: id, position: a.position });
+    }
     this._energyEl?.remove();
     this._energyEl = null;
     this._energySetupEl?.remove();
@@ -920,6 +939,7 @@ class Haus3DPanel extends HTMLElement {
     }
 
     if (this._energyEl) this._updateEnergy(energy, hass);
+    this._updatePv(energy, hass);
     this._updateCards();
     this._updateWheelStates();
     this._renderLegend();
@@ -927,6 +947,77 @@ class Haus3DPanel extends HTMLElement {
     this._updatePeople();
     // „vor n min“ weiterzählen, solange ein Raum „kürzlich“ ist
     this._needTick("presence", recent);
+  }
+
+  /** PV-Felder (roof.items) mit Kenndaten: Name, kWp, Ausrichtung, Neigung, Entitäten. */
+  _pvFieldInfo() {
+    const out = new Map();
+    const items = (this._building?.settings?.roof?.items ?? []).filter((it) => it?.type === "pv" && it.id);
+    if (!items.length) return out;
+    const model = this._scene?.roofModel ?? roofModel(this._building);
+    if (!model) return out;
+    const north = Number(this._building.settings?.north) || 0;
+    items.forEach((it, i) => {
+      const f = fieldInfo(model, it, north);
+      const dir = f.azimuth === null ? "flach" : compass16(f.azimuth);
+      out.set(it.id, { ...f, id: it.id, name: it.name || `PV ${dir}`, short: it.name || dir, dir, entity: it.entity || null, energy: it.energy_entity || null, index: i });
+    });
+    return out;
+  }
+
+  /** Leistung je PV-Feld: Schilder und Glanz der Module. */
+  _updatePv(energy, hass) {
+    if (!this._pvInfo?.size) return;
+    const lang = hass.locale?.language;
+    const fields = [...this._pvInfo.values()].map((f) => {
+      const st = f.entity ? hass.states[f.entity] : null;
+      const w = st ? Number(st.state) * (st.attributes?.unit_of_measurement === "kW" ? 1000 : 1) : NaN;
+      return { id: f.id, kwp: f.kwp, azimuth: f.azimuth, tilt: f.tilt, w: Number.isFinite(w) ? w : null };
+    });
+    const power = fieldPower(fields, energy.haus_pv, sunFromHass(hass));
+    this._pvPower = power;
+    const ratios = new Map();
+    for (const [id, p] of power) {
+      const f = this._pvInfo.get(id);
+      if (Number.isFinite(p.w) && f.kwp > 0) ratios.set(id, p.w / (f.kwp * 1000));
+      const ov = this._overlays.get(`pv:${id}`);
+      if (ov) setText(ov.el.querySelector("b"), Number.isFinite(p.w) ? `${p.estimated ? "ca. " : ""}${formatPower(p.w, lang)}` : `${fmt(f.kwp, 2)} kWp`);
+    }
+    this._scene?.setPvPower(ratios);
+  }
+
+  /** Infokarte eines PV-Felds: Module/kWp, Ausrichtung/Neigung, Leistung jetzt, W je kWp, Ertrag heute. */
+  _pvCard(id) {
+    const f = this._pvInfo?.get(id);
+    if (!f) return;
+    this._closePopup();
+    const hass = this._hass;
+    const lang = hass.locale?.language;
+    const p = this._pvPower?.get(id);
+    const est = p?.estimated ? "ca. " : "";
+    const yieldSt = f.energy ? hass.states[f.energy] : null;
+    const rows = [
+      ["Module", `${f.count} × ${f.wp} Wp = ${fmt(f.kwp, 2)} kWp`],
+      ["Ausrichtung", f.azimuth === null ? "flach" : `${Math.round(f.azimuth)}° (${f.dir}) · Neigung ${Math.round(f.tilt)}°`],
+      ["Leistung jetzt", Number.isFinite(p?.w) ? `${est}${formatPower(p.w, lang)}` : "–"],
+      ["je kWp", Number.isFinite(p?.w) && f.kwp > 0 ? `${est}${fmt(p.w / f.kwp, 0)} W` : "–"],
+      ["Ertrag heute", yieldSt ? (hass.formatEntityState ? hass.formatEntityState(yieldSt) : `${yieldSt.state} ${yieldSt.attributes?.unit_of_measurement ?? ""}`) : "–"],
+    ];
+    const el = document.createElement("div");
+    el.className = "popup pvpop";
+    el.innerHTML = `<div class="head"></div><div class="scroll">${rows.map(() => `<div class="item"><span></span><b></b></div>`).join("")}${p?.estimated ? `<p class="hint">Geschätzt aus der Gesamtleistung (PV Dach) nach Größe und Sonnenstand.</p>` : ""}</div>${f.entity ? `<div class="foot"><button class="more"><ha-icon icon="mdi:information-outline"></ha-icon><span>Weitere Infos</span></button></div>` : ""}`;
+    el.querySelector(".head").textContent = `PV-Feld ${f.name}`;
+    el.querySelectorAll(".item").forEach((row, i) => {
+      row.querySelector("span").textContent = rows[i][0];
+      row.querySelector("b").textContent = rows[i][1];
+    });
+    el.querySelector(".more")?.addEventListener("click", () => {
+      this._closePopup();
+      this._moreInfo(f.entity);
+    });
+    el.addEventListener("click", (ev) => ev.stopPropagation());
+    this._els.stage.appendChild(el);
+    this._popup = el;
   }
 
   /** Energie-Karte: Werte, Akku-Balken und -Restzeit, Netz-Richtung, Überschuss-Punkt, Kurzanzeige. */
@@ -1309,9 +1400,10 @@ class Haus3DPanel extends HTMLElement {
       timer = setTimeout(() => {
         if (!down) return;
         const hit = this._scene?.pick(down.x, down.y);
-        if (hit?.entity_id) {
+        const ent = hit?.entity_id ?? (hit?.pvField ? this._pvInfo?.get(hit.pvField)?.entity : null);
+        if (ent) {
           down.long = true;
-          this._moreInfo(hit.entity_id);
+          this._moreInfo(ent);
         }
       }, LONG_PRESS_MS);
     });
@@ -1332,6 +1424,7 @@ class Haus3DPanel extends HTMLElement {
       if (!d || d.long || Math.hypot(ev.clientX - d.x, ev.clientY - d.y) > 8) return;
       const hit = this._scene?.pick(ev.clientX, ev.clientY);
       if (hit?.entity_id) this._activate(hit.entity_id);
+      else if (hit?.pvField) this._pvCard(hit.pvField);
       else if (hit?.roomId) {
         // erst die Etage wählen, dann den Raum: in "Alle" führt ein Klick zur Etage des Raums
         if (this._filter === "all") this._setFilter(hit.floorId);
@@ -1881,7 +1974,7 @@ class Haus3DPanel extends HTMLElement {
   _positionOverlays() {
     if (!this._scene) return;
     for (const ov of this._overlays.values()) {
-      const visible = this._scene.isFloorVisible(ov.floorId);
+      const visible = ov.roof ? this._scene._roofShown() && this._settings.layers.solar !== false && this._settings.layers.labels !== false : this._scene.isFloorVisible(ov.floorId);
       const p = visible ? this._scene.project(ov.position) : null;
       if (!p) {
         ov.el.style.display = "none";
