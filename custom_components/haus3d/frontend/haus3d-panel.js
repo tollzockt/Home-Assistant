@@ -2,7 +2,6 @@
 
 import * as THREE from "./vendor/three.module.min.js";
 import {
-  canToggle,
   displayKind,
   roomEntities,
   coverClosedFraction,
@@ -22,7 +21,8 @@ import {
 import { ROOF_TYPES, roofSettings, weatherEntity, weatherKind } from "./exterior.js";
 import { exportFile, normalize, parseImport } from "./model.js";
 import { SIM_WEATHER, Simulator } from "./sim.js";
-import { FUNCTION_KEYS, LEGACY_FUNCTION_KEYS, MAX_CARDS, WHEEL_VISIBLE, labelPlace, nextStyle, normalizeCards, normalizeFunctions, quickService, rotateWheel, wheelLayout, wheelPlusAngle } from "./hud.js";
+import { FUNCTION_KEYS, LEGACY_FUNCTION_KEYS, MAX_CARDS, WHEEL_VISIBLE, labelPlace, nextStyle, normalizeCards, normalizeFunctions, rotateWheel, wheelLayout, wheelPlusAngle } from "./hud.js";
+import { entityAction } from "./actions.js";
 import { HouseScene } from "./scene.js";
 import { closeGaps } from "./walls.js";
 import { EDITOR_STYLE, FloorEditor } from "./editor.js";
@@ -156,6 +156,14 @@ const STYLE = `
 }
 [hidden] { display: none !important; }
 .hide-labels .label, .hide-devices .devs, .hide-devices .dev.free, .hide-climate .label .clim { display: none !important; }
+.confirm-backdrop { position: absolute; inset: 0; z-index: 12; background: rgba(0,0,0,.45); display: flex; align-items: center; justify-content: center; padding: 16px; }
+.confirm { background: var(--card-background-color, #fff); color: var(--primary-text-color); border-radius: 16px; padding: 18px; width: min(380px, 100%); box-shadow: 0 10px 30px rgba(0,0,0,.45); }
+.confirm .ct { font-size: 17px; font-weight: 600; line-height: 1.35; }
+.confirm .cs { margin-top: 4px; font-size: 13px; color: var(--secondary-text-color); }
+.confirm .cb { display: flex; gap: 10px; margin-top: 18px; }
+.confirm .cb button { flex: 1; min-height: 56px; border-radius: 12px; border: none; font: inherit; font-size: 16px; cursor: pointer; background: var(--secondary-background-color, #eee); color: inherit; }
+.confirm .cb .yes { background: var(--primary-color, #03a9f4); color: #fff; }
+.confirm .cb .yes.danger { background: #d32f2f; }
 .dialog-backdrop { position: absolute; inset: 0; background: rgba(0,0,0,.35); z-index: 10; display: flex; align-items: flex-start; justify-content: flex-end; padding: 8px; }
 .dialog { background: var(--card-background-color, #fff); color: var(--primary-text-color); border-radius: 14px; width: min(440px, 100%); max-height: calc(100% - 16px); overflow: auto; box-shadow: 0 8px 28px rgba(0,0,0,.4); }
 .dialog-head { display: flex; align-items: center; justify-content: space-between; padding: 6px 6px 6px 16px; font-size: 17px; font-weight: 500; border-bottom: 1px solid var(--divider-color, rgba(127,127,127,.2)); }
@@ -288,6 +296,8 @@ header .floors, header .temp, header .fit { display: none; }
 .qedit .qrow { display: flex; gap: 6px; align-items: center; margin: 4px 0; }
 .qedit .qrow input { flex: 1; min-width: 0; font: inherit; font-size: 13px; padding: 7px; border-radius: 8px; border: 1px solid var(--divider-color, rgba(127,127,127,.4)); background: var(--primary-background-color, #fff); color: inherit; }
 .qedit .qrow input.nm { flex: 0 0 110px; }
+.qedit .qrow .qc { display: inline-flex; align-items: center; gap: 3px; font-size: 11px; color: var(--secondary-text-color); white-space: nowrap; }
+.qedit .qrow .qc input { flex: none; width: auto; }
 .pvarr { display: grid; grid-template-columns: 62px 1fr 1fr 66px 1fr 1fr 30px; gap: 4px; align-items: center; font-size: 12px; margin: 3px 0; }
 .pvarr input, .pvarr select { font: inherit; font-size: 12px; padding: 5px 3px; border-radius: 6px; border: 1px solid var(--divider-color, rgba(127,127,127,.4)); background: var(--primary-background-color, #fff); color: var(--primary-text-color); min-width: 0; }
 .pvarr.head { color: var(--secondary-text-color); }
@@ -981,20 +991,92 @@ class Haus3DPanel extends HTMLElement {
     });
   }
 
+  /** Tipp auf ein Gerät im Haus (Bubble, Raumfenster, 3D-Objekt, Karte). */
   _activate(entityId) {
-    const domain = domainOf(entityId);
-    const st = this._hass.states[entityId];
-    let call = null;
-    if (canToggle(entityId) || ["input_boolean", "automation", "humidifier", "siren"].includes(domain)) call = [domain, "toggle"];
-    else if (domain === "scene" || domain === "script") call = [domain, "turn_on"];
-    else if (domain === "button" || domain === "input_button") call = [domain, "press"];
-    else if (domain === "lock") call = [domain, st?.state === "locked" ? "unlock" : "lock"];
-    else if (domain === "media_player") call = [domain, "media_play_pause"];
-    if (!call) {
-      this._moreInfo(entityId);
-      return;
+    return this._runAction(entityId, { source: "tap" });
+  }
+
+  /**
+   * Eine Aktion ausführen (actions.js): heikle Aktionen fragen nach, Automationen nur aus der Kurzwahl.
+   * hass wird erst beim Ausführen gelesen (Simulation kann inzwischen an/aus sein).
+   */
+  async _runAction(entityId, { source = "tap", name = null, confirm = false, quiet = source === "tap" } = {}) {
+    const st = this._hass?.states[entityId];
+    const label = name || st?.attributes?.friendly_name || entityId;
+    const safety = this._building?.settings?.safety?.confirm !== false;
+    const act = entityAction(entityId, st, { source, safety, confirm });
+    if (act.dialog || !act.call) return this._moreInfo(entityId);
+    if (act.confirm) {
+      const where = this._placeText?.(entityId);
+      const ok = await this._confirm(`${label} ${act.confirm.question}?`, act.confirm.ok, { danger: act.confirm.danger, sub: where });
+      if (!ok) return;
     }
-    this._hass.callService(call[0], call[1], { entity_id: entityId }).catch((err) => this._toast(`Aktion fehlgeschlagen: ${err.message ?? err}`));
+    try {
+      await this._hass.callService(act.call[0], act.call[1], { entity_id: entityId, ...act.data });
+      if (!quiet || act.confirm) this._toast(`${label}: ${act.verb}`);
+    } catch (err) {
+      this._toast(`Fehlgeschlagen: ${err.message ?? err}`);
+    }
+  }
+
+  /** „EG · Flur“: wo eine Entität im Haus liegt (über ihren Bereich oder eine verknüpfte Öffnung). */
+  _placeText(entityId) {
+    const b = this._building;
+    if (!b) return "";
+    const area = this._hass?.entities?.[entityId]?.area_id;
+    for (const f of b.floors ?? []) {
+      for (const r of f.rooms ?? []) if (area && r.area_id === area) return `${f.name} · ${r.name}`;
+      for (const o of f.openings ?? []) {
+        if (o.contact !== entityId && o.cover !== entityId) continue;
+        const r = (f.rooms ?? []).find((x) => x.id === o.room_id);
+        return r ? `${f.name} · ${r.name}` : f.name;
+      }
+    }
+    return "";
+  }
+
+  /**
+   * Eigene Nachfrage (statt window.confirm): großer Abbrechen-Knopf hat den Fokus, Esc oder Tipp
+   * daneben bricht ab, nach 15 s automatisch abgebrochen.
+   * @returns {Promise<boolean>}
+   */
+  _confirm(text, okLabel = "OK", { danger = false, sub = "" } = {}) {
+    this._confirmEl?._finish?.(false);
+    return new Promise((resolve) => {
+      const el = document.createElement("div");
+      el.className = "confirm-backdrop";
+      el.innerHTML = `<div class="confirm" role="alertdialog" aria-modal="true" aria-label="${esc(text)}">
+        <div class="ct">${esc(text).replace(/\n/g, "<br>")}</div>${sub ? `<div class="cs">${esc(sub)}</div>` : ""}
+        <div class="cb"><button class="no">Abbrechen</button><button class="yes${danger ? " danger" : ""}">${esc(okLabel)}</button></div></div>`;
+      let timer = null;
+      const finish = (v) => {
+        clearTimeout(timer);
+        document.removeEventListener("keydown", onKey, true);
+        el.remove();
+        if (this._confirmEl === el) this._confirmEl = null;
+        resolve(v);
+      };
+      const onKey = (ev) => {
+        if (ev.key === "Escape") {
+          ev.stopPropagation();
+          finish(false);
+        }
+      };
+      el._finish = finish;
+      // der Klick, der zum Tipp gehört, kommt erst nach pointerup an: kurz nichts annehmen
+      const born = performance.now();
+      const ready = () => performance.now() - born > 400;
+      el.addEventListener("click", (ev) => {
+        if (ev.target === el && ready()) finish(false);
+      });
+      el.querySelector(".no").addEventListener("click", () => ready() && finish(false));
+      el.querySelector(".yes").addEventListener("click", () => ready() && finish(true));
+      document.addEventListener("keydown", onKey, true);
+      timer = setTimeout(() => finish(false), 15000);
+      (this._els?.stage ?? this.shadowRoot).appendChild(el);
+      this._confirmEl = el;
+      el.querySelector(".no").focus();
+    });
   }
 
   _moreInfo(entityId) {
@@ -1106,6 +1188,7 @@ class Haus3DPanel extends HTMLElement {
           throw err;
         }
       },
+      confirm: (text, ok, o) => this._confirm(text, ok, o),
       onClose: () => {
         this._editor?.destroy();
         this._editor = null;
@@ -1249,6 +1332,7 @@ class Haus3DPanel extends HTMLElement {
       <div class="swatches">${["#9a4a36", "#b5523b", "#6e2f25", "#4a3b32", "#3a3d42", "#23262b", "#5f6670", "#8c8f94", "#2f4f3f", "#3f5a78"].map((c) => `<button data-rcs="${c}" style="background:${c}" title="${c}"></button>`).join("")}</div>
       <label class="en-row"><span>Flügel-Ende</span><select data-r="wing_end"><option value="gable"${roof.wing_end !== "hip" ? " selected" : ""}>Giebel</option><option value="hip"${roof.wing_end === "hip" ? " selected" : ""}>Walm (abgeschrägt)</option></select></label>
       <label class="en-row"><span>First</span><select data-r="direction">${[["auto", "lange Seite"], ["x", "Ost–West im Plan"], ["z", "Nord–Süd im Plan"]].map(([k, n]) => `<option value="${k}"${k === roof.direction ? " selected" : ""}>${n}</option>`).join("")}</select></label>
+      <label class="en-row" title="Haustür aufschließen, Garagentor öffnen/schließen, Sirene einschalten"><span>Nachfragen</span><span class="chk"><input type="checkbox" data-safety${this._building?.settings?.safety?.confirm === false ? "" : " checked"}> bei Schloss, Garagentor, Sirene</span></label>
       <label class="en-row"><span>Wetter</span><select data-w>
         <option value=""${weather === "" ? " selected" : ""}>automatisch${weathers[0] ? ` (${esc(weathers[0])})` : ""}</option>
         <option value="none"${weather === "none" ? " selected" : ""}>kein Wetter</option>
@@ -1308,7 +1392,8 @@ class Haus3DPanel extends HTMLElement {
       const w = box.querySelector("[data-w]").value;
       const r = roofSettings({ roof: next }); // begrenzt Neigung und Überstand
       const roof = { ...next, type: r.type, pitch: r.pitch, overhang: r.overhang, direction: r.direction };
-      this._saveBuildingSettings({ roof, weather: w || null, north: Number(box.querySelector("[data-north]").value) || 0 }, "Dach und Wetter gespeichert.");
+      const safety = { ...(this._building?.settings?.safety ?? {}), confirm: box.querySelector("[data-safety]").checked };
+      this._saveBuildingSettings({ roof, weather: w || null, north: Number(box.querySelector("[data-north]").value) || 0, safety }, "Dach und Wetter gespeichert.");
     });
   }
 
@@ -1470,6 +1555,7 @@ class Haus3DPanel extends HTMLElement {
         const kind = displayKind(st);
         const row = document.createElement("div");
         row.className = "rp-row";
+        row.dataset.entity = id;
         const active = isActive(kind, st);
         row.innerHTML = `<span class="rp-icon${active ? (kind === "contact" ? " alert" : " active") : ""}"><ha-icon></ha-icon></span><span class="rp-name"></span><span class="rp-state"></span>`;
         row.querySelector("ha-icon").setAttribute("icon", iconFor(kind, st));
@@ -1751,15 +1837,11 @@ class Haus3DPanel extends HTMLElement {
 
   /** Bubble für eine Entität (Kurzwahl oder eigene Funktion): Automation auslösen, Skript starten, sonst umschalten. */
   _entityItem(q) {
-    const hass = this._hass;
-    const st = hass?.states[q.entity];
+    const st = this._hass?.states[q.entity];
     const domain = q.entity.split(".")[0];
     const icon = q.icon || st?.attributes?.icon || { automation: "mdi:robot", script: "mdi:script-text-play", scene: "mdi:palette", button: "mdi:gesture-tap-button", input_button: "mdi:gesture-tap-button", light: "mdi:lightbulb", switch: "mdi:toggle-switch", cover: "mdi:window-shutter", lock: "mdi:lock", fan: "mdi:fan", input_boolean: "mdi:toggle-switch-outline" }[domain] || "mdi:flash";
     const name = q.name || st?.attributes?.friendly_name || q.entity;
-    return { icon, name, entity: q.entity, on: ["on", "open", "unlocked", "playing"].includes(st?.state) && domain !== "automation", run: () => {
-      const [d, svc] = quickService(q.entity, hass?.states[q.entity]);
-      hass.callService(d, svc, { entity_id: q.entity }).then(() => this._toast(`${name}: ausgeführt`)).catch((err) => this._toast(`Fehlgeschlagen: ${err.message ?? err}`));
-    } };
+    return { icon, name, entity: q.entity, on: ["on", "open", "unlocked", "playing"].includes(st?.state) && domain !== "automation", run: () => this._runAction(q.entity, { source: "wheel", name, confirm: !!q.confirm, quiet: false }) };
   }
 
   /** Einträge der Kurzwahl (unten links): Automationen, Skripte, Szenen … aus settings.quick. */
@@ -1819,18 +1901,30 @@ class Haus3DPanel extends HTMLElement {
     });
     box.querySelectorAll(".spin").forEach((b) => b.addEventListener("click", () => box._turn?.(Number(b.dataset.d))));
     box.querySelectorAll(".bub[data-i]").forEach((b) => {
-      let longTimer = null;
       let long = false;
-      b.addEventListener("pointerdown", () => {
+      let start = null;
+      const cancel = () => {
+        clearTimeout(box._longTimer);
+        box._longTimer = null;
+      };
+      b.addEventListener("pointerdown", (ev) => {
         long = false;
+        start = [ev.clientX, ev.clientY];
+        cancel();
         const it = items[Number(b.dataset.i)];
-        if (it.entity) longTimer = setTimeout(() => {
+        if (it.entity) box._longTimer = setTimeout(() => {
           long = true;
+          navigator.vibrate?.(15);
           this._moreInfo(it.entity);
         }, 550);
       });
-      b.addEventListener("pointerup", () => clearTimeout(longTimer));
-      b.addEventListener("pointerleave", () => clearTimeout(longTimer));
+      b.addEventListener("pointermove", (ev) => {
+        if (start && Math.hypot(ev.clientX - start[0], ev.clientY - start[1]) > 10) cancel();
+      });
+      b.addEventListener("pointerup", cancel);
+      b.addEventListener("pointerleave", cancel);
+      b.addEventListener("pointercancel", cancel);
+      b.addEventListener("contextmenu", (ev) => ev.preventDefault());
       b.addEventListener("click", () => {
         if (long || this._wheelDragged) return;
         items[Number(b.dataset.i)].run();
@@ -1839,6 +1933,8 @@ class Haus3DPanel extends HTMLElement {
       });
     });
     box._turn = (d) => {
+      // Drehen bricht einen angefangenen Langdruck ab
+      clearTimeout(box._longTimer);
       const next = rotateWheel(st.offset, d, n);
       if (next === st.offset) return;
       st.offset = next;
@@ -1895,7 +1991,7 @@ class Haus3DPanel extends HTMLElement {
           <p class="hint">Im Rad sind ${WHEEL_VISIBLE} Einträge zu sehen, weitere werden durchgedreht. Eigene Einträge: Automation auslösen, Skript/Szene starten, sonst umschalten.</p>
           ${list.map((f, i) => `<div class="qrow">${f.key
             ? `<ha-icon icon="${esc(builtin[f.key].icon)}"></ha-icon><span class="fixed">${esc(builtin[f.key].name)}</span>`
-            : `<input class="nm" data-name="${i}" value="${esc(f.name ?? "")}" placeholder="Name"><input list="fn-ents" data-ent="${i}" value="${esc(f.entity ?? "")}" placeholder="script.…">`}
+            : `<input class="nm" data-name="${i}" value="${esc(f.name ?? "")}" placeholder="Name"><input list="fn-ents" data-ent="${i}" value="${esc(f.entity ?? "")}" placeholder="script.…"><label class="qc" title="Vor dem Ausführen nachfragen"><input type="checkbox" data-cf="${i}"${f.confirm ? " checked" : ""}>Nachfragen</label>`}
             <button class="icon" data-up="${i}" title="nach oben"><ha-icon icon="mdi:arrow-up"></ha-icon></button><button class="icon" data-rm="${i}" title="Ausblenden/Entfernen"><ha-icon icon="mdi:${f.key ? "eye-off-outline" : "delete-outline"}"></ha-icon></button></div>`).join("") || `<p class="hint">Keine Einträge.</p>`}
           <datalist id="fn-ents">${Object.keys(hass.states).filter((x) => domains.includes(x.split(".")[0])).sort().map((x) => `<option value="${esc(x)}">${esc(hass.states[x].attributes.friendly_name ?? "")}</option>`).join("")}</datalist>
           ${missing.length ? `<div class="qrow"><select class="addkey"><option value="">Ausgeblendete wieder zeigen …</option>${missing.map((k) => `<option value="${k}">${esc(builtin[k].name)}</option>`).join("")}</select></div>` : ""}
@@ -1904,6 +2000,7 @@ class Haus3DPanel extends HTMLElement {
       const sync = () => {
         el.querySelectorAll("[data-ent]").forEach((i) => (list[Number(i.dataset.ent)].entity = i.value.trim()));
         el.querySelectorAll("[data-name]").forEach((i) => (list[Number(i.dataset.name)].name = i.value.trim() || undefined));
+        el.querySelectorAll("[data-cf]").forEach((i) => (list[Number(i.dataset.cf)].confirm = i.checked || undefined));
       };
       el.querySelectorAll("[data-rm]").forEach((b) => b.addEventListener("click", () => {
         sync();
@@ -1958,13 +2055,14 @@ class Haus3DPanel extends HTMLElement {
         <div class="dialog-head"><span>Kurzwahl</span><button class="icon close" title="Schließen"><ha-icon icon="mdi:close"></ha-icon></button></div>
         <div class="dialog-body">
           <p class="hint">Antippen löst aus: Automation (trigger), Skript/Szene (starten), Taster (drücken), sonst umschalten. Lange drücken öffnet die Details. Im Rad sind ${WHEEL_VISIBLE} zu sehen, weitere werden durchgedreht.</p>
-          ${list.map((q, i) => `<div class="qrow"><input class="nm" data-name="${i}" value="${esc(q.name ?? "")}" placeholder="Name"><input list="quick-ents" data-ent="${i}" value="${esc(q.entity ?? "")}" placeholder="automation.…"><button class="icon" data-up="${i}" title="nach oben"><ha-icon icon="mdi:arrow-up"></ha-icon></button><button class="icon" data-rm="${i}" title="Entfernen"><ha-icon icon="mdi:delete-outline"></ha-icon></button></div>`).join("") || `<p class="hint">Noch keine Einträge.</p>`}
+          ${list.map((q, i) => `<div class="qrow"><input class="nm" data-name="${i}" value="${esc(q.name ?? "")}" placeholder="Name"><input list="quick-ents" data-ent="${i}" value="${esc(q.entity ?? "")}" placeholder="automation.…"><label class="qc" title="Vor dem Ausführen nachfragen"><input type="checkbox" data-cf="${i}"${q.confirm ? " checked" : ""}>Nachfragen</label><button class="icon" data-up="${i}" title="nach oben"><ha-icon icon="mdi:arrow-up"></ha-icon></button><button class="icon" data-rm="${i}" title="Entfernen"><ha-icon icon="mdi:delete-outline"></ha-icon></button></div>`).join("") || `<p class="hint">Noch keine Einträge.</p>`}
           <datalist id="quick-ents">${Object.keys(hass.states).filter((x) => domains.includes(x.split(".")[0])).sort().map((x) => `<option value="${esc(x)}">${esc(hass.states[x].attributes.friendly_name ?? "")}</option>`).join("")}</datalist>
           <div class="btns"><button class="addq">+ Eintrag</button><button class="save primary">Speichern</button></div>
         </div></div>`;
       const sync = () => {
         el.querySelectorAll("[data-ent]").forEach((i) => (list[Number(i.dataset.ent)].entity = i.value.trim()));
         el.querySelectorAll("[data-name]").forEach((i) => (list[Number(i.dataset.name)].name = i.value.trim() || undefined));
+        el.querySelectorAll("[data-cf]").forEach((i) => (list[Number(i.dataset.cf)].confirm = i.checked || undefined));
       };
       el.querySelectorAll("[data-rm]").forEach((b) => b.addEventListener("click", () => {
         sync();
@@ -2099,11 +2197,11 @@ class Haus3DPanel extends HTMLElement {
     // Räume mit Spalt dazwischen (Innenmaße statt Wandmitten) ergeben doppelte Außenwände: anbieten zu schließen
     const closed = building.floors.map((f) => closeGaps(f.rooms));
     const gapCount = closed.reduce((n, c) => n + c.gaps.length, 0);
-    if (gapCount && confirm(`Zwischen den Räumen gibt es ${plural(gapCount, "Lücke", "Lücken")} (bis 45 cm). Schließen, damit daraus Innenwände werden?\n(Wie „Lücken schließen“ in NeonPlan.)`)) {
+    if (gapCount && (await this._confirm(`Zwischen den Räumen gibt es ${plural(gapCount, "Lücke", "Lücken")} (bis 45 cm). Schließen, damit daraus Innenwände werden?`, "Schließen", { sub: "Wie „Lücken schließen“ in NeonPlan." }))) {
       building.floors.forEach((f, i) => (f.rooms = closed[i].rooms));
     }
     const rooms = building.floors.reduce((n, f) => n + f.rooms.length, 0);
-    if (!confirm(`Grundriss mit ${plural(building.floors.length, "Etage", "Etagen")} und ${plural(rooms, "Raum", "Räumen")} importieren?\nDer aktuelle Stand wird vorher im Verlauf gesichert.`)) return;
+    if (!(await this._confirm(`Grundriss mit ${plural(building.floors.length, "Etage", "Etagen")} und ${plural(rooms, "Raum", "Räumen")} importieren?`, "Importieren", { sub: "Der aktuelle Stand wird vorher im Verlauf gesichert." }))) return;
     try {
       const res = await this._hass.callWS({ type: "haus3d/building/save", building, revision: this._revision });
       this._setBuilding(res.building, res.revision);
@@ -2146,7 +2244,7 @@ class Haus3DPanel extends HTMLElement {
       row.querySelector("button").addEventListener("click", async (ev) => {
         ev.stopPropagation();
         this._closePopup();
-        if (!confirm(`Stand vom ${when} wiederherstellen?\nDer aktuelle Stand wird vorher gesichert.`)) return;
+        if (!(await this._confirm(`Stand vom ${when} wiederherstellen?`, "Wiederherstellen", { sub: "Der aktuelle Stand wird vorher gesichert." }))) return;
         try {
           const res = await this._hass.callWS({ type: "haus3d/history/restore", history_id: item.id });
           this._setBuilding(res.building, res.revision);

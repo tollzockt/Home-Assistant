@@ -94,6 +94,9 @@ const energy = {
 data.settings = { ...(data.settings ?? {}), energy: { ...(data.settings?.energy ?? {}), ...Object.fromEntries(Object.entries(energy).map(([k, v]) => [k, v.entity_id])) } };
 for (const s of Object.values(energy)) add(s, "gartenhaus");
 for (const [id, name] of [["automation.abend", "Abendstimmung"], ["script.garage", "Garage auf"], ["scene.kino", "Kino"], ["button.klingel", "Klingel"]]) add(st(id, "on", { friendly_name: name }), null);
+// ?lock: Haustürschloss (abgeschlossen) im Flur, ?siren: Sirene im Flur
+if (params.has("lock")) add(st("lock.haustuer", params.get("lock") || "locked", { friendly_name: "Haustür" }), "flur");
+if (params.has("siren")) add(st("siren.alarm", "off", { friendly_name: "Sirene" }), "flur");
 if (params.get("weather")) add(st("weather.zuhause", params.get("weather"), { friendly_name: "Zuhause" }), null);
 window.calls = [];
 window.events = [];

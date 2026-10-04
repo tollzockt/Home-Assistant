@@ -176,12 +176,13 @@ export class FloorEditor {
    * @param {(b: object) => Promise<void>} o.onSave
    * @param {() => void} o.onClose
    */
-  constructor({ container, building, hass, floorId, onSave, onClose, sceneStyle = "standard", dark = false }) {
+  constructor({ container, building, hass, floorId, onSave, onClose, confirm = async (text) => window.confirm(text), sceneStyle = "standard", dark = false }) {
     this.b = structuredClone(building);
     this.hass = hass;
     this.floorId = this.b.floors.some((f) => f.id === floorId) ? floorId : this.b.floors[0]?.id;
     this.onSave = onSave;
     this.onClose = onClose;
+    this.confirm = confirm; // eigene Nachfrage des Panels (Promise<boolean>)
     this.tool = "select";
     this.sel = null;
     this.undoStack = [];
@@ -601,7 +602,7 @@ export class FloorEditor {
       this.magnet = !this.magnet;
       this._toast(this.magnet ? "Magnet an: Möbel rasten an Wänden ein." : "Magnet aus: Möbel frei verschieben.");
     } else if (act === "cancel") {
-      if (this.dirty && !confirm("Änderungen verwerfen?")) return;
+      if (this.dirty && !(await this.confirm("Änderungen verwerfen?", "Verwerfen", { danger: true }))) return;
       this.onClose();
     } else if (act === "save") {
       b.disabled = true;
@@ -1508,8 +1509,8 @@ export class FloorEditor {
           this.floorId = id;
         }, { fit: true });
       });
-      el.querySelector("[data-act=delfloor]").addEventListener("click", () => {
-        if (this.b.floors.length < 2 || !confirm(`Etage „${f.name}“ mit allen Räumen löschen?`)) return;
+      el.querySelector("[data-act=delfloor]").addEventListener("click", async () => {
+        if (this.b.floors.length < 2 || !(await this.confirm(`Etage „${f.name}“ mit allen Räumen löschen?`, "Löschen", { danger: true }))) return;
         this.changeBuilding((b) => {
           b.floors = b.floors.filter((x) => x.id !== f.id);
         }, { fit: true });

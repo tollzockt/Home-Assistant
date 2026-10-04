@@ -1,5 +1,7 @@
 // Bedienelemente über der 3D-Ansicht ohne DOM (mit node testbar): Rad-Menüs, Kurzwahl, Karten.
 
+import { entityAction } from "./actions.js";
+
 /** Höchstens so viele Zusatzkarten neben „Energie“. */
 export const MAX_CARDS = 5;
 /** Sichtbare Einträge je Rad-Menü; mehr lassen sich durchdrehen. Dahinter sitzt fest der „+“-Knopf. */
@@ -76,15 +78,9 @@ export function normalizeFunctions(list, seen = FUNCTION_KEYS) {
   return out;
 }
 
-/** Dienst für einen Kurzwahl-Eintrag: Automation auslösen, Skript/Szene starten, Taster drücken, sonst umschalten. */
+/** Dienst für einen Kurzwahl-Eintrag (siehe actions.js): Automation auslösen, Skript/Szene starten, Taster drücken, sonst umschalten. */
 export function quickService(entityId, stateObj) {
-  const domain = entityId.split(".")[0];
-  if (domain === "automation") return ["automation", "trigger"];
-  if (domain === "script" || domain === "scene") return [domain, "turn_on"];
-  if (domain === "button" || domain === "input_button") return [domain, "press"];
-  if (domain === "lock") return ["lock", stateObj?.state === "locked" ? "unlock" : "lock"];
-  if (domain === "cover") return ["cover", "toggle"];
-  return [domain, "toggle"];
+  return entityAction(entityId, stateObj, { source: "wheel", safety: false }).call ?? [entityId.split(".")[0], "toggle"];
 }
 
 /** Zusatzkarten aus den Einstellungen (höchstens MAX_CARDS, Einträge bereinigt). */
