@@ -579,7 +579,8 @@ export class HouseScene {
       const face = (roomId) => (roomId ? roomCols.get(roomId) ?? intCol : outside);
       const h = seg.height ?? height;
       const end = seg.kind === "exterior" ? outside : intCol;
-      const sides = seg.kind === "free" ? intCol : [end, face(seg.roomRight), end, face(seg.roomLeft)];
+      const freeCol = seg.kind === "free" ? custom((floor.walls ?? []).find((w) => w.id === seg.freeId)?.color, intCol) : null;
+      const sides = seg.kind === "free" ? freeCol : [end, face(seg.roomRight), end, face(seg.roomLeft)];
       // Wandfuß unter dem Boden: schließt die Fuge zur Etage darunter (Deckenstärke)
       prisms.prism(pieceFootprint(seg, 0, seg.length), elev - base, elev, sides, colors.cap);
       for (const piece of wallPieces(seg, openings, h)) {

@@ -69,6 +69,11 @@ Ansicht **2D**, **2D + 3D** (nebeneinander, auf schmalen Geräten untereinander)
 
 - **Räume zeichnen**: Rechteck ziehen oder freie Form Punkt für Punkt. Eckpunkte rasten am Raster
   und an vorhandenen Ecken ein. Ecken ziehen, über „+“ neue Ecken einfügen.
+- **Einzelne Wände** (Werkzeug „Wand“): Anfang antippen, Ende antippen – fertig ist eine gerade Wand,
+  ohne Raum. Sie rastet bei 0/45/90° und an Raumecken und Wandenden ein (Umschalt = frei); weiter
+  tippen setzt die nächste Wand an, Esc oder Doppelklick beendet. Angeklickt: Enden ziehen, ganze Wand
+  ziehen oder mit Pfeilen schieben, Länge, Dicke, Höhe (leer = Raumhöhe) und Farbe einstellen. Fenster
+  und Türen lassen sich genauso hineinsetzen wie in Raumwände. Gespeichert in `walls[]` (wie NeonPlan).
 - **Wände verschieben**: Raum wählen, dann eine blau markierte Wand ziehen. Sie wandert senkrecht (im
   Rasterschritt), angrenzende Räume ziehen mit, damit keine Lücke entsteht. Gemeinsame Ecken wandern
   ebenfalls in allen Räumen mit. Alt beim Ziehen = nur dieser Raum.
@@ -79,9 +84,10 @@ Ansicht **2D**, **2D + 3D** (nebeneinander, auf schmalen Geräten untereinander)
   Wandfarbe innen. Außen- und Innenwandfarbe für das ganze Haus stehen bei der Etage (nichts gewählt).
 - **Fenster, Türen, Garagentore**: auf eine Wand tippen, entlang der Wand ziehen. Maße, Anschlag,
   Aufschlagrichtung, Flügel, Aussehen sowie Kontakt und Rollladen (automatisch, keiner oder bestimmt).
-- **Möbelkatalog**: 81 Typen in Kategorien (Wohnen, Essen, Küche, Schlafen, Bad, Büro, Technik, Licht,
+- **Möbelkatalog**: 84 Typen in Kategorien (Wohnen, Essen, Küche, Schlafen, Bad, Büro, Technik, Licht,
   Garten, Bau, eigene Körper) mit 3D-Vorschaubild und Suche. Neu u. a. Netzwerk- und Serverschrank,
-  Heizkessel, Warmwasserspeicher, Wärmepumpe, Sicherungskasten.
+  Heizkessel, Warmwasserspeicher, Wärmepumpe, Sicherungskasten, **Säule** (rund), **Stütze** (eckig) –
+  beide mit Höhe 0 bis zur Decke – und **Unterzug/Träger** (hängt unter der Decke).
 - **Eigene Körper**: Quader und Zylinder mit frei wählbaren Maßen, Höhe über Boden, Farbe und Namen.
   Jedes Möbelstück kann außerdem eine eigene Farbe bekommen.
 - **Magnet** (Magnet-Knopf, an): Möbel rasten beim Ziehen an Wänden ein, drehen sich mit der
@@ -114,8 +120,8 @@ Damit HACS sie als Update anbietet, braucht es ein **Release**:
 
 1. Auf GitHub im Repository rechts **Releases → Draft a new release** (bzw. „Create a new release“).
 2. **Choose a tag** → neuen Tag eintippen, genau wie die Version in `manifest.json` mit „v“ davor,
-   z. B. `v0.9.0` → „Create new tag“. Ziel-Zweig: `main`.
-3. Titel z. B. `0.9.0`, kurze Beschreibung, bei „Release label“ **None** (nicht Pre-release),
+   z. B. `v0.10.0` → „Create new tag“. Ziel-Zweig: `main`.
+3. Titel z. B. `0.10.0`, kurze Beschreibung, bei „Release label“ **None** (nicht Pre-release),
    **Publish release**.
 4. In Home Assistant: **HACS → Haus 3D** (ggf. ⋮ → „Informationen aktualisieren“) → **Herunterladen**/
    **Aktualisieren** → Home Assistant **neu starten**.
@@ -161,6 +167,7 @@ floors[]          id, name, elevation, height, ha_floor
                   rockery), points,
                   railing (glass|bars|wood|none), railing_height
   placements[]    entity_id, x, z, y
+  walls[]         id, a [x, z], b [x, z], thickness, height, color (freistehende Wände)
   furniture[]     id, type, x, z, rotation, w, d, h, mount_y, entity, color, name
 settings          wall_exterior (0.24), wall_interior (0.12), wall_colors {exterior, interior},
                   energy {…, extra: [{entity, name}]},

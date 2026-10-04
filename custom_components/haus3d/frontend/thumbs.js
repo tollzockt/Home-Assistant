@@ -48,7 +48,7 @@ export function renderThumbs(onThumb = () => {}, style = "standard") {
       for (let k = 0; k < 6 && todo.length; k++) {
         const type = todo.shift();
         const [, w, d, h] = FURNITURE[type];
-        const obj = buildFurniture({ id: type, type, x: 0, z: 0, rotation: 0, w, d, h, mount_y: 0 }, M, 0, Math.max(h + 0.1, 0.5));
+        const obj = buildFurniture({ id: type, type, x: 0, z: 0, rotation: 0, w, d, h, mount_y: 0 }, M, 0, h ? Math.max(h + 0.1, 0.5) : 2.5);
         scene.add(obj);
         const box = new THREE.Box3().setFromObject(obj);
         const center = box.getCenter(new THREE.Vector3());

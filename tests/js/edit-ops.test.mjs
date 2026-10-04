@@ -194,3 +194,23 @@ test("EG bündig auf KG: Außenwände rücken, Fenster bleiben an ihrer Stelle",
   const after = openingGeometry(floor, floor.openings[1]).center;
   assert.ok(Math.abs(after[1] - before[1]) < 1e-9 && Math.abs(after[0] - 10) < 1e-9);
 });
+
+test("Freistehende Wand: gerade einrasten, Öffnung darin, löschen", async () => {
+  const { snapWallEnd, nearestWall, removeWall } = await import("../../custom_components/haus3d/frontend/edit-ops.js");
+  // 5° daneben: wird waagerecht, Länge aufs Raster
+  assert.deepEqual(snapWallEnd([0, 0], [3.02, 0.26]), [3, 0]);
+  // 45°
+  const d = snapWallEnd([0, 0], [2, 2.1]);
+  assert.ok(Math.abs(d[0] - d[1]) < 1e-9);
+  // Ecke in der Nähe gewinnt
+  assert.deepEqual(snapWallEnd([0, 0], [4.05, 2.95], { vertices: [[4, 3]] }), [4, 3]);
+  const f = floorWith([]);
+  f.walls = [{ id: "w1", a: [0, 0], b: [4, 0], thickness: 0.12 }];
+  const hit = nearestWall(f, [1.5, 0.1]);
+  assert.equal(hit.wall.id, "w1");
+  f.openings = [{ id: "t", room_id: "w1", wall: "w1", edge: 0, offset: 2, width: 0.9, type: "door", sill: 0, height: 2 }];
+  assert.deepEqual(openingGeometry(f, f.openings[0]).center, [2, 0]);
+  assert.equal(computeWalls(f).openings.length, 1);
+  const g = removeWall(f, "w1");
+  assert.deepEqual([g.walls.length, g.openings.length], [0, 0]);
+});

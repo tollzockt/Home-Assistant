@@ -50,6 +50,10 @@ export const FURNITURE = {
   radiator: ["Heizkörper", 1.0, 0.1, 0.6],
   stairs: ["Treppe", 1.0, 3.0, 2.6],
   stairwell: ["Treppenloch", 1.0, 3.0, 0.02],
+  // Höhe 0 = bis zur Decke (Raumhöhe der Etage)
+  column: ["Säule (rund)", 0.3, 0.3, 0],
+  pillar: ["Stütze (eckig)", 0.24, 0.24, 0],
+  beam: ["Unterzug / Träger", 3.0, 0.24, 0.3],
   robot_vacuum: ["Saugroboter", 0.35, 0.35, 0.1],
   parking: ["Stellplatz", 2.5, 5.0, 0.02],
   lamp_ceiling: ["Deckenleuchte", 0.4, 0.4, 0.12],
@@ -104,7 +108,7 @@ export const FURNITURE_CATEGORIES = [
   ["Technik", ["network_cabinet", "server_rack", "boiler", "water_tank", "heat_pump", "fuse_box", "robot_vacuum"]],
   ["Licht", ["lamp_ceiling", "lamp_downlight", "lamp_spot", "lamp_panel", "lamp_pendant", "lamp_floor", "lamp_table", "lamp_wall", "led_strip", "lamp_uplight", "lamp_bollard", "lamp_garden"]],
   ["Garten", ["tree", "tree_conifer", "tree_fruit", "bush", "flowers", "grass", "planter", "hot_tub", "composter", "rock", "rock_group", "stepping_stone", "lounger", "parasol", "garden_table", "bbq"]],
-  ["Bau", ["stairs", "stairwell", "parking"]],
+  ["Bau", ["stairs", "stairwell", "column", "pillar", "beam", "parking"]],
   ["Eigene Körper", ["custom_box", "custom_cylinder"]],
 ];
 
@@ -544,6 +548,17 @@ function buildModel(type, w, d, h, M) {
       box(g, M.white, w, h, d);
       for (let i = 0; i < 3; i++) box(g, M.dark, w * 0.8, 0.05, 0.01, 0, h * (0.25 + i * 0.22), d / 2 + 0.005);
       break;
+    case "column": {
+      const c = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.5, 1, 24), M.white);
+      c.scale.set(w, h, d);
+      c.position.y = h / 2;
+      g.add(c);
+      break;
+    }
+    case "pillar":
+    case "beam":
+      box(g, M.white, w, h, d);
+      break;
     case "custom_box":
       box(g, M.light, w, h, d);
       break;
@@ -584,9 +599,10 @@ export function buildFurniture(item, M, elev, floorHeight) {
   const def = FURNITURE[item.type] ?? ["Möbel", 0.6, 0.6, 0.8];
   const w = item.w || def[1];
   const d = item.d || def[2];
-  const h = item.h || def[3];
+  // Höhe 0 (Säule, Stütze): bis zur Decke
+  const h = item.h || def[3] || floorHeight;
   const g = buildModel(item.type, w, d, h, colored(M, item.color));
-  const ceiling = ["lamp_ceiling", "lamp_panel", "lamp_downlight", "lamp_pendant", "kitchen_wall"].includes(item.type);
+  const ceiling = ["lamp_ceiling", "lamp_panel", "lamp_downlight", "lamp_pendant", "kitchen_wall", "beam"].includes(item.type);
   const wall = ["lamp_wall", "lamp_spot", "tv_wall", "radiator", "fuse_box"].includes(item.type);
   let y = item.mount_y ?? (ceiling ? floorHeight - h - 0.01 : wall ? (item.type === "radiator" ? 0.1 : item.type === "fuse_box" ? 1.2 : 1.6) : 0);
   if (item.type === "kitchen_wall" && item.mount_y == null) y = 1.45;

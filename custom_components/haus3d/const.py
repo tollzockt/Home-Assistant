@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 DOMAIN = "haus3d"
-VERSION = "0.9.0"
+VERSION = "0.10.0"
 
 STORAGE_VERSION = 1
 STORAGE_KEY_BUILDING = f"{DOMAIN}.building"

@@ -190,16 +190,63 @@ export function furnitureAt(floor, p) {
 
 /** Lage einer Öffnung im Plan: Mittelpunkt, Richtung der Kante, Endpunkte. */
 export function openingGeometry(floor, o) {
-  const room = (floor.rooms ?? []).find((r) => r.id === o.room_id);
-  if (!room || o.wall) return null;
-  const a = room.points[o.edge];
-  const b = room.points[(o.edge + 1) % room.points.length];
+  let a;
+  let b;
+  let room = null;
+  let wall = null;
+  if (o.wall) {
+    // Öffnung in einer freistehenden Wand: offset ab Wandanfang a
+    wall = (floor.walls ?? []).find((w) => w.id === o.wall);
+    if (!wall) return null;
+    [a, b] = [wall.a, wall.b];
+  } else {
+    room = (floor.rooms ?? []).find((r) => r.id === o.room_id);
+    if (!room) return null;
+    a = room.points[o.edge];
+    b = room.points[(o.edge + 1) % room.points.length];
+  }
   if (!a || !b) return null;
   const len = Math.hypot(b[0] - a[0], b[1] - a[1]) || 1e-9;
   const u = [(b[0] - a[0]) / len, (b[1] - a[1]) / len];
   const c = [a[0] + u[0] * o.offset, a[1] + u[1] * o.offset];
   const h = o.width / 2;
-  return { center: c, u, len, p0: [c[0] - u[0] * h, c[1] - u[1] * h], p1: [c[0] + u[0] * h, c[1] + u[1] * h], room };
+  return { center: c, u, len, a, b, p0: [c[0] - u[0] * h, c[1] - u[1] * h], p1: [c[0] + u[0] * h, c[1] + u[1] * h], room, wall };
+}
+
+/** Nächste freistehende Wand zu einem Punkt: {wall, offset, len, dist} oder null. */
+export function nearestWall(floor, p, maxDist = 0.6) {
+  let best = null;
+  for (const w of floor.walls ?? []) {
+    const pr = projectOnSegment(p, w.a, w.b);
+    if (pr.dist > maxDist || pr.len < 0.3) continue;
+    if (!best || pr.dist < best.dist) best = { wall: w, offset: pr.t, len: pr.len, dist: pr.dist };
+  }
+  return best;
+}
+
+/**
+ * Endpunkt einer neuen Wand: Richtung auf 0/45/90° (± tolDeg) einrasten, dann Länge aufs Raster.
+ * Liegt ein Eckpunkt (vertices) nah, gewinnt der.
+ */
+export function snapWallEnd(a, p, { grid = 0.05, vertices = [], tol = 0.15, tolDeg = 8, free = false } = {}) {
+  for (const v of vertices) if (Math.hypot(v[0] - p[0], v[1] - p[1]) <= tol) return [v[0], v[1]];
+  if (free) return snapPoint(p, { grid });
+  const dx = p[0] - a[0];
+  const dz = p[1] - a[1];
+  const len = Math.hypot(dx, dz);
+  if (len < 1e-6) return [a[0], a[1]];
+  const ang = Math.atan2(dz, dx);
+  const step = Math.PI / 4;
+  const snapped = Math.round(ang / step) * step;
+  if (Math.abs(ang - snapped) > (tolDeg * Math.PI) / 180) return snapPoint(p, { grid });
+  // Länge = Anteil in der eingerasteten Richtung, aufs Raster gerundet
+  const l = Math.round((dx * Math.cos(snapped) + dz * Math.sin(snapped)) / grid) * grid;
+  return [r3(a[0] + Math.cos(snapped) * l), r3(a[1] + Math.sin(snapped) * l)];
+}
+
+/** Freistehende Wand löschen samt ihrer Öffnungen. */
+export function removeWall(floor, wallId) {
+  return { ...floor, walls: (floor.walls ?? []).filter((w) => w.id !== wallId), openings: (floor.openings ?? []).filter((o) => o.wall !== wallId) };
 }
 
 /**
@@ -294,7 +341,7 @@ export function wallFaces(segments) {
 }
 
 /** Möbeltypen, die nicht an Wänden einrasten (liegen frei im Raum oder hängen an der Decke). */
-const FREE_TYPES = new Set(["rug", "parking", "stairwell", "robot_vacuum", "table", "table_round", "coffee_table", "island", "lamp_ceiling", "lamp_downlight", "lamp_panel", "lamp_pendant", "chair", "stool", "bar_stool", "custom_box", "custom_cylinder"]);
+const FREE_TYPES = new Set(["beam", "column", "rug", "parking", "stairwell", "robot_vacuum", "table", "table_round", "coffee_table", "island", "lamp_ceiling", "lamp_downlight", "lamp_panel", "lamp_pendant", "chair", "stool", "bar_stool", "custom_box", "custom_cylinder"]);
 
 /**
  * Möbel an der nächsten Wand ausrichten (Rückseite bündig, Vorderseite zum Raum) und, wenn nah,

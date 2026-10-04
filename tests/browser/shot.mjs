@@ -284,6 +284,24 @@ const wallMoved = await e3.evaluate((i) => {
   return { edge: i, wz: f.rooms.find((x) => x.id === "wohnzimmer").points.map((p) => p[0]), kueche: f.rooms.find((x) => x.id === "kueche").points.map((p) => p[0]) };
 }, wall);
 console.log(JSON.stringify({ wallMoved }));
+// freistehende Wand im Garten zeichnen (leicht schief gezogen -> gerade), Tür hinein, Säule daneben
+await e3.locator("haus3d-panel .ed-bar button[data-tool=wall]").click();
+[px, py] = await plan(13, -2); await e3.mouse.click(px, py);
+[qx, qy] = await plan(16.02, -1.8); await e3.mouse.click(qx, qy);
+await e3.keyboard.press("Escape");
+await e3.locator("haus3d-panel .ed-bar button[data-tool=door]").click();
+[px, py] = await plan(14.5, -2); await e3.mouse.click(px, py);
+await e3.locator("haus3d-panel .ed-bar button[data-tool=furniture]").click();
+await e3.locator("haus3d-panel .ed-props .search").fill("Säule");
+await e3.locator("haus3d-panel .ed-props .tile[data-furn=column]").click();
+[px, py] = await plan(16.5, -2.5); await e3.mouse.click(px, py);
+await e3.waitForTimeout(800);
+await e3.screenshot({ path: `${out}/wand-saeule.png` });
+const freeWall = await e3.evaluate(() => {
+  const f = window.panel._editor.floor;
+  return { walls: f.walls.map((w) => [w.a, w.b, w.thickness]), door: f.openings.filter((o) => o.wall).map((o) => ({ wall: !!o.wall, type: o.type, offset: o.offset })), column: f.furniture.filter((m) => m.type === "column").map((m) => m.h) };
+});
+console.log(JSON.stringify({ freeWall }));
 await e3.locator("haus3d-panel .ed-bar button[data-act=save]").click();
 await e3.waitForTimeout(800);
 const saved3 = await e3.evaluate(() => {
