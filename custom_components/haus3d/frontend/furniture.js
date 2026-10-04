@@ -4,6 +4,7 @@
 // Höhe h nach oben, Mittelpunkt der Grundfläche im Ursprung, Vorderseite zeigt nach +z.
 
 import * as THREE from "./vendor/three.module.min.js";
+import { stairLayout } from "./stairs.js";
 
 /** Deutsche Namen und Standardmaße (w, d, h in m) für den Editor. */
 export const FURNITURE = {
@@ -167,7 +168,7 @@ const legs = (g, mat, w, d, h, t = 0.04) => {
 };
 
 /** Baut das Modell im Einheitsrahmen. Lampen bekommen userData.bulbs (Meshes, die leuchten). */
-function buildModel(type, w, d, h, M) {
+function buildModel(type, w, d, h, M, item = {}) {
   const g = new THREE.Group();
   const bulbs = [];
   switch (type) {
@@ -319,8 +320,28 @@ function buildModel(type, w, d, h, M) {
       for (let i = 0; i < Math.max(3, Math.round(w / 0.08)); i++) box(g, M.white, 0.05, h, d, -w / 2 + 0.025 + i * 0.08, 0.1, 0).userData.heat = true;
       break;
     case "stairs": {
-      const n = Math.max(8, Math.round(h / 0.18));
-      for (let i = 0; i < n; i++) box(g, M.wood, w, (h * (i + 1)) / n, d / n, 0, 0, d / 2 - (i + 0.5) * (d / n));
+      // Stufen als Blöcke bis zum Boden (gerade oder viertelgewendelt mit Podest)
+      const lay = stairLayout({ shape: item.stair_shape, w, d, h });
+      for (const t of lay.treads) box(g, M.wood, t.x1 - t.x0, t.top, t.z1 - t.z0, (t.x0 + t.x1) / 2, 0, (t.z0 + t.z1) / 2);
+      // Geländer: Pfosten an jeder zweiten Stufe der ersten Flucht und ein schräger Handlauf
+      const rail = item.railing;
+      if (rail === "left" || rail === "right" || rail === "both") {
+        const first = lay.treads.filter((t) => !t.landing && Math.abs(t.x1 - t.x0 - (lay.treads[0].x1 - lay.treads[0].x0)) < 1e-6 && t.x0 === lay.treads[0].x0);
+        const sides = rail === "both" ? ["left", "right"] : [rail];
+        for (const side of sides) {
+          const x = side === "left" ? first[0].x0 + 0.03 : first[0].x1 - 0.03;
+          first.forEach((t, k) => k % 2 === 0 && box(g, M.dark, 0.03, 0.9, 0.03, x, t.top, (t.z0 + t.z1) / 2));
+          const a = first[0];
+          const b = first.at(-1);
+          const z0 = (a.z0 + a.z1) / 2;
+          const z1 = (b.z0 + b.z1) / 2;
+          const len = Math.hypot(z1 - z0, b.top - a.top);
+          const bar = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.04, len), M.dark);
+          bar.position.set(x, (a.top + b.top) / 2 + 0.9, (z0 + z1) / 2);
+          bar.rotation.x = Math.atan2(b.top - a.top, z0 - z1);
+          g.add(bar);
+        }
+      }
       break;
     }
     case "robot_vacuum":
@@ -603,7 +624,7 @@ export function buildFurniture(item, M, elev, floorHeight) {
   const d = item.d || def[2];
   // Höhe 0 (Säule, Stütze): bis zur Decke
   const h = item.h || def[3] || floorHeight;
-  const g = buildModel(item.type, w, d, h, colored(M, item.color));
+  const g = buildModel(item.type, w, d, h, colored(M, item.color), item);
   const ceiling = ["lamp_ceiling", "lamp_panel", "lamp_downlight", "lamp_pendant", "kitchen_wall", "beam"].includes(item.type);
   const wall = ["lamp_wall", "lamp_spot", "tv_wall", "radiator", "fuse_box"].includes(item.type);
   let y = item.mount_y ?? (ceiling ? floorHeight - h - 0.01 : wall ? (item.type === "radiator" ? 0.1 : item.type === "fuse_box" ? 1.2 : 1.6) : 0);

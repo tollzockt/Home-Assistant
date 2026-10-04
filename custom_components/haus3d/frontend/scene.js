@@ -6,6 +6,7 @@ import { OrbitControls } from "./vendor/OrbitControls.js";
 import { buildDevice, buildFurniture, furnitureMaterials } from "./furniture.js";
 import { angleBetween, sunLook, sunVector } from "./sun.js";
 import { presetPose, roundPose } from "./camera.js";
+import { roomHole, slabOpenings } from "./stairs.js";
 import { colorKey } from "./light.js";
 import { floorColor, textureFor } from "./model.js";
 import { getTexture, planarUVs } from "./textures.js";
@@ -62,12 +63,14 @@ const STYLE_GLOW = { night: 0.32, cyber: 0.22, standard: 0.16 };
 const ALERT = 0xe53935;
 
 /** Plan [x, z] -> Shape in der XY-Ebene, die nach rotateX(-PI/2) wieder bei (x, 0, z) liegt. */
-function shapeOf(points) {
-  return new THREE.Shape(points.map(([x, z]) => new THREE.Vector2(x, -z)));
+function shapeOf(points, holes = []) {
+  const shape = new THREE.Shape(points.map(([x, z]) => new THREE.Vector2(x, -z)));
+  for (const h of holes) shape.holes.push(new THREE.Path(h.map(([x, z]) => new THREE.Vector2(x, -z))));
+  return shape;
 }
 
-function flatOrExtruded(points, height) {
-  const shape = shapeOf(points);
+function flatOrExtruded(points, height, holes = []) {
+  const shape = shapeOf(points, holes);
   const geo = height > 0 ? new THREE.ExtrudeGeometry(shape, { depth: height, bevelEnabled: false }) : new THREE.ShapeGeometry(shape);
   geo.rotateX(-Math.PI / 2);
   return geo;
@@ -438,6 +441,8 @@ export class HouseScene {
     this.lampBulbs.clear();
     this.heatParts = [];
     this.pvFields = new Map(); // PV-Feld-ID → {mesh, solar, …} (Dach-Ebene)
+    // Deckenöffnungen (Treppen von unten, Treppenlöcher) einmal je Etage
+    this._slabHoles = new Map((building.floors ?? []).map((f) => [f.id, slabOpenings(building, f.id)]));
     for (const floor of building.floors ?? []) this._buildFloor(floor, building.settings ?? {}, footing(building.floors, floor));
     this._buildRoof(building);
     this._buildEnergy(building);
@@ -658,8 +663,10 @@ export class HouseScene {
     const entry = { floor, group, garden, rooms: new Map(), openings: new Map(), occluders: [] };
 
     // Böden
+    const openings0 = this._slabHoles?.get(floor.id) ?? [];
     for (const room of floor.rooms ?? []) {
-      const geo = flatOrExtruded(room.points, SLAB);
+      const holes = openings0.map((o) => roomHole(room.points, o.poly)).filter(Boolean);
+      const geo = flatOrExtruded(room.points, SLAB, holes);
       geo.translate(0, elev - SLAB, 0);
       // Cyberpunk: Bodenbelag dunkel getönt, aber deckend und klar vom Hintergrund abgesetzt
       const base = new THREE.Color(floorColor(room));
@@ -668,6 +675,7 @@ export class HouseScene {
       const mat = new THREE.MeshStandardMaterial({ color: base.clone(), roughness: 0.85, emissive: 0x000000, map: ftex });
       const mesh = new THREE.Mesh(geo, mat);
       mesh.userData.layer = "floors";
+      mesh.userData.holes = holes.length;
       mesh.userData.room = { floorId: floor.id, roomId: room.id };
       group.add(mesh);
       entry.occluders.push(mesh);
@@ -961,11 +969,18 @@ export class HouseScene {
       this._buildRailing(group, area, elev, floor);
       return group;
     }
+    // Zaun als Linie: Pfosten und Füllung statt Block
+    if (area.type === "fence" && Array.isArray(area.line?.points) && area.line.points.length > 1) {
+      this._buildFence(group, area, elev + look.y);
+      return group;
+    }
+    // Hecke/Zaun: eigene Höhe
+    const ownH = (area.type === "hedge" || area.type === "fence") && Number(area.height) > 0 ? Math.min(6, Number(area.height)) : look.h;
     if (heights && look.h === 0) {
       // schräge Fläche (Hang, Böschung): Höhe je Eckpunkt
       geo = planarUVs(slopedSurface(area.points, heights));
     } else {
-      geo = flatOrExtruded(area.points, look.h);
+      geo = flatOrExtruded(area.points, ownH);
       if (heights) geo.translate(0, heights.reduce((a, b) => a + b, 0) / heights.length, 0);
     }
     geo.translate(0, elev + look.y, 0);
@@ -974,7 +989,7 @@ export class HouseScene {
     group.add(mesh);
     if (this.mats.gardenLine) {
       const hs = Array.isArray(area.heights) && area.heights.length === area.points.length ? area.heights : null;
-      group.add(outline(area.points, elev + look.y + look.h + 0.01, this.mats.gardenLine, hs));
+      group.add(outline(area.points, elev + look.y + ownH + 0.01, this.mats.gardenLine, hs));
     }
     if (area.type === "pool") {
       // Wasser etwas nach innen versetzt, über dem Rand
@@ -994,6 +1009,60 @@ export class HouseScene {
     if (area.type === "gravel" || area.type === "rockery") this._buildStones(group, area, elev + look.y + look.h);
     if (!heights) this._buildRailing(group, area, elev + look.y + look.h, floor);
     return group;
+  }
+
+  /**
+   * Zaun entlang seiner Mittellinie (area.line): Pfosten alle 2 m (instanziert) und Füllung nach
+   * area.fence_style – Holz (Bretter), Doppelstabmatte (Stäbe, instanziert), Lamellen.
+   */
+  _buildFence(group, area, y) {
+    const h = Math.min(3, Math.max(0.3, Number(area.height) || 1.0));
+    const pts = area.line.points;
+    const style = area.fence_style ?? "wood";
+    const mat = style === "bars" ? this.mats.railing : this.mats.railWood;
+    const fence = new THREE.Group();
+    fence.userData.layer = "garden";
+    const posts = [];
+    const bars = [];
+    const m = new THREE.Matrix4();
+    const q = new THREE.Quaternion();
+    const beam = (a, b, y0, y1, t) => {
+      const len = Math.max(t, Math.hypot(b[0] - a[0], b[1] - a[1]));
+      const mesh = new THREE.Mesh(new THREE.BoxGeometry(len, y1 - y0, t), mat);
+      mesh.position.set((a[0] + b[0]) / 2, (y0 + y1) / 2, (a[1] + b[1]) / 2);
+      mesh.rotation.y = -Math.atan2(b[1] - a[1], b[0] - a[0]);
+      fence.add(mesh);
+    };
+    for (let i = 1; i < pts.length; i++) {
+      const [a, b] = [pts[i - 1], pts[i]];
+      const len = Math.hypot(b[0] - a[0], b[1] - a[1]);
+      if (len < 0.05) continue;
+      const ang = -Math.atan2(b[1] - a[1], b[0] - a[0]);
+      const at = (t) => [a[0] + ((b[0] - a[0]) * t) / len, a[1] + ((b[1] - a[1]) * t) / len, ang];
+      const n = Math.max(1, Math.ceil(len / 2));
+      for (let k = i === 1 ? 0 : 1; k <= n; k++) posts.push(at((len * k) / n));
+      if (style === "bars") {
+        beam(a, b, y + 0.1, y + 0.14, 0.04);
+        beam(a, b, y + h - 0.06, y + h - 0.02, 0.04);
+        for (let t = 0.05; t < len - 0.02; t += 0.05) bars.push(at(t));
+      } else if (style === "slats") {
+        for (let z = 0.08; z < h - 0.05; z += 0.14) beam(a, b, y + z, y + z + 0.1, 0.025);
+      } else {
+        beam(a, b, y + h * 0.2, y + h * 0.2 + 0.08, 0.03);
+        beam(a, b, y + h * 0.75, y + h * 0.75 + 0.08, 0.03);
+        for (let t = 0.06; t < len - 0.03; t += 0.12) bars.push(at(t));
+      }
+    }
+    const inst = (list, geo) => {
+      const im = new THREE.InstancedMesh(geo, mat, list.length);
+      const up = new THREE.Vector3(0, 1, 0);
+      list.forEach((p, i) => im.setMatrixAt(i, m.compose(new THREE.Vector3(p[0], y + geo.parameters.height / 2, p[1]), q.setFromAxisAngle(up, p[2] ?? 0), new THREE.Vector3(1, 1, 1))));
+      im.instanceMatrix.needsUpdate = true;
+      fence.add(im);
+    };
+    if (posts.length) inst(posts, new THREE.BoxGeometry(0.08, h + 0.05, 0.08));
+    if (bars.length) inst(bars, style === "bars" ? new THREE.BoxGeometry(0.012, h - 0.1, 0.012) : new THREE.BoxGeometry(0.09, h * 0.95, 0.02));
+    group.add(fence);
   }
 
   /**

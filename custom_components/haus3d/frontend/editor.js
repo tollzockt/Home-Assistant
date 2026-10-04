@@ -37,6 +37,7 @@ import { ROOF_HINTS, ROOF_TOOLS, roofMoveDrag, roofNudgePart, roofProps, roofSta
 import { HouseScene } from "./scene.js";
 import { GRID_CHOICES, TOUCH_STYLE, TouchMethods } from "./editor-touch.js";
 import { MEASURE_STYLE, MeasureMethods } from "./editor-measure.js";
+import { LineMethods } from "./editor-lines.js";
 import { furnitureThumb, renderThumbs } from "./thumbs.js";
 import { closeGaps, computeWalls, labelPoint, pieceFootprint, signedArea } from "./walls.js";
 
@@ -83,6 +84,7 @@ const TOOLS = [
   ["furniture", "mdi:sofa-outline", "Möbel"],
   ["device", "mdi:lightbulb-on-outline", "Gerät"],
   ["outdoor", "mdi:tree-outline", "Garten"],
+  ["line", "mdi:vector-polyline", "Linie"],
   ["measure", "mdi:tape-measure", "Messen"],
 ];
 const HINTS = {
@@ -96,6 +98,7 @@ const HINTS = {
   furniture: "Rechts ein Möbel wählen (Suche oder Kategorie), dann in den Plan tippen.",
   device: "Rechts ein Gerät wählen, dann an seine Stelle tippen. Ziehen im Auswahl-Modus verschiebt es.",
   outdoor: "Punkte der Gartenfläche antippen, ersten Punkt erneut antippen zum Abschließen.",
+  line: "Weg, Hecke, Zaun oder Mauer: Punkte antippen (0/45/90°, „Frei“ ohne Einrasten), „Fertig“ beendet.",
   measure: "Zwei Punkte antippen – rastet an Ecken und Wänden ein. Bis zu drei Messungen bleiben stehen (werden nicht gespeichert).",
 };
 
@@ -866,6 +869,8 @@ export class FloorEditor {
       });
       poly.points.forEach((p, i) => parts.push(`<circle data-kind="vertex" data-i="${i}" cx="${r3(p[0])}" cy="${r3(p[1])}" r="${px(this.coarse ? 13 : 7)}" fill="#03a9f4" stroke="#fff" stroke-width="${px(2)}"/>`));
     }
+    parts.push(this._openingParts(px, P));
+    parts.push(this._lineDraftParts(px, P));
     parts.push(this._dimParts(px));
     // Entwurf (Polygon / Rechteck)
     if (this.draft?.points?.length) {
@@ -939,6 +944,9 @@ export class FloorEditor {
         if (this.draft?.points && (this.tool === "poly" || this.tool === "outdoor")) {
           this.draft.hover = this._snap(p);
           this.render();
+        } else if (this.draft?.line && this.tool === "line") {
+          this.draft.hover = this._wallSnap(this.draft.line.at(-1), p, this._free(ev));
+          this.render();
         } else if (this.draft?.wall && this.tool === "wall") {
           this.draft.hover = this._wallSnap(this.draft.wall, p, this._free(ev));
           this.render();
@@ -985,6 +993,10 @@ export class FloorEditor {
     if (tool === "rect") return { mode: "rect", a: this._snap(p) };
     if (tool === "measure") {
       this._measureTap(p);
+      return null;
+    }
+    if (tool === "line") {
+      this._lineTap(ev, p);
       return null;
     }
     if (tool === "poly" || tool === "outdoor") {
@@ -1186,8 +1198,11 @@ export class FloorEditor {
           break;
         }
         const q = this._snap(p);
+        if (poly.line && drag.first) this._toast("Ecke gezogen: aus der Linie wird eine normale Fläche.");
         this._dragChange(drag, (fl) => {
-          fl.outdoor.find((x) => x.id === poly.id).points[drag.i] = q; // Höhe der Ecke bleibt
+          const x = fl.outdoor.find((y) => y.id === poly.id);
+          x.points[drag.i] = q; // Höhe der Ecke bleibt
+          delete x.line;
         });
         this._lastVertex = drag.i;
         break;
@@ -1466,6 +1481,7 @@ export class FloorEditor {
         }),
       );
 
+    if (this.tool === "line") return this._lineToolProps(el);
     if (this.tool === "furniture") {
       el.innerHTML = `<h3>Möbel einfügen</h3><p class="muted">Möbel wählen, dann in den Plan tippen.</p>
         <input class="search" type="search" placeholder="Suchen …" value="${esc(this.furnSearch)}"><div class="cats"></div>`;
@@ -1797,6 +1813,7 @@ export class FloorEditor {
         <label>Name ${custom ? "" : "(optional)"}</label><input data-m="name" value="${esc(m.name ?? "")}" placeholder="${esc(FURNITURE[m.type]?.[0] ?? "")}">
         <div class="row3">${num("w", custom && m.type === "custom_cylinder" ? "Ø Breite" : "Breite", m.w)}${num("d", custom && m.type === "custom_cylinder" ? "Ø Tiefe" : "Tiefe", m.d)}${num("h", ["column", "pillar"].includes(m.type) ? "Höhe (0 = Decke)" : "Höhe", m.h)}</div>
         <div class="row2">${num("rotation", "Drehung (°)", m.rotation, 15)}${num("mount_y", "Höhe über Boden", m.mount_y ?? "", 0.05)}</div>
+        ${this._stairFields(m)}
         ${colorField("color", custom ? "Farbe" : "Farbe (statt Standard)", m.color)}
         ${pad(true)}
         <label>${lamp ? "Licht (Entität)" : "Verknüpfte Entität (optional)"}</label><input data-m="entity" list="dl_furn" value="${esc(m.entity && m.entity !== "none" ? m.entity : "")}" placeholder="${lamp ? "light.…" : "z. B. media_player.…"}">${entityList("dl_furn", lamp ? ["light", "switch"] : ["light", "switch", "media_player", "fan", "climate", "vacuum", "sensor"])}
@@ -1829,6 +1846,7 @@ export class FloorEditor {
         else delete x.color;
       });
       bindPad();
+      this._bindStairFields(el, m);
       bindNums((fl, k, v) => {
         fl.furniture.find((y) => y.id === m.id)[k] = k === "mount_y" ? v : v ?? 0;
       });
@@ -1899,6 +1917,7 @@ export class FloorEditor {
       el.innerHTML = `<h3>Gartenfläche</h3>
         <label>Name</label><input data-g="name" value="${esc(o.name ?? "")}">
         <label>Art</label><select data-g="type">${OUTDOOR_TYPES.map(([k, n]) => `<option value="${k}"${k === o.type ? " selected" : ""}>${n}</option>`).join("")}</select>
+        ${this._lineAreaFields(o)}
         ${textureField("texture", "Textur", o.texture, "g")}
         <label>Bereich (für Gartenlicht, Sensoren)</label><select data-g="area_id">${areaOptions(o.area_id)}</select>
         <label>Geländer / Zaun am Rand (nicht an Hauswänden)</label><select data-g="railing">${RAILINGS.map(([k, n]) => `<option value="${k}"${k === (o.railing ?? "") ? " selected" : ""}>${n}</option>`).join("")}</select>
@@ -1909,6 +1928,7 @@ export class FloorEditor {
         ${pad()}
         <div class="btns"><button data-act="del" class="danger">Löschen</button></div>`;
       bindPad();
+      this._bindLineArea(el, o);
       bindTextures((fl, key, v) => {
         const x = fl.outdoor.find((y) => y.id === o.id);
         if (v) x.texture = v;
@@ -1966,4 +1986,4 @@ export class FloorEditor {
 }
 
 // Tablet: Schalter, Zeichen-Leiste, Langdruck, Entwurf sichern (editor-touch.js)
-Object.assign(FloorEditor.prototype, TouchMethods, MeasureMethods);
+Object.assign(FloorEditor.prototype, TouchMethods, MeasureMethods, LineMethods);

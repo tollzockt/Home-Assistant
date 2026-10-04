@@ -52,11 +52,11 @@ export const TouchMethods = {
     if (!el) return;
     el.querySelectorAll("[data-mod]").forEach((b) => b.classList.toggle("sel", !!this.mods[b.dataset.mod]));
     const d = this.draft;
-    const active = !!(d && (d.wall || d.points?.length));
+    const active = !!(d && (d.wall || d.points?.length || d.line?.length));
     const bar = el.querySelector(".ed-draftbar");
     bar.hidden = !active;
     if (active) {
-      bar.querySelector('[data-d="done"]').disabled = !d.wall && (d.points?.length ?? 0) < 3;
+      bar.querySelector('[data-d="done"]').disabled = d.line ? d.line.length < 2 : !d.wall && (d.points?.length ?? 0) < 3;
       bar.querySelector('[data-d="back"]').textContent = d.wall ? "Kette beenden" : "Punkt zurück";
     }
   },
@@ -65,10 +65,14 @@ export const TouchMethods = {
     const d = this.draft;
     if (!d) return;
     if (kind === "done") {
+      if (d.line) return this._finishLine();
       if (d.points?.length >= 3) return this._finishPolygon();
       this.draft = null;
     } else if (kind === "back") {
-      if (d.wall) this.draft = null;
+      if (d.line) {
+        d.line.pop();
+        if (!d.line.length) this.draft = null;
+      } else if (d.wall) this.draft = null;
       else {
         d.points.pop();
         if (!d.points.length) this.draft = null;

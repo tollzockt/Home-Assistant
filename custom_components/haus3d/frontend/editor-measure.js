@@ -110,7 +110,9 @@ export const MeasureMethods = {
   _bindStairFields(el, m) {
     if (m.type !== "stairs") return;
     const upd = (fn) => {
-      this.change((fl) => fn(fl.furniture.find((y) => y.id === m.id)));
+      this.change((fl) => {
+        fn(fl.furniture.find((y) => y.id === m.id));
+      });
       this.renderProps();
     };
     el.querySelectorAll("select[data-stair]").forEach((s) => s.addEventListener("change", () => upd((x) => (x[s.dataset.stair] = s.value === "none" && s.dataset.stair === "railing" ? undefined : s.value))));

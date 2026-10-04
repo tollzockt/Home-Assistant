@@ -36,6 +36,11 @@ for (const o of eg?.openings ?? []) {
 // ?roof=gable|hip|shed|flat, ?garden (Balkon, Bäume, Geländer), ?weather=rainy|snowy|…
 if (params.get("roof")) data.settings = { ...(data.settings ?? {}), roof: { type: params.get("roof"), pitch: 30 } };
 // ?lhaus: Anbau an der Nordseite (L-förmiger Grundriss für das Dach)
+// ?stairs: Treppe im Hobbyraum (KG) hinauf in den Flur (EG)
+if (params.has("stairs")) {
+  const kg = data.floors.find((f) => f.id === "kg");
+  kg.furniture = [...(kg.furniture ?? []), { id: "treppe_kg", type: "stairs", x: 9.5, z: 5.5, rotation: 0, w: 1.0, d: 2.6, h: 2.8, railing: "right" }];
+}
 if (params.has("lhaus") && eg) eg.rooms.push({ id: "anbau", name: "Anbau", area_id: null, floor_material: "oak", points: [[7, 8], [11, 8], [11, 12], [7, 12]] });
 if (params.has("garden") && eg) {
   eg.outdoor.push({ id: "balkon", type: "balcony", name: "Balkon", points: [[3, 8], [7, 8], [7, 9.6], [3, 9.6]] });

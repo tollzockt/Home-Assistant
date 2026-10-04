@@ -7,6 +7,22 @@ Energiefluss.
 Das Datenformat ist kompatibel mit [NeonPlan 3D](https://github.com/Mastershort/neonplan3d): Exporte von
 dort lassen sich direkt einlesen, und Exporte von Haus 3D kann NeonPlan wieder öffnen.
 
+## Neu in 0.14
+
+Statusleiste, Hinweise am Modell, Gute-Nacht-Check, Anwesenheit, Energie-Karte 2.0 mit Tagesverlauf,
+PV-Leistung je Dachfeld, Raumklima und Bodenfarbe, echter Sonnenstand und echtes Licht, Blickwinkel,
+Wandtablet mit Ruhemodus sowie im Editor Tablet-Bedienung, Entwurfssicherung, Maße, Treppen mit Deckenloch
+und Garten-Linien. Alle Einzelheiten in [CHANGELOG.md](CHANGELOG.md).
+
+**Tippen auf Geräte:** Licht, Schalter, Lüfter und Rollladen schalten um; Schloss, Garagentor und Sirene
+fragen vorher nach; Automationen, Klima, Alarm und Sensoren öffnen die Details (Automationen löst man
+über Kurzwahl oder Funktionsrad aus). Lange drücken öffnet immer „Weitere Infos“.
+
+**Wandtablet:** `/haus3d?kiosk&etage=eg` öffnet ohne Kopfzeile auf der Etage EG. „Bildschirm anlassen“
+funktioniert nur über https; in der Companion-App bzw. Fully Kiosk die eigene Einstellung nutzen.
+Hinweise (Regen bei offenem Fenster …) prüft der Browser – sie erscheinen, solange ein Gerät Haus 3D
+offen hat.
+
 ## Funktionen
 
 - **3D-Modell ohne Decken**, damit man von oben hineinschaut: Böden je Raum in der Farbe des Bodenbelags,
@@ -54,7 +70,8 @@ dort lassen sich direkt einlesen, und Exporte von Haus 3D kann NeonPlan wieder �
 - **Geräte automatisch im Raum**: Für jeden Raum mit `area_id` erscheinen die Entitäten des Bereichs
   (Licht, Schalter, Lüfter, Rollladen, Klima, Fenster-/Tür-/Garagenkontakte). Versteckte Entitäten sowie
   Diagnose- und Konfigurations-Entitäten werden ausgeblendet. Positionen aus `placements[]` haben Vorrang.
-  - **Tippen/Klick**: Licht, Schalter, Lüfter und Rollladen umschalten (andere öffnen den Dialog).
+  - **Tippen/Klick**: Licht, Schalter, Lüfter und Rollladen umschalten; Schloss, Garagentor und Sirene
+    mit Nachfrage; Automationen und alles andere öffnen den Dialog.
   - **Lange drücken oder Rechtsklick**: der normale HA-Dialog („Weitere Infos“).
 - **Live-Status**: Räume mit eingeschaltetem Licht leuchten warm, offene Fenster/Türen werden rot
   markiert. Türblätter und Fensterflügel schwenken **animiert** auf, Rollläden fahren sichtbar hoch und
@@ -162,8 +179,8 @@ Damit HACS sie als Update anbietet, braucht es ein **Release**:
 
 1. Auf GitHub im Repository rechts **Releases → Draft a new release** (bzw. „Create a new release“).
 2. **Choose a tag** → neuen Tag eintippen, genau wie die Version in `manifest.json` mit „v“ davor,
-   z. B. `v0.13.1` → „Create new tag“. Ziel-Zweig: `main`.
-3. Titel z. B. `0.13.1`, kurze Beschreibung, bei „Release label“ **None** (nicht Pre-release),
+   z. B. `v0.14.0` → „Create new tag“. Ziel-Zweig: `main`.
+3. Titel z. B. `0.14.0`, kurze Beschreibung, bei „Release label“ **None** (nicht Pre-release),
    **Publish release**.
 4. In Home Assistant: **HACS → Haus 3D** (ggf. ⋮ → „Informationen aktualisieren“) → **Herunterladen**/
    **Aktualisieren** → Home Assistant **neu starten**.
@@ -254,7 +271,11 @@ auf gleicher Höhe auf, schließt Lücken zwischen Räumen und trägt die Energi
 
 ### Energie-Entitäten
 
-Leistungen in kW und Energien in Wh werden automatisch umgerechnet.
+Zahnrad → „Energie-Anzeige (für alle)“: Balkonkraftwerk, Haus (PV Dach, Netz, Verbrauch) und Akku.
+„Aus HA-Energie übernehmen“ schlägt Entitäten aus dem Energie-Dashboard vor (füllt nur die Felder,
+gespeichert wird mit „Speichern“). Zeigt der Akku „lädt“ statt „entlädt“ (oder das Netz Bezug statt
+Einspeisung), das Vorzeichen umkehren – die Vorschau zeigt es sofort. Leistungen in kW und Energien in
+Wh werden automatisch umgerechnet.
 
 ## Entwicklung und Tests
 
@@ -266,8 +287,8 @@ node --test tests/js/*.test.mjs
 pip install -r requirements_test.txt
 python -m pytest -q
 
-# Screenshots der Oberfläche mit nachgebautem hass-Objekt (Playwright)
-NODE_PATH="$(npm root -g)" node tests/browser/shot.mjs /tmp/shots
+# Oberfläche mit nachgebautem hass-Objekt (Playwright): alle Browser-Tests samt Screenshots
+NODE_PATH="$(npm root -g)" node tests/browser/run.mjs /tmp/shots
 ```
 
 Die Wandberechnung (`frontend/walls.js`) ist ein eigenes Modul ohne Three.js. Die Tests prüfen gegen
