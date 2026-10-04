@@ -40,3 +40,24 @@ test("Möbel innen nur bei Draufsicht mit Dach und passender Stufe ausblenden", 
   assert.equal(lodState(0.6, false, QUALITY.akku).hideInterior, false);
   assert.equal(lodState(0.6, true, QUALITY.schoen).hideInterior, false);
 });
+
+test("Ruhemodus: Standard im Wandtablet 5 min, Dimmen über Mitternacht, Schwelle", async () => {
+  const { normalizeIdle, inTimeRange, idleState, parseClock } = await import("../../custom_components/haus3d/frontend/perf.js");
+  assert.equal(normalizeIdle({}, { kiosk: true }).idleMs, 300000);
+  assert.equal(normalizeIdle({}).idleMs, 0);
+  assert.equal(normalizeIdle({ idleMin: 0 }, { kiosk: true }).idleMs, 0);
+  assert.equal(normalizeIdle({ idleMin: "2" }).idleMs, 120000);
+  const d = normalizeIdle({ dimFrom: "22:00", dimTo: "6:30", dimLevel: 2 });
+  assert.deepEqual([d.dimFrom, d.dimTo, d.dimLevel], [1320, 390, 0.95]);
+  assert.equal(normalizeIdle({ dimFrom: "22:00" }).dimFrom, null);
+  assert.equal(parseClock("24:00"), null);
+  assert.equal(inTimeRange(23 * 60, 1320, 390), true);
+  assert.equal(inTimeRange(3 * 60, 1320, 390), true);
+  assert.equal(inTimeRange(12 * 60, 1320, 390), false);
+  assert.equal(inTimeRange(13 * 60, 12 * 60, 14 * 60), true);
+  assert.equal(inTimeRange(14 * 60, 12 * 60, 14 * 60), false);
+  assert.equal(inTimeRange(5, null, 10), false);
+  assert.equal(idleState(0, 299999, 300000), "active");
+  assert.equal(idleState(0, 300000, 300000), "idle");
+  assert.equal(idleState(0, 1e9, 0), "active");
+});

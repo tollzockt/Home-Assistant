@@ -52,7 +52,7 @@ export function labelPlace(angle) {
 /** Eingebaute Funktionen bis 0.13 (wer sie ausgeblendet hat, soll sie nicht wiederbekommen). */
 export const LEGACY_FUNCTION_KEYS = ["flow", "temp", "style", "roof", "grid", "weather", "labels", "devices", "furniture", "fit"];
 /** Eingebaute Funktionen des Funktionsrads (Reihenfolge = Standard). */
-export const FUNCTION_KEYS = [...LEGACY_FUNCTION_KEYS, "presence", "security", "goodnight"];
+export const FUNCTION_KEYS = [...LEGACY_FUNCTION_KEYS, "presence", "security", "goodnight", "view", "fullscreen"];
 
 /**
  * Einträge des Funktionsrads aus den Einstellungen: eingebaute (key) und eigene (entity), ohne Doppelte.

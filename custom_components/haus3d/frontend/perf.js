@@ -64,3 +64,34 @@ export function adaptDpr(cur, samplesMs, { min = 1, max = 2, step = 0.25 } = {})
 export function lodState(polar, roofShown, profile) {
   return { hideInterior: !!profile?.cullInterior && !!roofShown && polar < 1.15 };
 }
+
+/** „HH:MM“ → Minuten seit Mitternacht, sonst null. */
+export function parseClock(v) {
+  const m = /^(\d{1,2}):(\d{2})$/.exec(String(v ?? "").trim());
+  if (!m || +m[1] > 23 || +m[2] > 59) return null;
+  return +m[1] * 60 + +m[2];
+}
+
+/**
+ * Ruhemodus und Dimmen (settings.kiosk, dieses Gerät). Im Wandtablet-Modus ohne Angabe 5 min.
+ * @returns {{idleMs: number, dimFrom: number|null, dimTo: number|null, dimLevel: number}}
+ */
+export function normalizeIdle(cfg, { kiosk = false } = {}) {
+  const raw = cfg?.idleMin;
+  const min = raw === undefined || raw === null || raw === "" ? (kiosk ? 5 : 0) : Math.max(0, Math.min(240, Number(raw) || 0));
+  const dimFrom = parseClock(cfg?.dimFrom);
+  const dimTo = parseClock(cfg?.dimTo);
+  const lvl = Number(cfg?.dimLevel);
+  return { idleMs: min * 60000, dimFrom: dimFrom !== null && dimTo !== null ? dimFrom : null, dimTo: dimFrom !== null && dimTo !== null ? dimTo : null, dimLevel: Number.isFinite(lvl) && lvl > 0 ? Math.min(0.95, Math.max(0.2, lvl)) : 0.75 };
+}
+
+/** Liegt die Uhrzeit (Minuten) im Zeitraum von–bis? Auch über Mitternacht (22:00–06:00). */
+export function inTimeRange(nowMin, from, to) {
+  if (from === null || to === null || from === undefined || to === undefined || from === to) return false;
+  return from < to ? nowMin >= from && nowMin < to : nowMin >= from || nowMin < to;
+}
+
+/** Ruhe nach idleMs ohne Eingabe (0 = nie). */
+export function idleState(lastInput, now, idleMs) {
+  return idleMs > 0 && now - lastInput >= idleMs ? "idle" : "active";
+}

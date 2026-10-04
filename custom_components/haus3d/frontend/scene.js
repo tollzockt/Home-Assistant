@@ -5,6 +5,7 @@ import * as THREE from "./vendor/three.module.min.js";
 import { OrbitControls } from "./vendor/OrbitControls.js";
 import { buildDevice, buildFurniture, furnitureMaterials } from "./furniture.js";
 import { angleBetween, sunLook, sunVector } from "./sun.js";
+import { presetPose, roundPose } from "./camera.js";
 import { colorKey } from "./light.js";
 import { floorColor, textureFor } from "./model.js";
 import { getTexture, planarUVs } from "./textures.js";
@@ -623,12 +624,19 @@ export class HouseScene {
     this.invalidate();
   }
 
-  _animateCamera(target, position) {
+  _animateCamera(target, position, duration = 450) {
     const t0 = this.controls.target.clone();
     const p0 = this.camera.position.clone();
     const start = performance.now();
+    if (duration <= 0) {
+      this.controls.target.copy(target);
+      this.camera.position.copy(position);
+      this.controls.update();
+      this._cameraMoved();
+      return;
+    }
     const step = () => {
-      const k = Math.min(1, (performance.now() - start) / 450);
+      const k = Math.min(1, (performance.now() - start) / duration);
       const e = k * k * (3 - 2 * k);
       this.controls.target.lerpVectors(t0, target, e);
       this.camera.position.lerpVectors(p0, position, e);
@@ -1549,7 +1557,8 @@ export class HouseScene {
     return this.filter === "all" || this.filter === floorId;
   }
 
-  fitCamera() {
+  /** Umriss der sichtbaren Etagen (ohne Garten) als {min, max}. */
+  viewBox() {
     const box = new THREE.Box3();
     for (const entry of this.floors.values()) {
       if (!this.isFloorVisible(entry.floor.id)) continue;
@@ -1557,14 +1566,27 @@ export class HouseScene {
       for (const m of entry.occluders) box.expandByObject(m);
     }
     if (box.isEmpty()) box.set(new THREE.Vector3(-5, 0, -5), new THREE.Vector3(5, 3, 5));
-    const center = box.getCenter(new THREE.Vector3());
-    const size = box.getSize(new THREE.Vector3());
-    const radius = Math.max(size.x, size.z, 4) * 0.5;
-    const dist = radius / Math.tan(THREE.MathUtils.degToRad(this.camera.fov / 2)) / Math.min(1, this.camera.aspect) * 1.05;
-    this.controls.target.copy(center);
-    this.camera.position.copy(center).add(new THREE.Vector3(0.35, 0.95, 0.75).normalize().multiplyScalar(dist));
-    this.controls.update();
-    this._cameraMoved();
+    return { min: box.min.toArray(), max: box.max.toArray() };
+  }
+
+  /** Feste Ansicht (camera.js: iso, oben, sued, nord, ost, west). */
+  viewPreset(name, north = 0, { duration = 450 } = {}) {
+    const pose = presetPose(name, this.viewBox(), { north, fov: this.camera.fov, aspect: this.camera.aspect });
+    this.setView(pose, { duration });
+    return pose;
+  }
+
+  fitCamera() {
+    this.viewPreset("iso", 0, { duration: 0 });
+  }
+
+  /** Aktuelle Ansicht (auf cm gerundet). */
+  getView() {
+    return roundPose({ target: this.controls.target.toArray(), position: this.camera.position.toArray() });
+  }
+
+  setView(pose, { duration = 450 } = {}) {
+    this._animateCamera(new THREE.Vector3(...pose.target), new THREE.Vector3(...pose.position), duration);
   }
 
   _cameraMoved() {

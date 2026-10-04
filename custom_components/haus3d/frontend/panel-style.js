@@ -66,6 +66,22 @@ export const PANEL_STYLE = `
 .chartsvg .tick { font-size: 11px; fill: var(--secondary-text-color); }
 .chartbox .readout { margin-top: 6px; font-size: 13px; }
 .dialog.chart .sums { font-size: 13px; font-weight: 500; margin: 10px 0 0; }
+:host([kiosk]) header { display: none; }
+.dimmer { position: fixed; inset: 0; z-index: 50; background: #000; cursor: pointer; }
+.kgear { display: none; position: absolute; left: 8px; top: 8px; z-index: 7; width: 44px; height: 44px; border-radius: 22px; border: none; background: rgba(0,0,0,.28); color: #fff; cursor: pointer; --mdc-icon-size: 22px; }
+:host([kiosk]) .kgear { display: flex; align-items: center; justify-content: center; }
+:host([kiosk]) .cards { left: 60px; }
+.popup.viewpop { right: 12px; bottom: 90px; left: auto; top: auto; max-width: min(460px, calc(100% - 24px)); }
+.viewpop .chiprow { display: flex; flex-wrap: wrap; gap: 6px; padding: 8px 10px; }
+.viewpop .chiprow button { width: auto; min-height: 40px; padding: 0 14px; border-radius: 20px; border: 1px solid var(--divider-color, rgba(127,127,127,.4)); }
+.viewpop .chiprow .saved { border-color: var(--primary-color, #03a9f4); }
+.viewpop .chiprow .add { color: var(--primary-color, #03a9f4); }
+.viewpop .name { display: flex; gap: 6px; padding: 0 10px 10px; }
+.viewpop .name input { flex: 1; min-width: 0; font: inherit; padding: 8px; border-radius: 8px; border: 1px solid var(--divider-color, rgba(127,127,127,.4)); background: var(--primary-background-color, #fff); color: inherit; }
+.viewpop .name button { width: auto; }
+.toast.action button { margin-left: 8px; border: none; border-radius: 8px; padding: 6px 12px; background: var(--primary-color, #03a9f4); color: #fff; font: inherit; cursor: pointer; }
+.kiosk-cfg .en-row .to { width: auto; }
+.kiosk-cfg input[type=time] { flex: 1; min-width: 0; font: inherit; padding: 6px; border-radius: 8px; border: 1px solid var(--divider-color, rgba(127,127,127,.4)); background: var(--primary-background-color, #fff); color: inherit; }
 .btns.left { justify-content: flex-start; }
 .btns.left button { display: inline-flex; align-items: center; gap: 6px; }
 .energy-cfg .row3 { display: flex; gap: 8px; }

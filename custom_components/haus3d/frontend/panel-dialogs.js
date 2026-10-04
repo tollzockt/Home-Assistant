@@ -280,6 +280,8 @@ export const DialogMethods = {
           <h4>Simulation</h4>
           <p class="hint">Zum Ausprobieren: Schalten, Wetter, Tag/Nacht und Solarleistung werden nur simuliert, nichts geht an echte Geräte, der Grundriss wird nicht gespeichert.</p>
           <div class="btns"><button class="simtoggle${this._sim ? "" : " primary"}">${this._sim ? "Simulation beenden" : "Simulation starten"}</button></div>
+          <h4>Wandtablet (dieses Gerät)</h4>
+          <div class="kiosk-cfg"></div>
           ${this._hass?.user?.is_admin ? `<h4>Haus & Wetter (für alle)</h4><div class="house-cfg"></div><h4>Hinweise (für alle)</h4><div class="alerts-cfg"></div><h4>Abläufe & Sicherheit (für alle)</h4><div class="routines-cfg"></div><h4>Energie-Anzeige (für alle)</h4><div class="energy-cfg"></div>` : ""}
         </div>
       </div>`;
@@ -324,6 +326,7 @@ export const DialogMethods = {
     });
     const cfg = el.querySelector(".energy-cfg");
     if (cfg) this._renderEnergyConfig(cfg);
+    this._renderKioskConfig(el.querySelector(".kiosk-cfg"));
     const house = el.querySelector(".house-cfg");
     if (house) this._renderHouseConfig(house);
     const al = el.querySelector(".alerts-cfg");
@@ -332,6 +335,38 @@ export const DialogMethods = {
     if (rt) this._renderRoutinesConfig(rt);
     this._els.stage.appendChild(el);
     this._dialog = el;
+  },
+
+  /** Wandtablet: Kopfzeile, Bildschirm anlassen, Startetage, Ruhe und Dimmen (nur dieses Gerät). */
+  _renderKioskConfig(box) {
+    const k = { ...(this._settings.kiosk ?? {}) };
+    const wakeOk = "wakeLock" in navigator && window.isSecureContext;
+    const floors = [["", "zuletzt gewählte"], ["all", "Alle"], ...[...(this._building?.floors ?? [])].sort((a, b) => b.elevation - a.elevation).map((f) => [f.id, f.name])];
+    box.innerHTML = `<label class="chkrow"><input type="checkbox" data-k="hideHeader"${k.hideHeader ? " checked" : ""}> Kopfzeile ausblenden (Zahnrad oben links)</label>
+      ${wakeOk ? `<label class="chkrow"><input type="checkbox" data-k="wakeLock"${k.wakeLock ? " checked" : ""}> Bildschirm anlassen</label>` : `<p class="hint">„Bildschirm anlassen“ geht nur über https – in der HA-App bzw. Fully Kiosk dort einstellen.</p>`}
+      <label class="en-row"><span>Startetage</span><select data-k="startFloor">${floors.map(([id, n]) => `<option value="${esc(id)}"${(k.startFloor ?? "") === id ? " selected" : ""}>${esc(n)}</option>`).join("")}</select></label>
+      <label class="en-row"><span>Ruhe nach (min)</span><input type="number" data-k="idleMin" min="0" max="240" step="1" value="${k.idleMin ?? ""}" placeholder="${this.hasAttribute("kiosk") ? "5" : "aus"}"></label>
+      <div class="en-row"><span>Dimmen</span><input type="time" data-k="dimFrom" value="${esc(k.dimFrom ?? "")}"><span class="to">bis</span><input type="time" data-k="dimTo" value="${esc(k.dimTo ?? "")}"></div>
+      <p class="hint">In Ruhe schließen sich Raumfenster und Menüs, die Startetage erscheint und das Bild steht still. Im Dimm-Zeitraum wird der Bildschirm dunkel; der erste Tipp weckt nur. Hinweise wecken das Tablet. Direkt als Wandtablet öffnen: /haus3d?kiosk&amp;etage=eg</p>`;
+    const save = () => {
+      this._settings.kiosk = k;
+      this._saveSettings();
+      if (k.startFloor) this._startFloor = k.startFloor;
+      this._applyKiosk();
+      this._setupIdle();
+    };
+    box.querySelectorAll("input[type=checkbox][data-k]").forEach((c) => c.addEventListener("change", () => {
+      k[c.dataset.k] = c.checked;
+      save();
+    }));
+    box.querySelectorAll("select[data-k], input[type=time][data-k]").forEach((i) => i.addEventListener("change", () => {
+      k[i.dataset.k] = i.value || undefined;
+      save();
+    }));
+    box.querySelector("[data-k=idleMin]").addEventListener("change", (ev) => {
+      k.idleMin = ev.target.value === "" ? undefined : Math.max(0, Number(ev.target.value) || 0);
+      save();
+    });
   },
 
   /** Dach (Form, Neigung, Überstand, Firstrichtung) und Wetter-Entität. */

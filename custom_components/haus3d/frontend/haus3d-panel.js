@@ -37,7 +37,7 @@ import { FUNCTION_KEYS, LEGACY_FUNCTION_KEYS, MAX_CARDS, WHEEL_VISIBLE, labelPla
 import { entityAction } from "./actions.js";
 import { entityPlaces, houseStatus, openState, statusChips } from "./status.js";
 import { ALERT_DEFAULTS, evaluateAlerts, exteriorOpenings, normalizeAlerts, visibleAlerts } from "./alerts.js";
-import { QUALITY_CHOICES, adaptDpr, resolveQuality } from "./perf.js";
+import { QUALITY_CHOICES, adaptDpr, idleState, inTimeRange, normalizeIdle, resolveQuality } from "./perf.js";
 import { batteryState, batteryText, ema, fieldPower, formatPower, gridState, gridText, surplus } from "./energy.js";
 import { sunFromHass } from "./sun.js";
 import { lightLook, roomLight } from "./light.js";
@@ -46,6 +46,7 @@ import { closeGaps } from "./walls.js";
 import { EDITOR_STYLE, FloorEditor } from "./editor.js";
 import { PANEL_STYLE } from "./panel-style.js";
 import { EnergyMethods } from "./panel-energy.js";
+import { VIEW_PRESETS, normalizeViews, poseInBox } from "./camera.js";
 
 import { LONG_PRESS_MS, esc, plural, ENERGY_CORE, energyRows, LAYERS, DEFAULT_SETTINGS, loadSettings, fmt, ICONS, CONTACT_ICONS, DOMAIN_ICONS, SENSOR_ICONS, fmtPower, setText, iconFor, isActive } from "./panel-util.js";
 import { DialogMethods } from "./panel-dialogs.js";
@@ -69,6 +70,15 @@ class Haus3DPanel extends HTMLElement {
       this._settings = loadSettings(localStorage.getItem("haus3d.settings"), localStorage.getItem("haus3d.style"));
     } catch {
       /* ohne Speicher */
+    }
+    // Wandtablet: /haus3d?kiosk&etage=eg (gilt nur für diesen Aufruf), sonst Einstellung dieses Geräts
+    try {
+      const q = new URLSearchParams(location.search);
+      this._kioskUrl = q.has("kiosk");
+      this._startFloor = q.get("etage") || this._settings.kiosk?.startFloor || null;
+      if (q.get("etage")) this._filter = q.get("etage");
+    } catch {
+      this._kioskUrl = false;
     }
     this._overlays = new Map(); // key -> {el, position: Vector3, floorId}
     this._watched = [];
@@ -297,12 +307,15 @@ class Haus3DPanel extends HTMLElement {
 
   connectedCallback() {
     if (!this._built) this._build();
+    this._applyKiosk();
+    this._setupIdle();
     if (this._scene && !this._qualityTimer && (this._quality?.auto || this._settings.perfHud)) this._applyQuality();
     if (!this._onVisible) {
       this._onVisible = () => {
         // verborgen (anderer Tab, Bildschirm aus): nicht zeichnen
         if (document.hidden) this._scene?.stop();
         else if (!this._editor) this._scene?.start();
+        this._applyKiosk();
         if (!document.hidden && this._staleHidden) {
           this._staleHidden = false;
           this._updateStates();
@@ -322,6 +335,10 @@ class Haus3DPanel extends HTMLElement {
     clearInterval(this._qualityTimer);
     this._qualityTimer = null;
     document.removeEventListener("visibilitychange", this._onVisible);
+    this._wakeLock?.release().catch(() => {});
+    this._wakeLock = null;
+    clearInterval(this._idleTimer);
+    this._idleTimer = null;
   }
 
   // ------------------------------------------------------------------ Aufbau
@@ -348,6 +365,7 @@ class Haus3DPanel extends HTMLElement {
           <div class="msg">Lade Grundriss …</div>
           <div class="cards"></div>
           <div class="floorbar" role="tablist" aria-label="Etage"></div>
+          <button class="kgear" title="Einstellungen"><ha-icon icon="mdi:cog"></ha-icon></button>
           <div class="wheel left"></div>
           <div class="wheel right"></div>
         </div>
@@ -361,6 +379,7 @@ class Haus3DPanel extends HTMLElement {
       chips: $(".chips"),
       cards: $(".cards"),
       floorbar: $(".floorbar"),
+      kgear: $(".kgear"),
       wheelL: $(".wheel.left"),
       wheelR: $(".wheel.right"),
       temp: $(".temp"),
@@ -396,10 +415,24 @@ class Haus3DPanel extends HTMLElement {
       if (this._popup && !ev.composedPath().includes(this._popup)) this._closePopup();
     });
 
+    for (const type of ["pointerdown", "keydown", "wheel"]) {
+      this.addEventListener(type, () => {
+        this._lastInput = Date.now();
+        if (this._idle) this._wake();
+      }, { capture: true, passive: true });
+    }
+    this._els.kgear.addEventListener("click", (ev) => {
+      ev.stopPropagation();
+      this._openSettings();
+    });
     try {
       this._scene = new HouseScene(this._els.canvas, {
         dark: !!this._hass?.themes?.darkMode,
-        onCameraChange: () => this._positionOverlays(),
+        onCameraChange: () => {
+          this._positionOverlays();
+          clearTimeout(this._viewTimer);
+          this._viewTimer = setTimeout(() => this._rememberView(), 800);
+        },
       });
       this._scene.setLayers(this._settings.layers);
       this._applyQuality();
@@ -420,7 +453,10 @@ class Haus3DPanel extends HTMLElement {
       const res = await this._hass.callWS({ type: "haus3d/building/get" });
       this._setBuilding(res.building, res.revision);
       // Simulation war in diesem Browser an: wieder starten (Band oben zeigt es deutlich)
-      if (this._settings.sim && !this._sim) this._setSim(true);
+      if (this._settings.sim && !this._sim) {
+        if (this.hasAttribute("kiosk")) this._toastAction("Simulation war aktiv.", "Fortsetzen", () => this._setSim(true));
+        else this._setSim(true);
+      }
     } catch (err) {
       this._showMessage(`Grundriss konnte nicht geladen werden: ${err.message ?? err.code ?? err}`);
     } finally {
@@ -437,6 +473,8 @@ class Haus3DPanel extends HTMLElement {
       this._els.msg.hidden = true;
     }
     if (this._scene) {
+      if (this._startFloor && !this._startApplied && this._building.floors.some((f) => f.id === this._startFloor || this._startFloor === "all")) this._filter = this._startFloor;
+      this._startApplied = true;
       this._scene.filter = this._filter; // wird in setBuilding gegen die Etagen geprüft
       this._scene.setBuilding(this._building, { keepCamera });
       this._applySun();
@@ -476,6 +514,21 @@ class Haus3DPanel extends HTMLElement {
     this._els.stage.appendChild(el);
     this._toastEl = el;
     setTimeout(() => el.remove(), 4000);
+  }
+
+  /** Meldung mit Knopf (z. B. „Fortsetzen“), bleibt 10 s. */
+  _toastAction(text, label, run) {
+    this._toast(text);
+    const el = this._toastEl;
+    const b = document.createElement("button");
+    b.textContent = label;
+    b.addEventListener("click", () => {
+      el.remove();
+      run();
+    });
+    el.append(" ", b);
+    el.classList.add("action");
+    setTimeout(() => el.remove(), 10000);
   }
 
   _store(key, value) {
@@ -518,7 +571,11 @@ class Haus3DPanel extends HTMLElement {
       this._scene?.selectRooms(this._panels.map((p) => ({ floorId: p.floorId, roomId: p.roomId })), { focus: false });
     }
     this._store("haus3d.filter", id);
-    this._scene?.setFilter(id, { fit: true });
+    // gemerkte Ansicht der Etage, solange sie noch zum Haus passt; sonst einpassen
+    const saved = this._views()[id];
+    this._scene?.setFilter(id, { fit: false });
+    if (this._scene && saved && poseInBox(saved, this._scene.viewBox())) this._scene.setView(saved, { duration: 0 });
+    else this._scene?.fitCamera();
     this._renderToolbar();
     this._positionOverlays();
   }
@@ -1143,6 +1200,12 @@ class Haus3DPanel extends HTMLElement {
       ov.label.classList.toggle("alarm", !!a);
       ov.label.classList.toggle("crit", a?.level === "critical");
     }
+    // Hinweis (Warnung/kritisch) weckt das ruhende oder gedimmte Tablet und zeigt den Raum
+    const top = list[0];
+    if (top && top.level !== "info" && (this._idle || this._dimmer)) {
+      this._wake();
+      if (top.roomId) setTimeout(() => this._showAlert(top), 0);
+    }
     // Banner (Karten rücken auf schmalen Bildschirmen darunter)
     this._alertBar?.remove();
     this._alertBar = null;
@@ -1762,9 +1825,190 @@ class Haus3DPanel extends HTMLElement {
     bar.innerHTML = `<button class="arrow" data-step="-1" title="Etage höher"${idx <= 0 ? " disabled" : ""}><ha-icon icon="mdi:chevron-up"></ha-icon></button>` +
       order.map((id) => `<button data-floor="${esc(id)}" role="tab" aria-selected="${id === this._filter}" class="${id === this._filter ? "sel" : ""}">${id === "all" ? "Alle" : esc(floors.find((f) => f.id === id).name)}</button>`).join("") +
       `<button class="arrow" data-step="1" title="Etage tiefer"${idx >= order.length - 1 ? " disabled" : ""}><ha-icon icon="mdi:chevron-down"></ha-icon></button>`;
-    bar.querySelectorAll("[data-floor]").forEach((b) => b.addEventListener("click", () => this._setFilter(b.dataset.floor)));
+    bar.querySelectorAll("[data-floor]").forEach((b) => b.addEventListener("click", () => {
+      // Doppeltipp auf die gewählte Etage: Ansicht einpassen und vergessen
+      const now = performance.now();
+      const again = b.dataset.floor === this._filter && now - (this._floorTap ?? 0) < 400;
+      this._floorTap = now;
+      if (again) return this._resetView();
+      this._setFilter(b.dataset.floor);
+    }));
     bar.querySelectorAll("[data-step]").forEach((b) => b.addEventListener("click", () => this._setFilter(order[Math.min(order.length - 1, Math.max(0, idx + Number(b.dataset.step)))])));
     this._updateFloorBadges(this._status?.perFloor);
+  }
+
+  /** Gemerkte Ansicht je Etage (dieses Gerät): {floorId: {target, position}}. */
+  _views() {
+    try {
+      const v = JSON.parse(localStorage.getItem("haus3d.views") ?? "{}");
+      return v && typeof v === "object" ? v : {};
+    } catch {
+      return {};
+    }
+  }
+
+  _rememberView() {
+    if (!this._scene || !this._building || this._editor) return;
+    const v = this._views();
+    v[this._filter] = this._scene.getView();
+    this._store("haus3d.views", JSON.stringify(v));
+  }
+
+  _resetView() {
+    const v = this._views();
+    delete v[this._filter];
+    this._store("haus3d.views", JSON.stringify(v));
+    this._scene?.fitCamera();
+    setTimeout(() => {
+      clearTimeout(this._viewTimer);
+      const w = this._views();
+      delete w[this._filter];
+      this._store("haus3d.views", JSON.stringify(w));
+    }, 0);
+  }
+
+  /** Gespeicherte Blickwinkel (dieses Gerät, höchstens 6). */
+  _savedViews(next) {
+    if (next) this._store("haus3d.savedViews", JSON.stringify(normalizeViews(next)));
+    try {
+      return normalizeViews(JSON.parse(localStorage.getItem("haus3d.savedViews") ?? "[]"));
+    } catch {
+      return [];
+    }
+  }
+
+  /** Chip-Leiste „Blickwinkel“ über dem Funktionsrad: feste Ansichten, gemerkte, „+ Merken“. */
+  _viewChips() {
+    this._closePopup();
+    const el = document.createElement("div");
+    el.className = "popup viewpop";
+    const saved = this._savedViews();
+    el.innerHTML = `<div class="head">Blickwinkel</div><div class="chiprow">${VIEW_PRESETS.map(([k, n]) => `<button data-preset="${k}">${n}</button>`).join("")}${saved.map((v, i) => `<button data-saved="${i}" class="saved"></button>`).join("")}<button class="add">+ Merken</button></div><div class="name" hidden><input maxlength="30" placeholder="Name der Ansicht"><button class="ok">Speichern</button></div>`;
+    el.querySelectorAll("[data-saved]").forEach((b) => {
+      const v = saved[Number(b.dataset.saved)];
+      b.textContent = v.name;
+      b.title = "Langes Drücken: löschen";
+      let timer = null;
+      b.addEventListener("pointerdown", () => {
+        timer = setTimeout(() => {
+          timer = null;
+          this._savedViews(saved.filter((x) => x !== v));
+          this._toast(`„${v.name}“ gelöscht`);
+          this._viewChips();
+        }, LONG_PRESS_MS);
+      });
+      b.addEventListener("pointerup", () => clearTimeout(timer));
+      b.addEventListener("click", () => {
+        if (timer === null && !b.isConnected) return;
+        if (v.floor && v.floor !== this._filter) this._setFilter(v.floor);
+        this._scene?.setView(v);
+      });
+    });
+    el.querySelectorAll("[data-preset]").forEach((b) => b.addEventListener("click", () => this._scene?.viewPreset(b.dataset.preset, Number(this._building?.settings?.north) || 0)));
+    const box = el.querySelector(".name");
+    el.querySelector(".add").addEventListener("click", () => {
+      box.hidden = false;
+      box.querySelector("input").focus();
+    });
+    const save = () => {
+      const name = box.querySelector("input").value.trim() || `Ansicht ${saved.length + 1}`;
+      this._savedViews([...saved, { name, floor: this._filter, ...this._scene.getView() }]);
+      this._toast(`Ansicht „${name}“ gemerkt`);
+      this._viewChips();
+    };
+    box.querySelector(".ok").addEventListener("click", save);
+    box.querySelector("input").addEventListener("keydown", (ev) => ev.key === "Enter" && save());
+    el.addEventListener("click", (ev) => ev.stopPropagation());
+    this._els.stage.appendChild(el);
+    this._popup = el;
+  }
+
+  /** Vollbild umschalten (braucht einen Tipp, gibt es nicht überall). */
+  _toggleFullscreen() {
+    if (document.fullscreenElement) document.exitFullscreen?.().catch(() => {});
+    else (document.documentElement.requestFullscreen?.() ?? Promise.reject(new Error("nicht unterstützt"))).catch((err) => this._toast(`Vollbild nicht möglich: ${err.message ?? err}`));
+  }
+
+  /** Wandtablet: Kopfzeile, Bildschirm anlassen (nur über https), Startetage. */
+  _applyKiosk() {
+    const k = this._settings.kiosk ?? {};
+    this.toggleAttribute("kiosk", this._kioskUrl || k.hideHeader === true);
+    const want = k.wakeLock === true && "wakeLock" in navigator && window.isSecureContext && !document.hidden;
+    if (want && !this._wakeLock) {
+      navigator.wakeLock.request("screen").then((l) => {
+        this._wakeLock = l;
+        l.addEventListener?.("release", () => (this._wakeLock = null));
+      }).catch(() => {});
+    } else if (!want && this._wakeLock) {
+      this._wakeLock.release().catch(() => {});
+      this._wakeLock = null;
+    }
+  }
+
+  /** Ruhemodus und Dimmen (Wandtablet): Zeitgeber alle 5 s, nur wenn eingestellt. */
+  _setupIdle() {
+    this._idleCfg = normalizeIdle(this._settings.kiosk, { kiosk: this.hasAttribute("kiosk") });
+    this._lastInput = this._lastInput ?? Date.now();
+    const on = this._idleCfg.idleMs > 0 || this._idleCfg.dimFrom !== null;
+    if (on && !this._idleTimer) this._idleTimer = setInterval(() => this._idleTick(), 5000);
+    if (!on && this._idleTimer) {
+      clearInterval(this._idleTimer);
+      this._idleTimer = null;
+    }
+    if (!on) this._wake();
+  }
+
+  _idleTick(now = Date.now()) {
+    const c = this._idleCfg;
+    if (!c || !this._building) return;
+    if (!this._idle && !this._editor && idleState(this._lastInput, now, c.idleMs) === "idle") this._goIdle();
+    // Dimmen im Zeitraum, sobald eine Minute (bzw. die Ruhezeit) nichts berührt wurde
+    const d = new Date(now);
+    const quiet = now - this._lastInput >= Math.max(60000, c.idleMs || 0);
+    const dim = inTimeRange(d.getHours() * 60 + d.getMinutes(), c.dimFrom, c.dimTo) && quiet && !this._editor;
+    if (dim && !this._dimmer) {
+      const el = document.createElement("div");
+      el.className = "dimmer";
+      el.style.opacity = String(c.dimLevel);
+      // erster Tipp weckt nur den Bildschirm
+      const wake = (ev) => {
+        ev.stopPropagation();
+        ev.preventDefault();
+        this._wake();
+      };
+      el.addEventListener("pointerdown", wake);
+      el.addEventListener("click", wake);
+      this.shadowRoot.appendChild(el);
+      this._dimmer = el;
+    } else if (!dim && this._dimmer && !quiet) this._wake();
+  }
+
+  /** In Ruhe: Fenster und Menüs schließen, Startetage mit ihrer Ansicht, Bild einfrieren. */
+  _goIdle() {
+    this._idle = true;
+    this._closePopup();
+    this._closeDialog();
+    this._selectRoom(null);
+    for (const side of ["left", "right"]) if (this[`_wheel_${side}`]) this[`_wheel_${side}`].open = false;
+    this._renderWheels();
+    const start = this._startFloor ?? this._settings.kiosk?.startFloor;
+    if (start && start !== this._filter && (start === "all" || this._building.floors.some((f) => f.id === start))) this._setFilter(start);
+    else {
+      const saved = this._views()[this._filter];
+      if (saved && this._scene && poseInBox(saved, this._scene.viewBox())) this._scene.setView(saved);
+    }
+    setTimeout(() => this._idle && this._scene?.setPerf({ frozen: true }), 600);
+  }
+
+  /** Aufwachen: Bild läuft wieder, Dimmen weg. */
+  _wake() {
+    this._lastInput = Date.now();
+    if (this._idle) {
+      this._idle = false;
+      this._scene?.setPerf({ frozen: false });
+    }
+    this._dimmer?.remove();
+    this._dimmer = null;
   }
 
   /** Eingebaute Funktionen (Umschalter der Ansicht), nach Schlüssel. */
@@ -1798,14 +2042,16 @@ class Haus3DPanel extends HTMLElement {
         this._renderWheels();
       } },
       goodnight: { icon: "mdi:weather-night", name: "Gute Nacht", on: false, run: () => this._checkSheet("goodnight") },
-      fit: { icon: "mdi:fit-to-screen-outline", name: "Ansicht einpassen", on: false, run: () => this._scene?.fitCamera() },
+      fit: { icon: "mdi:fit-to-screen-outline", name: "Ansicht einpassen", on: false, run: () => this._resetView() },
+      view: { icon: "mdi:camera-switch-outline", name: "Blickwinkel", on: false, run: () => this._viewChips() },
+      ...(document.fullscreenEnabled ? { fullscreen: { icon: document.fullscreenElement ? "mdi:fullscreen-exit" : "mdi:fullscreen", name: "Vollbild", on: !!document.fullscreenElement, run: () => this._toggleFullscreen() } } : {}),
     };
   }
 
   /** Einträge des Funktionsrads (unten rechts): eingebaute Umschalter und eigene Einträge aus settings.functions. */
   _functionItems() {
     const builtin = this._builtinFunctions();
-    const items = normalizeFunctions(this._building?.settings?.functions, this._building?.settings?.functions_seen ?? LEGACY_FUNCTION_KEYS).map((f) => (f.key ? builtin[f.key] : this._entityItem(f)));
+    const items = normalizeFunctions(this._building?.settings?.functions, this._building?.settings?.functions_seen ?? LEGACY_FUNCTION_KEYS).map((f) => (f.key ? builtin[f.key] : this._entityItem(f))).filter(Boolean);
     if (this._hass?.user?.is_admin) items.push({ plus: true, icon: "mdi:plus", name: "Funktionen anpassen", run: () => this._functionDialog() });
     return items;
   }
