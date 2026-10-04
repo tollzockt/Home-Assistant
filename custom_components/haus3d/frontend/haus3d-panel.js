@@ -26,6 +26,7 @@ import { exportFile, normalize, parseImport } from "./model.js";
 import { SIM_WEATHER, Simulator } from "./sim.js";
 import { FUNCTION_KEYS, LEGACY_FUNCTION_KEYS, MAX_CARDS, WHEEL_VISIBLE, labelPlace, nextStyle, normalizeCards, normalizeFunctions, rotateWheel, wheelLayout, wheelPlusAngle } from "./hud.js";
 import { entityAction } from "./actions.js";
+import { QUALITY_CHOICES, adaptDpr, resolveQuality } from "./perf.js";
 import { HouseScene } from "./scene.js";
 import { closeGaps } from "./walls.js";
 import { EDITOR_STYLE, FloorEditor } from "./editor.js";
@@ -73,7 +74,7 @@ const LAYERS = [
   ["energy", "Energieanzeige"],
 ];
 
-const DEFAULT_SETTINGS = { style: "auto", deviceMode: "icons", layers: Object.fromEntries(LAYERS.map(([k]) => [k, true])) };
+const DEFAULT_SETTINGS = { style: "auto", deviceMode: "icons", quality: "auto", perfHud: false, layers: Object.fromEntries(LAYERS.map(([k]) => [k, true])) };
 
 function loadSettings(raw, legacyStyle) {
   let saved = {};
@@ -197,6 +198,73 @@ class Haus3DPanel extends HTMLElement {
     const changed = this._watchedChanged();
     if (changed === "membership") this._refreshEntities();
     else if (changed) this._queueUpdate();
+  }
+
+  /**
+   * Qualitätsstufe anwenden (perf.js). ?quality=… in der Adresse hat Vorrang (z. B. zum Testen).
+   * Bei „auto“ wird die Auflösung alle paar Sekunden an die gemessene Bildrate angepasst.
+   */
+  _applyQuality() {
+    if (!this._scene) return;
+    let name = this._settings.quality ?? "auto";
+    try {
+      name = new URLSearchParams(location.search).get("quality") || name;
+    } catch {
+      /* egal */
+    }
+    const coarse = !!window.matchMedia?.("(pointer: coarse)").matches;
+    const profile = resolveQuality(name, { coarse });
+    if (profile.auto) {
+      let saved = NaN;
+      try {
+        saved = Number(localStorage.getItem("haus3d.dpr"));
+      } catch {
+        /* ohne Speicher */
+      }
+      if (saved >= 1) profile.dpr = Math.min(saved, profile.maxDpr);
+    }
+    this._quality = profile;
+    this._scene.setQuality(profile);
+    clearInterval(this._qualityTimer);
+    this._qualityTimer = null;
+    if (profile.auto || this._settings.perfHud) this._qualityTimer = setInterval(() => this._qualityTick(), 3000);
+    this._perfEl?.remove();
+    this._perfEl = null;
+    if (this._settings.perfHud) {
+      this._perfEl = document.createElement("div");
+      this._perfEl.className = "perfhud";
+      this._els.stage.appendChild(this._perfEl);
+      this._perfRenders = this._scene.stats.renders;
+      this._perfAt = performance.now();
+      this._qualityTick();
+    }
+  }
+
+  _qualityTick() {
+    const sc = this._scene;
+    const q = this._quality;
+    if (!sc || !q || !this.isConnected) return;
+    if (q.auto && sc.stats.frameMs.length >= 20) {
+      const cur = q.dpr ?? q.maxDpr;
+      const next = adaptDpr(cur, sc.stats.frameMs, { min: 1, max: q.maxDpr });
+      sc.stats.frameMs.length = 0;
+      if (next !== cur) {
+        q.dpr = next;
+        try {
+          localStorage.setItem("haus3d.dpr", String(next));
+        } catch {
+          /* egal */
+        }
+        sc.setQuality(q);
+      }
+    }
+    if (this._perfEl) {
+      const now = performance.now();
+      const fps = ((sc.stats.renders - this._perfRenders) * 1000) / Math.max(1, now - this._perfAt);
+      this._perfRenders = sc.stats.renders;
+      this._perfAt = now;
+      this._perfEl.textContent = `${fps.toFixed(1)} Bilder/s · Auflösung ${sc.renderer.getPixelRatio().toFixed(2)} · ${QUALITY_CHOICES.find(([k]) => k === q.name)?.[1] ?? q.name}${q.auto ? " (auto)" : ""}`;
+    }
   }
 
   /**
@@ -369,8 +437,12 @@ class Haus3DPanel extends HTMLElement {
 
   connectedCallback() {
     if (!this._built) this._build();
+    if (this._scene && !this._qualityTimer && (this._quality?.auto || this._settings.perfHud)) this._applyQuality();
     if (!this._onVisible) {
       this._onVisible = () => {
+        // verborgen (anderer Tab, Bildschirm aus): nicht zeichnen
+        if (document.hidden) this._scene?.stop();
+        else if (!this._editor) this._scene?.start();
         if (!document.hidden && this._staleHidden) {
           this._staleHidden = false;
           this._updateStates();
@@ -384,6 +456,8 @@ class Haus3DPanel extends HTMLElement {
 
   disconnectedCallback() {
     this._scene?.stop();
+    clearInterval(this._qualityTimer);
+    this._qualityTimer = null;
     document.removeEventListener("visibilitychange", this._onVisible);
   }
 
@@ -466,6 +540,7 @@ class Haus3DPanel extends HTMLElement {
         onCameraChange: () => this._positionOverlays(),
       });
       this._scene.setLayers(this._settings.layers);
+      this._applyQuality();
     } catch (err) {
       this._showMessage(`3D-Darstellung nicht möglich (WebGL fehlt?): ${err.message}`);
     }
@@ -1020,6 +1095,10 @@ class Haus3DPanel extends HTMLElement {
           <div class="seg" data-key="style">
             <button data-value="auto">Auto</button><button data-value="day">Tag</button><button data-value="night">Nacht</button><button data-value="cyber">Cyberpunk</button>
           </div>
+          <h4>Qualität</h4>
+          <div class="seg" data-key="quality">${QUALITY_CHOICES.map(([k, n]) => `<button data-value="${k}">${n}</button>`).join("")}</div>
+          <label class="chkrow"><input type="checkbox" data-perfhud${st.perfHud ? " checked" : ""}> Leistungsanzeige (Bilder/s)</label>
+          <p class="hint">Automatisch: am Tablet ausgewogen, die Auflösung passt sich der Rechenleistung an. „Akku“ zeichnet am sparsamsten.</p>
           <h4>Geräte anzeigen als</h4>
           <div class="seg" data-key="deviceMode">
             <button data-value="icons">Symbole</button><button data-value="3d">3D-Objekte</button>
@@ -1047,6 +1126,7 @@ class Haus3DPanel extends HTMLElement {
         syncSeg();
         this._saveSettings();
         if (seg.dataset.key === "style") this._applyStyle();
+        else if (seg.dataset.key === "quality") this._applyQuality();
         else this._refreshEntities();
       });
     }
@@ -1058,6 +1138,11 @@ class Haus3DPanel extends HTMLElement {
         this._applyOverlayLayers();
       });
     }
+    el.querySelector("[data-perfhud]").addEventListener("change", (ev) => {
+      st.perfHud = ev.target.checked;
+      this._saveSettings();
+      this._applyQuality();
+    });
     el.querySelector(".close").addEventListener("click", () => this._closeDialog());
     el.addEventListener("click", (ev) => {
       if (ev.target === el) this._closeDialog();

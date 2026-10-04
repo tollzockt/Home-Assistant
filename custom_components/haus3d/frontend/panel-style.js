@@ -240,6 +240,8 @@ header .floors, header .temp, header .fit { display: none; }
 }
 .legend .bar { width: 160px; height: 10px; border-radius: 5px; margin: 4px 0 2px; }
 .legend .ticks { display: flex; justify-content: space-between; color: var(--secondary-text-color); }
+.perfhud { position: absolute; left: 12px; top: 12px; z-index: 6; padding: 4px 8px; border-radius: 8px; background: rgba(0,0,0,.6); color: #fff; font: 12px/1.3 monospace; pointer-events: none; }
+.chkrow { display: flex; align-items: center; gap: 8px; margin: 8px 0 2px; font-size: 14px; }
 .toast {
   position: absolute; left: 50%; bottom: 16px; transform: translateX(-50%);
   background: #323232; color: #fff; padding: 10px 16px; border-radius: 6px; font-size: 14px;

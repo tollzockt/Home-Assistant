@@ -6,6 +6,7 @@ import { OrbitControls } from "./vendor/OrbitControls.js";
 import { buildDevice, buildFurniture, furnitureMaterials } from "./furniture.js";
 import { floorColor, textureFor } from "./model.js";
 import { getTexture, planarUVs } from "./textures.js";
+import { ambientInterval, lodState, resolveQuality, shouldRender } from "./perf.js";
 import { ROOF_ITEMS, adjustRoofParts, findPvShed, freeEdges, panelArraySlots, panelSlots, pvLayout, roofFaces, roofFloor, roofParts, roofRooms, roofSettings, roofSurfaceAt, roomRoofGroups, scatter, seeded } from "./exterior.js";
 import { centroid, computeWalls, labelPoint, pieceFootprint, pointInPolygon, wallPieces } from "./walls.js";
 
@@ -174,6 +175,9 @@ export class HouseScene {
     this._camDirty = true;
     this._clock = new THREE.Clock();
     this._running = false;
+    this.quality = resolveQuality("schoen");
+    this.stats = { renders: 0, frameMs: [] }; // für Tests und die Leistungsanzeige
+    this._frozen = false;
     this.setTheme(dark);
 
     this._resize = new ResizeObserver(() => this.resize());
@@ -375,6 +379,7 @@ export class HouseScene {
     }
     this.devicesGroup.visible = on("devices") && this._deviceList?.length > 0;
     if (this.weather) this.weather.obj.visible = on("weather");
+    this._lodCheck(true);
     this._cameraMoved();
   }
 
@@ -655,6 +660,7 @@ export class HouseScene {
       (inside([item.x, item.z]) ? furn : gardenFurn).add(obj);
     }
     group.add(furn);
+    entry.furn = furn; // Möbel innen (werden bei Draufsicht mit Dach ausgeblendet)
     garden.add(gardenFurn);
     entry.occluders.push(...wallMeshes);
 
@@ -1418,6 +1424,7 @@ export class HouseScene {
    * @param {number|null} s.feedIn Einspeiseleistung in W
    */
   applyStates(s) {
+    this._lastStates = s;
     for (const [floorId, entry] of this.floors) {
       for (const [roomId, r] of entry.rooms) {
         const key = `${floorId}:${roomId}`;
@@ -1435,7 +1442,7 @@ export class HouseScene {
         const idle = this.style === "cyber" && !s.tempMode ? r.base : new THREE.Color(0x000000);
         r.mesh.material.emissive.copy(lit && !s.tempMode ? WARM : idle);
         r.mesh.material.emissiveIntensity = lit ? (this.style === "night" ? 0.9 : 0.45) : this.style === "cyber" ? 0.3 : 0;
-        r.glow.visible = lit && !s.tempMode;
+        r.glow.visible = lit && !s.tempMode && this.quality.glow !== false;
       }
       for (const [openingId, item] of entry.openings) {
         const key = `${floorId}:${openingId}`;
@@ -1514,9 +1521,15 @@ export class HouseScene {
     this._running = false;
     if (this._raf) cancelAnimationFrame(this._raf);
     this._raf = null;
+    clearTimeout(this._timer);
+    this._timer = null;
   }
 
   _kick() {
+    if (this._timer) {
+      clearTimeout(this._timer);
+      this._timer = null;
+    }
     if (!this._running || this._raf) return;
     this._raf = requestAnimationFrame(() => this._frame());
   }
@@ -1531,26 +1544,84 @@ export class HouseScene {
     const animDt = Math.min(0.5, (now - (this._lastAnim ?? now)) / 1000);
     this._lastAnim = now;
     const animating = this._animating && this._animate(animDt);
-    const flowing = this.flow && this.flow.speed > 0 && this.isFloorVisible(this.flow.floorId);
-    const weather = !!this._weather && this.layers.weather !== false && this._stepWeather(animDt);
-    if (flowing) {
-      this.flow.phase = (this.flow.phase + dt * this.flow.speed) % 1;
-      const n = this.flow.dots.length;
-      this.flow.dots.forEach((d, i) => d.position.copy(this.flow.curve.getPointAt((this.flow.phase + i / n) % 1)));
-    }
-    // nur Wetter: höchstens ca. 30 Bilder pro Sekunde (schont Tablets)
-    const weatherOnly = weather && !(this._dirty || moving || flowing || animating);
-    if ((this._dirty || moving || flowing || animating || weather) && !(weatherOnly && now - (this._lastRender ?? 0) < 32)) {
+    // Hintergrund-Animationen nur, wenn sichtbar (Ebene an) und die Ansicht nicht ruht
+    const flowing = !this._frozen && this.flow && this.flow.speed > 0 && this.layers.flow !== false && this.isFloorVisible(this.flow.floorId);
+    const weatherOn = !this._frozen && !!this._weather && this.layers.weather !== false;
+    const ambient = flowing || weatherOn;
+    const interval = ambientInterval(this.quality.ambientFps);
+    const render = shouldRender({ dirty: this._dirty, moving, animating, ambient, now, lastRender: this._lastRender ?? -Infinity, interval });
+    if (render) {
+      // Fluss und Wetter nur weiterrechnen, wenn auch gezeichnet wird (nach echter Zeit)
+      const ambDt = Math.min(0.5, (now - (this._lastAmbient ?? now)) / 1000);
+      this._lastAmbient = now;
+      if (flowing) {
+        this.flow.phase = (this.flow.phase + ambDt * this.flow.speed) % 1;
+        const n = this.flow.dots.length;
+        this.flow.dots.forEach((d, i) => d.position.copy(this.flow.curve.getPointAt((this.flow.phase + i / n) % 1)));
+      }
+      if (weatherOn) this._stepWeather(ambDt);
+      const t0 = performance.now();
       this.renderer.render(this.scene, this.camera);
+      this.stats.renders++;
+      if (moving) {
+        // Bildabstand beim Drehen messen (für die automatische Auflösung)
+        if (this._lastMoveFrame) this.stats.frameMs.push(t0 - this._lastMoveFrame);
+        if (this.stats.frameMs.length > 120) this.stats.frameMs.shift();
+        this._lastMoveFrame = t0;
+      } else this._lastMoveFrame = null;
       this._dirty = false;
       this._lastRender = now;
     }
     if (this._camDirty || moving) {
       this._camDirty = false;
       this.onCameraChange();
+      this._lodCheck();
     }
-    // weiterlaufen, solange gedämpft gedreht wird oder Energie fließt; sonst bis zur nächsten Änderung schlafen
-    if (moving || flowing || animating || weather) this._kick();
+    // weiter: sofort bei Bewegung, sonst Hintergrund-Animation im gedrosselten Takt, sonst schlafen
+    if (moving || animating || this._dirty) this._kick();
+    else if (ambient) {
+      const wait = Math.max(0, interval - (performance.now() - this._lastRender));
+      clearTimeout(this._timer);
+      this._timer = setTimeout(() => {
+        this._timer = null;
+        this._kick();
+      }, wait);
+    }
+  }
+
+  /** Qualitätsstufe zur Laufzeit (perf.js): Auflösung, Glühen, Wetter-Dichte, Möbel innen. */
+  setQuality(profile) {
+    const prev = this.quality;
+    this.quality = profile;
+    const dpr = Math.min(window.devicePixelRatio || 1, profile.dpr ?? profile.maxDpr);
+    if (Math.abs(this.renderer.getPixelRatio() - dpr) > 1e-3) {
+      this.renderer.setPixelRatio(dpr);
+      this.resize();
+    }
+    if (prev && this._weather && prev.weatherScale !== profile.weatherScale && this.building) this.setWeather(this._weather, { force: true });
+    if (this._lastStates) this.applyStates(this._lastStates);
+    this._lodCheck(true);
+    this.invalidate();
+  }
+
+  /** Hintergrund-Animationen anhalten (Ruhemodus). */
+  setPerf({ frozen = false } = {}) {
+    this._frozen = !!frozen;
+    this.invalidate();
+  }
+
+  /** Möbel innen ausblenden, wenn das Dach drauf ist und man von oben schaut (perf.js:lodState). */
+  _lodCheck(force = false) {
+    const now = performance.now();
+    if (!force && now - (this._lodAt ?? 0) < 150) return;
+    this._lodAt = now;
+    const polar = this.controls.getPolarAngle?.() ?? 0;
+    const { hideInterior } = lodState(polar, this._roofShown(), this.quality);
+    if (hideInterior === this._hideInterior && !force) return;
+    this._hideInterior = hideInterior;
+    const on = this.layers.furniture !== false;
+    for (const entry of this.floors.values()) if (entry.furn) entry.furn.visible = on && !hideInterior;
+    this._dirty = true;
   }
 
   /** Bewegt Türen, Fensterflügel, Rollläden und Tore Richtung Ziel; true, solange sich etwas bewegt. */
@@ -1609,9 +1680,16 @@ export class HouseScene {
   }
 
   /** Schnee bleibt liegen: Rasen, Wege und Dach werden heller. */
+  /** Gelände- und Dachmaterialien inklusive ihrer Textur-Kopien (für Schnee und Jahreszeiten). */
+  _groundRoofMats() {
+    const out = [...["lawn", "terrace", "path", "driveway", "bed", "hedge", "balcony", "gravel", "rockery"].map((t) => this.outdoorMats[t]), this.mats.roof];
+    for (const [key, m] of this.texMats ?? []) if (key.startsWith("ground:") || key.startsWith("roof:")) out.push(m);
+    return out;
+  }
+
   _snowTint(k) {
     const white = new THREE.Color(0xf4f7fb);
-    const mats = [...["lawn", "terrace", "path", "driveway", "bed", "hedge", "balcony", "gravel", "rockery"].map((t) => this.outdoorMats[t]), this.mats.roof];
+    const mats = this._groundRoofMats();
     const tint = (m, f) => {
       if (!m) return;
       m.userData.base ??= m.color.clone();
@@ -1641,7 +1719,7 @@ export class HouseScene {
     const top = Math.max(...floors.map((f) => (f.elevation ?? 0) + (f.height ?? 2.5)), 3) + 7;
     const area = (x1 - x0) * (z1 - z0);
     const density = w.kind === "rain" ? 10 : w.kind === "hail" ? 4 : 6;
-    const n = Math.min(6000, Math.round(area * density * (0.3 + 0.7 * w.amount)));
+    const n = Math.min(6000, Math.round(area * density * (0.3 + 0.7 * w.amount) * (this.quality.weatherScale ?? 1)));
     const rnd = seeded(`wetter:${n}`);
     const drops = [];
     for (let tries = 0; drops.length < n && tries < n * 4; tries++) {

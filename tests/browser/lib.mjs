@@ -40,7 +40,8 @@ export async function start(out = ".") {
     pg.on("console", (m) => {
       if (m.type() === "error" || m.type() === "warning") errors.push(`${name} [${m.type()}]: ${m.text()}`);
     });
-    const data = process.env.HARNESS_DATA ? `${query ? "&" : "?"}data=${process.env.HARNESS_DATA}` : "";
+    if (!/quality=/.test(query)) query = `${query}${query ? "&" : "?"}quality=schoen`; // SwiftShader: Stufe festlegen
+    const data = process.env.HARNESS_DATA ? `&data=${process.env.HARNESS_DATA}` : "";
     await pg.goto(`http://localhost:${port}/tests/browser/harness.html${query}${data}`);
     await pg.waitForTimeout(wait);
     return pg;
