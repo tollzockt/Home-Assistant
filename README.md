@@ -65,7 +65,7 @@ dort lassen sich direkt einlesen, und Exporte von Haus 3D kann NeonPlan wieder �
   weitere Entitäten hinzufügen, auch aus anderen Bereichen. Gespeichert im Raum (`hidden_entities`,
   `panel`).
 - **Temperaturansicht** (Thermometer-Knopf): Böden von blau (18 °C) bis rot (26 °C).
-- **Energie**: Der Raum mit `area_id: balkonkraftwerk` (z. B. „Schuppen“) bekommt Solarmodule aufs
+- **Energie**: Der Raum mit Balkonkraftwerk (im Editor beim Raum „Energie: Balkonkraftwerk“, früher Bereich `balkonkraftwerk` oder Name „Schuppen“) bekommt Solarmodule aufs
   Dach. Eine animierte Linie zeigt den Energiefluss zum Haus, ihre Geschwindigkeit folgt der
   Einspeiseleistung. Die Karte „Energie“ oben rechts lässt sich einklappen; welche Werte sie zeigt
   (auch zusätzliche Sensoren mit eigenem Namen), stellt man im Zahnrad-Menü ein.
@@ -255,23 +255,6 @@ auf gleicher Höhe auf, schließt Lücken zwischen Räumen und trägt die Energi
 ### Energie-Entitäten
 
 Leistungen in kW und Energien in Wh werden automatisch umgerechnet.
-
-## Korrektur Wohnzimmer (Werkzeug)
-
-`tools/wohnzimmer_korrektur.py` ersetzt im Raum „Wohnzimmer“ auf Kante 0 das alte einzelne Fenster durch
-zwei Fenster (Breite 1,25, Brüstung 0,3, Höhe 1,9) und eine Glastür (Breite 1,0, Höhe 2,2, Anschlag
-rechts, öffnet nach außen). Weil `offset` im Format die Mitte meint, muss angegeben werden, wie die Werte
-0,55 / 2,1 / 4,9 gemeint sind:
-
-```bash
-# 1. im Panel: ⋮ → Exportieren (ergibt z. B. haus3d-2026-10-02.json)
-python3 tools/wohnzimmer_korrektur.py --offset rand  haus3d-2026-10-02.json   # Werte = linker Rand
-python3 tools/wohnzimmer_korrektur.py --offset mitte haus3d-2026-10-02.json   # Werte = Mitte
-```
-
-Ragt eine neue Öffnung über die Kante hinaus, bricht das Skript ab, ohne die Datei zu ändern
-(`--force` schreibt trotzdem).
-Danach die Datei über **⋮ → Importieren** einlesen.
 
 ## Entwicklung und Tests
 

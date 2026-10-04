@@ -117,7 +117,7 @@ test("Import: rohes Gebäude, NeonPlan-Export und -Backup; Export im NeonPlan-Fo
     const parsed = parseImport(text);
     assert.equal(parsed.floors[0].id, "eg");
     assert.deepEqual(parsed.floors[0].openings, []);
-    assert.equal(parsed.settings.energy.einspeisung, "sensor.pv_einspeisung");
+    assert.equal(parsed.settings.energy.einspeisung, null); // keine Standard-IDs (Datenschutz)
   }
   assert.throws(() => parseImport("{kein json"), /JSON/);
   assert.throws(() => parseImport(JSON.stringify({ version: 2, floors: [] })), /NeonPlan/);
@@ -212,4 +212,20 @@ test("Geräte anpassen: ausgeblendet (auch fest platziert) und hinzugefügt", ()
   const f = { id: "eg", rooms: [r], openings: [], placements: [{ entity_id: "light.stehlampe", x: 1, z: 1, y: null }], furniture: [] };
   const icons = buildingIcons({ floors: [f] }, h).get("eg");
   assert.deepEqual(icons.map((i) => [i.entity_id, i.kind]), [["media_player.tv", "other"]]);
+});
+
+test("Watch-Liste: Energie-Zusatzzeilen, Karten, Kurzwahl, eigene Funktionen, Links", async () => {
+  const { watchedEntities } = await import("../../custom_components/haus3d/frontend/devices.js");
+  const building = {
+    floors: [],
+    settings: {
+      energy: { solar: "sensor.pv", kurz: "akku", extra: ["sensor.a", { entity: "sensor.b", name: "B" }] },
+      cards: [{ entities: [{ entity: "sensor.c" }, "sensor.d"] }],
+      quick: [{ entity: "script.e" }],
+      functions: [{ key: "flow" }, { entity: "switch.f" }],
+    },
+  };
+  const links = new Map([["eg", new Map([["o1", { contact: "binary_sensor.g", cover: null }]])]]);
+  const ids = watchedEntities(building, { states: {} }, new Map(), { links, extra: ["light.h"] });
+  assert.deepEqual(ids, ["binary_sensor.g", "light.h", "script.e", "sensor.a", "sensor.b", "sensor.c", "sensor.d", "sensor.pv", "switch.f"]);
 });

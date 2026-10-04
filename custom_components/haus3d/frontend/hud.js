@@ -47,24 +47,32 @@ export function labelPlace(angle) {
   return "diag";
 }
 
+/** Eingebaute Funktionen bis 0.13 (wer sie ausgeblendet hat, soll sie nicht wiederbekommen). */
+export const LEGACY_FUNCTION_KEYS = ["flow", "temp", "style", "roof", "grid", "weather", "labels", "devices", "furniture", "fit"];
 /** Eingebaute Funktionen des Funktionsrads (Reihenfolge = Standard). */
-export const FUNCTION_KEYS = ["flow", "temp", "style", "roof", "grid", "weather", "labels", "devices", "furniture", "fit"];
+export const FUNCTION_KEYS = [...LEGACY_FUNCTION_KEYS];
 
-/** Einträge des Funktionsrads aus den Einstellungen: eingebaute (key) und eigene (entity), ohne Doppelte. */
-export function normalizeFunctions(list) {
+/**
+ * Einträge des Funktionsrads aus den Einstellungen: eingebaute (key) und eigene (entity), ohne Doppelte.
+ * seen: eingebaute Schlüssel, die der Nutzer beim Speichern schon kannte (settings.functions_seen).
+ * Neue Schlüssel, die er noch nicht gesehen hat, kommen einmal ans Ende.
+ */
+export function normalizeFunctions(list, seen = FUNCTION_KEYS) {
   if (!Array.isArray(list)) return FUNCTION_KEYS.map((key) => ({ key }));
-  const seen = new Set();
+  const seen_ = new Set();
   const out = [];
   for (const f of list) {
     if (!f || typeof f !== "object") continue;
     if (FUNCTION_KEYS.includes(f.key)) {
-      if (seen.has(f.key)) continue;
-      seen.add(f.key);
+      if (seen_.has(f.key)) continue;
+      seen_.add(f.key);
       out.push({ key: f.key });
     } else if (typeof f.entity === "string" && f.entity.includes(".")) {
-      out.push({ entity: f.entity, ...(f.name ? { name: String(f.name) } : {}) });
+      out.push({ entity: f.entity, ...(f.name ? { name: String(f.name) } : {}), ...(f.confirm ? { confirm: true } : {}) });
     }
   }
+  const known = new Set(Array.isArray(seen) ? seen : FUNCTION_KEYS);
+  for (const key of FUNCTION_KEYS) if (!known.has(key) && !seen_.has(key)) out.push({ key });
   return out;
 }
 

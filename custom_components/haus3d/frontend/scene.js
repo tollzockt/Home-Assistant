@@ -6,7 +6,7 @@ import { OrbitControls } from "./vendor/OrbitControls.js";
 import { buildDevice, buildFurniture, furnitureMaterials } from "./furniture.js";
 import { floorColor, textureFor } from "./model.js";
 import { getTexture, planarUVs } from "./textures.js";
-import { ROOF_ITEMS, adjustRoofParts, freeEdges, panelArraySlots, panelSlots, pvLayout, roofFaces, roofFloor, roofParts, roofRooms, roofSettings, roofSurfaceAt, roomRoofGroups, scatter, seeded } from "./exterior.js";
+import { ROOF_ITEMS, adjustRoofParts, findPvShed, freeEdges, panelArraySlots, panelSlots, pvLayout, roofFaces, roofFloor, roofParts, roofRooms, roofSettings, roofSurfaceAt, roomRoofGroups, scatter, seeded } from "./exterior.js";
 import { centroid, computeWalls, labelPoint, pieceFootprint, pointInPolygon, wallPieces } from "./walls.js";
 
 const OUTDOOR = {
@@ -1216,15 +1216,8 @@ export class HouseScene {
   }
 
   _buildEnergy(building) {
-    // Schuppen mit Balkonkraftwerk: Raum mit area_id "balkonkraftwerk" (oder Name "Schuppen")
-    let shed = null;
-    for (const floor of building.floors ?? []) {
-      const room = (floor.rooms ?? []).find((r) => r.area_id === "balkonkraftwerk") ?? (floor.rooms ?? []).find((r) => /schuppen/i.test(r.name));
-      if (room) {
-        shed = { floor, room };
-        break;
-      }
-    }
+    // Raum mit Balkonkraftwerk (room.energy_role, früher Bereich „balkonkraftwerk“ oder Name Schuppen)
+    const shed = findPvShed(building);
     if (!shed) return;
     const entry = this.floors.get(shed.floor.id);
     const elev = shed.floor.elevation ?? 0;

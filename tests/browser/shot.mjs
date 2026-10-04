@@ -21,7 +21,7 @@ const server = createServer(async (req, res) => {
   }
 }).listen(0);
 const port = server.address().port;
-const browser = await chromium.launch({ executablePath: "/opt/pw-browsers/chromium", args: ["--use-gl=angle", "--use-angle=swiftshader", "--enable-unsafe-swiftshader"] });
+const browser = await chromium.launch({ executablePath: process.env.PW_CHROMIUM ?? "/opt/pw-browsers/chromium", args: ["--use-gl=angle", "--use-angle=swiftshader", "--enable-unsafe-swiftshader"] });
 const errors = [];
 async function shot(name, query, viewport, deviceScaleFactor = 1) {
   const page = await browser.newPage({ viewport, deviceScaleFactor });
@@ -381,7 +381,7 @@ await hud.waitForTimeout(600);
 // Kurzwahl mit 7 Einträgen anlegen (mehr als 5: Rad dreht)
 await hud.evaluate(async () => {
   const p = window.panel;
-  await p._saveBuildingSettings({ quick: ["automation.abend", "script.garage", "scene.kino", "button.klingel", "light.bar", "switch.kaffeemaschine", "light.kueche"].map((entity) => ({ entity })) }, "ok");
+  await p._saveBuildingSettings({ quick: ["automation.abend", "script.garage", "scene.kino", "button.klingel", "light.hobbyraum", "switch.kaffeemaschine", "light.kueche"].map((entity) => ({ entity })) }, "ok");
 });
 await hud.waitForTimeout(500);
 await hud.locator("haus3d-panel .wheel.left .fab").click();
@@ -533,3 +533,4 @@ if (!texMats.some((k) => k.startsWith("wall:brick"))) errors.push(`Klinker fehlt
 console.log(JSON.stringify({ info, calls, hidpi, roomPanel, saved, moved: { x: Math.round(moved.x), y: Math.round(moved.y) }, hiddenSaved, anim, errors: errors.filter((e) => !e.includes("404")) }, null, 1));
 await browser.close();
 server.close();
+if (errors.filter((e) => !e.includes("404")).length) process.exitCode = 1;

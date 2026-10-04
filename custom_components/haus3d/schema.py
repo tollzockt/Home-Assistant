@@ -25,6 +25,26 @@ _LENGTH = vol.All(vol.Coerce(float), vol.Range(min=0, max=100))
 _POINT = vol.All([_COORD], vol.Length(min=2, max=2))
 _ENTITY = vol.Any(None, vol.All(str, vol.Length(max=255)))
 
+
+def _soft(validator: Any, default: Any) -> Any:
+    """Weiche Prüfung: ungültige Werte werden durch den Standard ersetzt statt abgelehnt.
+
+    Ein abgelehnter Wert würde den ganzen gespeicherten Stand ungültig machen, deshalb gilt das
+    für alle neueren, optionalen Einstellungen.
+    """
+
+    def check(value: Any) -> Any:
+        try:
+            return validator(value)
+        except (vol.Invalid, ValueError, TypeError):
+            return default() if callable(default) else default
+
+    return check
+
+
+def _north(value: Any) -> float:
+    return round(float(value) % 360, 3)
+
 OPENING_TYPES = ["window", "door", "garage"]
 OPENING_STYLES = [
     "interior",
@@ -119,7 +139,7 @@ FLOOR_SCHEMA = vol.Schema(
 )
 
 ENERGY_SCHEMA = vol.Schema(
-    {vol.Optional(key, default=value): _ENTITY for key, value in DEFAULT_ENERGY.items()},
+    {vol.Optional(key, default=value): _soft(_ENTITY, None) for key, value in DEFAULT_ENERGY.items()},
     extra=vol.ALLOW_EXTRA,
 )
 
@@ -131,6 +151,7 @@ SETTINGS_SCHEMA = vol.Schema(
         vol.Optional("energy", default=lambda: dict(DEFAULT_ENERGY)): ENERGY_SCHEMA,
         vol.Optional("roof"): ROOF_SCHEMA,
         vol.Optional("weather"): vol.Any(None, str),
+        vol.Optional("north"): _soft(_north, 0),
     },
     extra=vol.ALLOW_EXTRA,
 )

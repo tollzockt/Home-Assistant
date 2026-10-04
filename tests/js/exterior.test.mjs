@@ -244,3 +244,13 @@ test("Pultdach andersherum: hohe Seite getauscht", async () => {
   const hi = (m) => (roofSurfaceAt(m, [2, 0.1]).y > roofSurfaceAt(m, [2, 1.9]).y ? "oben" : "unten");
   assert.notEqual(hi(roofModel(b(false))), hi(roofModel(b(true))));
 });
+
+test("Balkonkraftwerk-Raum: energy_role vor alter Erkennung", async () => {
+  const { isPvShed, findPvShed } = await import("../../custom_components/haus3d/frontend/exterior.js");
+  assert.ok(isPvShed({ energy_role: "balkonkraftwerk", name: "Hütte" }));
+  assert.ok(isPvShed({ area_id: "balkonkraftwerk", name: "X" }));
+  assert.ok(isPvShed({ name: "Schuppen" }));
+  assert.ok(!isPvShed({ name: "Schuppen", energy_role: "none" }));
+  const b = { floors: [{ id: "eg", rooms: [{ id: "s", name: "Schuppen" }, { id: "g", name: "Gartenhaus 2", energy_role: "balkonkraftwerk" }] }] };
+  assert.equal(findPvShed(b).room.id, "g");
+});

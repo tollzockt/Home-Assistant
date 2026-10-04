@@ -28,10 +28,11 @@ STATIC_URL = "/haus3d_static"
 NEONPLAN_EXPORT_FORMAT = "neonplan3d"
 NEONPLAN_BACKUP_FORMAT = "neonplan3d-backup"
 
+# Energie-Anzeige: Entitäten werden in den Einstellungen gewählt (bewusst keine Standard-IDs)
 DEFAULT_ENERGY = {
-    "solar": "sensor.pv_leistung",
-    "einspeisung": "sensor.pv_einspeisung",
-    "akku_ladestand": "sensor.akku_ladestand",
-    "akku_leistung": "sensor.akku_leistung",
-    "ertrag_heute": "sensor.pv_ertrag_heute",
+    "solar": None,
+    "einspeisung": None,
+    "akku_ladestand": None,
+    "akku_leistung": None,
+    "ertrag_heute": None,
 }

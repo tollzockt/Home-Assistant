@@ -3,12 +3,13 @@
 export const EXPORT_FORMAT = "neonplan3d";
 const BACKUP_FORMAT = "neonplan3d-backup";
 
+// Entitäten der Energie-Anzeige: werden in den Einstellungen gewählt (bewusst keine Standard-IDs)
 export const DEFAULT_ENERGY = {
-  solar: "sensor.pv_leistung",
-  einspeisung: "sensor.pv_einspeisung",
-  akku_ladestand: "sensor.akku_ladestand",
-  akku_leistung: "sensor.akku_leistung",
-  ertrag_heute: "sensor.pv_ertrag_heute",
+  solar: null,
+  einspeisung: null,
+  akku_ladestand: null,
+  akku_leistung: null,
+  ertrag_heute: null,
 };
 
 /** Liest eine Datei: rohes Gebäude, NeonPlan-Export oder NeonPlan-Backup. Wirft bei Fehlern. */

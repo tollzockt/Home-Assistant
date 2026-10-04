@@ -229,13 +229,29 @@ export function roofFloor(building, roof) {
 }
 
 /**
+ * Raum mit Balkonkraftwerk (Solarmodule, Energiefluss): room.energy_role, sonst wie früher der Bereich
+ * „balkonkraftwerk“ oder ein Raum namens Schuppen/Gartenhaus.
+ */
+export function isPvShed(room) {
+  if (!room) return false;
+  if (room.energy_role !== undefined && room.energy_role !== null) return room.energy_role === "balkonkraftwerk";
+  return room.area_id === "balkonkraftwerk" || /schuppen|gartenhaus/i.test(room.name ?? "");
+}
+
+/** Erster Raum mit Balkonkraftwerk im Gebäude: {floor, room} oder null. Ausdrücklich markierte zuerst. */
+export function findPvShed(building) {
+  const all = (building?.floors ?? []).flatMap((floor) => (floor.rooms ?? []).map((room) => ({ floor, room })));
+  return all.find((x) => x.room.energy_role === "balkonkraftwerk") ?? all.find((x) => isPvShed(x.room)) ?? null;
+}
+
+/**
  * Räume unter dem Dach: roof.rooms (IDs) oder die größte Gruppe zusammenhängender Räume der Etage
  * (Schuppen, Garage mit Abstand und der Raum des Balkonkraftwerks bleiben ohne dieses Dach).
  */
 export function roofRooms(floor, roof) {
   const rooms = (floor?.rooms ?? []).filter((r) => (r.points ?? []).length >= 3);
   if (Array.isArray(roof?.rooms) && roof.rooms.length) return rooms.filter((r) => roof.rooms.includes(r.id));
-  const cand = rooms.filter((r) => r.area_id !== "balkonkraftwerk");
+  const cand = rooms.filter((r) => !isPvShed(r));
   const box = (r) => {
     const xs = r.points.map((p) => p[0]);
     const zs = r.points.map((p) => p[1]);

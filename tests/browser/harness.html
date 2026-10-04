@@ -53,7 +53,11 @@ if (params.has("garden") && eg) {
     { id: "kuebel", type: "planter", x: 6.4, z: 9.1, rotation: 0 },
   ];
 }
-const st = (entity_id, state, attributes = {}) => ({ entity_id, state, attributes: { friendly_name: entity_id, ...attributes }, last_updated: "" });
+// Zustände mit Zeitstempel (vor `ago` Minuten geändert)
+const st = (entity_id, state, attributes = {}, ago = 60) => {
+  const t = new Date(Date.now() - ago * 60000).toISOString();
+  return { entity_id, state, attributes: { friendly_name: entity_id, ...attributes }, last_changed: t, last_updated: t };
+};
 const states = {};
 const entities = {};
 const add = (s, area, extra = {}) => { states[s.entity_id] = s; entities[s.entity_id] = { entity_id: s.entity_id, area_id: area, ...extra }; };
@@ -63,40 +67,43 @@ add(st("cover.wohnzimmer_rollladen", "open", { current_position: 40, device_clas
 add(st("binary_sensor.wohnzimmer_fenster", "on", { device_class: "window" }), "wohnzimmer");
 add(st("sensor.wohnzimmer_temperatur", "21.4", { device_class: "temperature", unit_of_measurement: "°C" }), "wohnzimmer");
 add(st("sensor.wohnzimmer_feuchte", "48", { device_class: "humidity", unit_of_measurement: "%" }), "wohnzimmer");
-add(st("light.kueche", "off"), "kuche");
-add(st("switch.kaffeemaschine", "on"), "kuche");
-add(st("sensor.kueche_temperatur", "23.9", { device_class: "temperature" }), "kuche");
-add(st("sensor.kueche_temperatur_2", "24.3", { device_class: "temperature" }), "kuche");
+add(st("light.kueche", "off"), "kueche");
+add(st("switch.kaffeemaschine", "on"), "kueche");
+add(st("sensor.kueche_temperatur", "23.9", { device_class: "temperature" }), "kueche");
+add(st("sensor.kueche_temperatur_2", "24.3", { device_class: "temperature" }), "kueche");
 add(st("climate.bad", "heat"), "badezimmer");
 add(st("sensor.bad_temperatur", "24.8", { device_class: "temperature" }), "badezimmer");
 add(st("sensor.schlafzimmer_temperatur", "18.6", { device_class: "temperature" }), "schlafzimmer");
 add(st("fan.schlafzimmer", "off"), "schlafzimmer");
 add(st("binary_sensor.haustuer", "off", { device_class: "door" }), "flur");
 add(st("cover.garagentor", "open", { device_class: "garage", current_position: 100 }), "garage");
-add(st("light.bar", "on"), "bar");
-add(st("light.versteckt", "on"), "bar", { hidden: true });
-add(st("switch.diagnose", "on"), "bar", { entity_category: "diagnostic" });
+add(st("light.hobbyraum", "on"), "hobbyraum");
+add(st("light.versteckt", "on"), "hobbyraum", { hidden: true });
+add(st("switch.diagnose", "on"), "hobbyraum", { entity_category: "diagnostic" });
 add(st("binary_sensor.terrasse_doppel", "on", { device_class: "door" }), "wohnzimmer_x");
 add(st("binary_sensor.schiebetuer", "on", { device_class: "door" }), "schlafzimmer_x");
 add(st("sensor.waschraum_temperatur", "19.5", { device_class: "temperature" }), "waschraum");
+// Energie: neutrale Test-IDs (nie echte Sensoren aus dem Haus des Nutzers)
 const energy = {
-  "sensor.pv_leistung": st("sensor.pv_leistung", "412", { unit_of_measurement: "W" }),
-  "sensor.pv_einspeisung": st("sensor.pv_einspeisung", "380", { unit_of_measurement: "W" }),
-  "sensor.akku_ladestand": st("sensor.akku_ladestand", "76", { unit_of_measurement: "%" }),
-  "sensor.akku_leistung": st("sensor.akku_leistung", "-32", { unit_of_measurement: "W" }),
-  "sensor.pv_ertrag_heute": st("sensor.pv_ertrag_heute", "1.234", { unit_of_measurement: "kWh" }),
+  solar: st("sensor.pv_leistung", "412", { unit_of_measurement: "W" }),
+  einspeisung: st("sensor.pv_einspeisung", "380", { unit_of_measurement: "W" }),
+  akku_ladestand: st("sensor.akku_ladestand", "76", { unit_of_measurement: "%" }),
+  akku_leistung: st("sensor.akku_leistung", "-32", { unit_of_measurement: "W" }),
+  ertrag_heute: st("sensor.pv_ertrag_heute", "1.234", { unit_of_measurement: "kWh" }),
 };
-for (const s of Object.values(energy)) add(s, "balkonkraftwerk");
+data.settings = { ...(data.settings ?? {}), energy: { ...(data.settings?.energy ?? {}), ...Object.fromEntries(Object.entries(energy).map(([k, v]) => [k, v.entity_id])) } };
+for (const s of Object.values(energy)) add(s, "gartenhaus");
 for (const [id, name] of [["automation.abend", "Abendstimmung"], ["script.garage", "Garage auf"], ["scene.kino", "Kino"], ["button.klingel", "Klingel"]]) add(st(id, "on", { friendly_name: name }), null);
 if (params.get("weather")) add(st("weather.zuhause", params.get("weather"), { friendly_name: "Zuhause" }), null);
 window.calls = [];
 window.events = [];
-const areaNames = { wohnzimmer: "Wohnzimmer", kuche: "Küche", flur: "Flur", badezimmer: "Badezimmer", schlafzimmer: "Schlafzimmer", garage: "Garage", waschraum: "Waschraum", bar: "Bar", balkonkraftwerk: "Balkonkraftwerk", gaste_bad: "Gäste Bad" };
+const areaNames = { wohnzimmer: "Wohnzimmer", kueche: "Küche", flur: "Flur", badezimmer: "Badezimmer", schlafzimmer: "Schlafzimmer", garage: "Garage", waschraum: "Waschraum", hobbyraum: "Hobbyraum", gartenhaus: "Gartenhaus", gaste_bad: "Gäste Bad" };
 const hass = {
   states, entities, devices: {},
   areas: Object.fromEntries(Object.entries(areaNames).map(([area_id, name]) => [area_id, { area_id, name }])),
   floors: { eg: { floor_id: "eg", name: "EG" }, kg: { floor_id: "kg", name: "KG" } },
   themes: { darkMode: dark },
+  config: { latitude: 51, longitude: 10, time_zone: "Europe/Berlin" },
   user: { is_admin: true },
   callWS: async (msg) => {
     window.calls.push(msg);

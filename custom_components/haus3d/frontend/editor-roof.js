@@ -356,12 +356,7 @@ export function roofProps(ed, el, pad, bindPad) {
   }));
   el.querySelectorAll("[data-tex]").forEach((inp) => inp.addEventListener("change", () => save((r) => setKey(r, inp.dataset.tex, inp.value))));
   el.querySelector("[data-north]").addEventListener("change", (ev) => {
-    ed.undoStack.push(JSON.stringify(ed.b));
-    ed.b.settings.north = Number(ev.target.value);
-    ed.dirty = true;
-    ed.render();
-    ed.renderBar();
-    ed._sync3d();
+    ed.changeBuilding((b) => (b.settings.north = Number(ev.target.value)));
   });
   bindColor((r, key, v) => setKey(r, key, v));
   el.querySelector("[data-ract=legacy]")?.addEventListener("click", () => {

@@ -81,7 +81,7 @@ async def test_ws_get_and_save(hass: HomeAssistant, setup_integration, hass_ws_c
     building = msg["result"]["building"]
     # Zusatzfelder (NeonPlan) bleiben erhalten, Standardwerte für energy sind gesetzt
     assert building["presence"] == []
-    assert building["settings"]["energy"]["einspeisung"] == "sensor.pv_einspeisung"
+    assert building["settings"]["energy"]["einspeisung"] is None  # keine Standard-IDs (Datenschutz)
 
     changed = copy.deepcopy(building)
     changed["floors"][0]["name"] = "Keller"

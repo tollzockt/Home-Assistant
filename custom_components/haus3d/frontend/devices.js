@@ -335,8 +335,11 @@ function hsl(h, s, l) {
  * Alle Entitäten, deren Zustand das Modell betrifft. Nur wenn sich einer davon ändert (oder
  * erscheint/verschwindet), wird neu gezeichnet – hass ändert sich bei jedem Zustandswechsel.
  */
-export function watchedEntities(building, hass, byArea) {
+export function watchedEntities(building, hass, byArea, { links = null, extra = [] } = {}) {
   const ids = new Set();
+  const put = (id) => {
+    if (typeof id === "string" && id.includes(".") && id !== "none") ids.add(id);
+  };
   for (const floor of building.floors ?? []) {
     for (const room of placesOf(floor)) {
       for (const id of byArea.get(room.area_id) ?? []) {
@@ -355,6 +358,16 @@ export function watchedEntities(building, hass, byArea) {
     for (const o of floor.openings ?? []) for (const key of ["contact", "cover"]) if (o[key] && o[key] !== "none") ids.add(o[key]);
   }
   for (const id of manualPositions(building).keys()) ids.add(id);
-  for (const id of Object.values(building.settings?.energy ?? {})) if (typeof id === "string") ids.add(id);
+  const s = building.settings ?? {};
+  // Energie: feste Werte und Zusatzzeilen (Text oder {entity})
+  for (const [key, id] of Object.entries(s.energy ?? {})) if (key !== "extra") put(id);
+  for (const e of Array.isArray(s.energy?.extra) ? s.energy.extra : []) put(typeof e === "string" ? e : e?.entity);
+  // Karten, Kurzwahl, eigene Einträge im Funktionsrad
+  for (const c of Array.isArray(s.cards) ? s.cards : []) for (const e of Array.isArray(c?.entities) ? c.entities : []) put(typeof e === "string" ? e : e?.entity);
+  for (const q of Array.isArray(s.quick) ? s.quick : []) put(q?.entity);
+  for (const f of Array.isArray(s.functions) ? s.functions : []) put(f?.entity);
+  // verknüpfte Kontakte und Rollläden der Öffnungen
+  if (links) for (const per of links.values()) for (const l of per.values()) for (const id of [l.contact, l.cover]) put(id);
+  for (const id of extra) put(id);
   return [...ids].sort();
 }

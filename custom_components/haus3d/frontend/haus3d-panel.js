@@ -22,7 +22,7 @@ import {
 import { ROOF_TYPES, roofSettings, weatherEntity, weatherKind } from "./exterior.js";
 import { exportFile, normalize, parseImport } from "./model.js";
 import { SIM_WEATHER, Simulator } from "./sim.js";
-import { FUNCTION_KEYS, MAX_CARDS, WHEEL_VISIBLE, labelPlace, nextStyle, normalizeCards, normalizeFunctions, quickService, rotateWheel, wheelLayout, wheelPlusAngle } from "./hud.js";
+import { FUNCTION_KEYS, LEGACY_FUNCTION_KEYS, MAX_CARDS, WHEEL_VISIBLE, labelPlace, nextStyle, normalizeCards, normalizeFunctions, quickService, rotateWheel, wheelLayout, wheelPlusAngle } from "./hud.js";
 import { HouseScene } from "./scene.js";
 import { closeGaps } from "./walls.js";
 import { EDITOR_STYLE, FloorEditor } from "./editor.js";
@@ -361,8 +361,10 @@ header .floors, header .temp, header .fit { display: none; }
 .toast {
   position: absolute; left: 50%; bottom: 16px; transform: translateX(-50%);
   background: #323232; color: #fff; padding: 10px 16px; border-radius: 6px; font-size: 14px;
-  max-width: calc(100% - 32px); box-shadow: 0 2px 8px rgba(0,0,0,.4); z-index: 5;
+  max-width: calc(100% - 32px); box-shadow: 0 2px 8px rgba(0,0,0,.4); z-index: 7;
 }
+/* in der Simulation liegt die Simbar unten: Meldungen darüber */
+.stage.has-simbar .toast { bottom: 72px; }
 .msg { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; padding: 24px; text-align: center; color: var(--secondary-text-color); }
 .popup {
   position: absolute; right: 8px; top: 8px; z-index: 6; min-width: 220px;
@@ -447,7 +449,7 @@ class Haus3DPanel extends HTMLElement {
     }
     this._applyWeather();
     const changed = this._watchedChanged();
-    if (changed === "presence") this._refreshEntities();
+    if (changed === "membership") this._refreshEntities();
     else if (changed) this._updateStates();
   }
 
@@ -498,6 +500,7 @@ class Haus3DPanel extends HTMLElement {
   _renderSimBar() {
     this._simBar?.remove();
     this._simBar = null;
+    this._els?.stage.classList.toggle("has-simbar", !!this._sim);
     if (!this._sim || !this._els) return;
     const sim = this._sim;
     const el = document.createElement("div");
@@ -598,7 +601,7 @@ class Haus3DPanel extends HTMLElement {
 
   connectedCallback() {
     if (!this._built) this._build();
-    this._scene?.start();
+    if (!this._editor) this._scene?.start();
     if (!this._building && !this._loading) this._load();
   }
 
@@ -722,7 +725,7 @@ class Haus3DPanel extends HTMLElement {
       this._scene.filter = this._filter; // wird in setBuilding gegen die Etagen geprüft
       this._scene.setBuilding(this._building, { keepCamera });
       if (this._scene.warnings.length) console.warn("Haus 3D:", this._scene.warnings);
-      this._scene.start();
+      if (!this._editor) this._scene.start();
       this._weatherRef = undefined;
       this._applyWeather();
     }
@@ -750,7 +753,10 @@ class Haus3DPanel extends HTMLElement {
     this._toastEl?.remove();
     const el = document.createElement("div");
     el.className = "toast";
+    el.setAttribute("role", "status");
     el.textContent = text;
+    // über der Simulationsleiste (sie kann zweizeilig sein)
+    if (this._simBar?.isConnected) el.style.bottom = `${this._simBar.offsetHeight + 26}px`;
     this._els.stage.appendChild(el);
     this._toastEl = el;
     setTimeout(() => el.remove(), 4000);
@@ -808,17 +814,25 @@ class Haus3DPanel extends HTMLElement {
     if (!hass || !this._building) return;
     this._byArea = entitiesByArea(hass);
     this._links = buildingLinks(this._building, hass, this._byArea);
-    this._watched = watchedEntities(this._building, hass, this._byArea);
-    for (const links of this._links.values()) for (const l of links.values()) for (const id of [l.contact, l.cover]) if (id) this._watched.push(id);
-    // Karten und Kurzwahl zeigen Zustände: auch beobachten
-    for (const c of normalizeCards(this._building.settings?.cards)) for (const e of c.entities) this._watched.push(e.entity);
-    for (const q of this._building.settings?.quick ?? []) if (q?.entity) this._watched.push(q.entity);
+    this._computeWatched();
     this._buildOverlays();
-    this._watchedRefs = this._watched.map((id) => hass.states[id]);
     this._updateStates();
   }
 
-  /** false, true (Zustand geändert) oder "presence" (eine beobachtete Entität kam oder ging). */
+  /** Beobachtete Entitäten neu bestimmen (eine Stelle: devices.js:watchedEntities). */
+  _computeWatched() {
+    const hass = this._hass;
+    this._watched = watchedEntities(this._building, hass, this._byArea, { links: this._links, extra: this._extraWatched?.() ?? [] });
+    this._watchedRefs = this._watched.map((id) => hass.states[id]);
+  }
+
+  /** Günstig neu beobachten (z. B. geöffnetes Raumfenster), ohne Beschriftungen neu aufzubauen. */
+  _rewatch() {
+    if (!this._hass || !this._building || !this._byArea) return;
+    this._computeWatched();
+  }
+
+  /** false, true (Zustand geändert) oder "membership" (eine beobachtete Entität kam oder ging). */
   _watchedChanged() {
     const states = this._hass.states;
     let changed = false;
@@ -827,7 +841,7 @@ class Haus3DPanel extends HTMLElement {
       const old = this._watchedRefs[i];
       if (s !== old) {
         this._watchedRefs[i] = s;
-        if (!s !== !old) return "presence";
+        if (!s !== !old) return "membership";
         changed = true;
       }
     }
@@ -1092,19 +1106,16 @@ class Haus3DPanel extends HTMLElement {
           throw err;
         }
       },
-      onPreview: (building) => {
-        // Vorschau: Arbeitskopie in 3D zeigen; null = gespeicherten Stand wieder zeigen
-        this._scene?.setBuilding(building ? normalize(building) : this._building, { keepCamera: true });
-        this._els.overlay.hidden = !!building;
-        if (!building) this._refreshEntities();
-      },
       onClose: () => {
         this._editor?.destroy();
         this._editor = null;
         this._els.overlay.hidden = false;
+        this._scene?.start();
         this._refreshEntities();
       },
     });
+    // Hauptansicht ruht, solange der Editor offen ist (der hat seine eigene 3D-Ansicht)
+    this._scene?.stop();
   }
 
   // ------------------------------------------------------------------ Einstellungen
@@ -1733,7 +1744,7 @@ class Haus3DPanel extends HTMLElement {
   /** Einträge des Funktionsrads (unten rechts): eingebaute Umschalter und eigene Einträge aus settings.functions. */
   _functionItems() {
     const builtin = this._builtinFunctions();
-    const items = normalizeFunctions(this._building?.settings?.functions).map((f) => (f.key ? builtin[f.key] : this._entityItem(f)));
+    const items = normalizeFunctions(this._building?.settings?.functions, this._building?.settings?.functions_seen ?? LEGACY_FUNCTION_KEYS).map((f) => (f.key ? builtin[f.key] : this._entityItem(f)));
     if (this._hass?.user?.is_admin) items.push({ plus: true, icon: "mdi:plus", name: "Funktionen anpassen", run: () => this._functionDialog() });
     return items;
   }
@@ -1872,7 +1883,7 @@ class Haus3DPanel extends HTMLElement {
     this._closeDialog();
     const hass = this._hass;
     const builtin = this._builtinFunctions();
-    let list = normalizeFunctions(this._building?.settings?.functions);
+    let list = normalizeFunctions(this._building?.settings?.functions, this._building?.settings?.functions_seen ?? LEGACY_FUNCTION_KEYS);
     const domains = ["automation", "script", "scene", "button", "input_button", "switch", "light", "input_boolean", "cover", "lock", "fan"];
     const el = document.createElement("div");
     el.className = "dialog-backdrop";
@@ -1922,7 +1933,7 @@ class Haus3DPanel extends HTMLElement {
       el.querySelector(".save").addEventListener("click", () => {
         sync();
         this._closeDialog();
-        this._saveBuildingSettings({ functions: list.filter((f) => f.key || f.entity?.includes(".")) }, "Funktionen gespeichert.");
+        this._saveBuildingSettings({ functions: list.filter((f) => f.key || f.entity?.includes(".")), functions_seen: [...FUNCTION_KEYS] }, "Funktionen gespeichert.");
       });
       el.querySelector(".close").addEventListener("click", () => this._closeDialog());
     };

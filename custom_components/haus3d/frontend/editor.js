@@ -32,7 +32,7 @@ import {
 } from "./edit-ops.js";
 import { FURNITURE, FURNITURE_CATEGORIES } from "./furniture.js";
 import { COLOR_SWATCHES, FLOOR_MATERIALS, floorColor, normalize } from "./model.js";
-import { ROOF_TYPES, autoHeights, roofFloor, roofSettings } from "./exterior.js";
+import { ROOF_TYPES, autoHeights, isPvShed, roofFloor, roofSettings } from "./exterior.js";
 import { ROOF_HINTS, ROOF_TOOLS, roofMoveDrag, roofNudgePart, roofProps, roofStartDrag, roofSvg, textureField } from "./editor-roof.js";
 import { HouseScene } from "./scene.js";
 import { furnitureThumb, renderThumbs } from "./thumbs.js";
@@ -175,15 +175,13 @@ export class FloorEditor {
    * @param {string} o.floorId
    * @param {(b: object) => Promise<void>} o.onSave
    * @param {() => void} o.onClose
-   * @param {(b: object|null) => void} o.onPreview Vorschau in 3D (null = Vorschau beenden)
    */
-  constructor({ container, building, hass, floorId, onSave, onClose, onPreview = () => {}, sceneStyle = "standard", dark = false }) {
+  constructor({ container, building, hass, floorId, onSave, onClose, sceneStyle = "standard", dark = false }) {
     this.b = structuredClone(building);
     this.hass = hass;
     this.floorId = this.b.floors.some((f) => f.id === floorId) ? floorId : this.b.floors[0]?.id;
     this.onSave = onSave;
     this.onClose = onClose;
-    this.onPreview = onPreview;
     this.tool = "select";
     this.sel = null;
     this.undoStack = [];
@@ -354,13 +352,30 @@ export class FloorEditor {
 
   // ------------------------------------------------------------------ Änderungen
 
+  /** Rückgängig-Schritt anlegen (ohne merge); Wiederholen verfällt. */
+  _pushUndo(merge = false) {
+    if (merge) return;
+    this.undoStack.push(JSON.stringify(this.b));
+    if (this.undoStack.length > 100) this.undoStack.shift();
+    this.redoStack = [];
+  }
+
+  /** Änderung am ganzen Gebäude (Einstellungen, Etagen) mit Rückgängig-Schritt, Neuzeichnen und 3D-Abgleich. */
+  changeBuilding(fn, { merge = false, fit = false } = {}) {
+    this._pushUndo(merge);
+    fn(this.b);
+    if (!this.b.floors.some((f) => f.id === this.floorId)) this.floorId = this.b.floors[0]?.id;
+    this.dirty = true;
+    if (fit) this.fit();
+    this.render();
+    this.renderBar();
+    this.renderProps();
+    this._sync3d();
+  }
+
   /** Änderung mit Rückgängig-Schritt. fn bekommt die Etage und gibt die neue zurück (oder ändert sie). */
   change(fn, { merge = false } = {}) {
-    if (!merge) {
-      this.undoStack.push(JSON.stringify(this.b));
-      if (this.undoStack.length > 100) this.undoStack.shift();
-      this.redoStack = [];
-    }
+    this._pushUndo(merge);
     const f = structuredClone(this.floor);
     const out = fn(f);
     this.floor = out ?? f;
@@ -372,11 +387,7 @@ export class FloorEditor {
 
   /** Änderung am Hausdach (settings.roof) mit Rückgängig-Schritt. */
   changeRoof(fn, { merge = false } = {}) {
-    if (!merge) {
-      this.undoStack.push(JSON.stringify(this.b));
-      if (this.undoStack.length > 100) this.undoStack.shift();
-      this.redoStack = [];
-    }
+    this._pushUndo(merge);
     const roof = structuredClone(this.b.settings.roof ?? {});
     fn(roof);
     this.b.settings.roof = roof;
@@ -1483,12 +1494,8 @@ export class FloorEditor {
         inp.addEventListener("change", () => {
           const v = Number(inp.value);
           if (!Number.isFinite(v)) return;
-          if (inp.dataset.num.startsWith("wall_")) {
-            this.undoStack.push(JSON.stringify(this.b));
-            this.b.settings[inp.dataset.num] = v;
-            this.dirty = true;
-            this.render();
-          } else this.change((fl) => {
+          if (inp.dataset.num.startsWith("wall_")) this.changeBuilding((b) => (b.settings[inp.dataset.num] = v));
+          else this.change((fl) => {
             fl[inp.dataset.num] = v;
           });
         }),
@@ -1496,25 +1503,16 @@ export class FloorEditor {
       el.querySelector("[data-act=addfloor]").addEventListener("click", () => {
         const top = [...this.b.floors].sort((a, b) => b.elevation - a.elevation)[0];
         const id = newId("floor", allIds(this.b));
-        this.undoStack.push(JSON.stringify(this.b));
-        this.b.floors.push({ id, name: "Neue Etage", elevation: top ? r3(top.elevation + top.height + 0.25) : 0, height: 2.5, cut_height: 1.15, rooms: [], openings: [], furniture: [], placements: [], background: null, outdoor: [], walls: [], ha_floor: null });
-        this.floorId = id;
-        this.dirty = true;
-        this.fit();
-        this.renderBar();
-        this.render();
-        this.renderProps();
+        this.changeBuilding((b) => {
+          b.floors.push({ id, name: "Neue Etage", elevation: top ? r3(top.elevation + top.height + 0.25) : 0, height: 2.5, cut_height: 1.15, rooms: [], openings: [], furniture: [], placements: [], background: null, outdoor: [], walls: [], ha_floor: null });
+          this.floorId = id;
+        }, { fit: true });
       });
       el.querySelector("[data-act=delfloor]").addEventListener("click", () => {
         if (this.b.floors.length < 2 || !confirm(`Etage „${f.name}“ mit allen Räumen löschen?`)) return;
-        this.undoStack.push(JSON.stringify(this.b));
-        this.b.floors = this.b.floors.filter((x) => x.id !== f.id);
-        this.floorId = this.b.floors[0].id;
-        this.dirty = true;
-        this.fit();
-        this.renderBar();
-        this.render();
-        this.renderProps();
+        this.changeBuilding((b) => {
+          b.floors = b.floors.filter((x) => x.id !== f.id);
+        }, { fit: true });
       });
       return;
     }
@@ -1559,7 +1557,8 @@ export class FloorEditor {
           ${r.roof.type === "shed" ? `<div><label>Hohe Seite</label><button data-act="roofflip" title="Pultdach andersherum">⇄ tauschen</button></div>` : ""}</div>
           ${colorField("roof_color", "Dachfarbe", r.roof.color)}
           ${textureField("roof_texture", "Dachdeckung (Textur)", r.roof.texture, "r")}` : ""}
-        ${r.area_id === "balkonkraftwerk" || /schuppen/i.test(r.name) ? `<label>Solarmodule auf dem Dach (Anzahl)</label><input type="number" min="0" max="12" step="1" data-solar value="${r.solar_panels ?? 4}">` : ""}
+        <label>Energie</label><select data-room="energy_role"><option value="none"${isPvShed(r) ? "" : " selected"}>–</option><option value="balkonkraftwerk"${isPvShed(r) ? " selected" : ""}>Balkonkraftwerk (Module, Energiefluss)</option></select>
+        ${isPvShed(r) ? `<label>Solarmodule auf dem Dach (Anzahl)</label><input type="number" min="0" max="12" step="1" data-solar value="${r.solar_panels ?? 4}">` : ""}
         <p class="muted">${Math.abs(signedArea(r.points)).toFixed(2)} m² · ${r.points.length} Ecken. Ecken ziehen, „+“ fügt eine Ecke ein, Entf löscht den Raum.</p>
         ${pad()}
         <div class="btns"><button data-act="delvertex">Letzte gewählte Ecke löschen</button><button data-act="del" class="danger">Raum löschen</button></div>`;

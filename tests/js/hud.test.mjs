@@ -50,3 +50,23 @@ test("Karten werden bereinigt und auf 5 begrenzt", () => {
   assert.equal(nextStyle("auto"), "day");
   assert.equal(nextStyle("cyber"), "auto");
 });
+
+test("Funktionsrad: neue eingebaute Schlüssel kommen einmal dazu, ausgeblendete bleiben weg", async () => {
+  const hud = await import("../../custom_components/haus3d/frontend/hud.js");
+  const { normalizeFunctions, FUNCTION_KEYS, LEGACY_FUNCTION_KEYS } = hud;
+  assert.deepEqual(normalizeFunctions([]), []); // alles bewusst ausgeblendet und gespeichert
+  // Nutzer hat bis 0.13 „Raster“ ausgeblendet: bleibt weg, auch wenn er functions_seen noch nicht hat
+  const saved = LEGACY_FUNCTION_KEYS.filter((k) => k !== "grid").map((key) => ({ key }));
+  const out = normalizeFunctions(saved, LEGACY_FUNCTION_KEYS);
+  assert.ok(!out.some((f) => f.key === "grid"));
+  // ein neuer Schlüssel (simuliert) erscheint am Ende
+  FUNCTION_KEYS.push("neu_test");
+  try {
+    const withNew = normalizeFunctions(saved, LEGACY_FUNCTION_KEYS);
+    assert.equal(withNew.at(-1).key, "neu_test");
+    assert.ok(!normalizeFunctions(saved, [...LEGACY_FUNCTION_KEYS, "neu_test"]).some((f) => f.key === "neu_test"));
+  } finally {
+    FUNCTION_KEYS.pop();
+  }
+  assert.deepEqual(normalizeFunctions([{ entity: "script.x", confirm: true }])[0], { entity: "script.x", confirm: true });
+});
