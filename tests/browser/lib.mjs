@@ -81,10 +81,11 @@ export async function start(out = ".") {
 
 /** Bearbeiten bzw. Admin-Einstellungen per PIN freischalten (wie am Tablet: PIN-Feld, Ziffern tippen). */
 export async function unlock(pg, scope = "edit", { pin = "0000", cat = null, arg = null } = {}) {
+  await pg.waitForFunction(() => window.panel?._building && window.panel._els?.stage, null, { timeout: 30000 });
   await pg.evaluate(([s, c, a]) => {
     window.__unlocking = s === "admin" ? window.panel._openAdmin(c, a) : window.panel._startEdit();
   }, [scope, cat, arg]);
-  await pg.waitForSelector("haus3d-panel .pinpad", { timeout: 5000 });
+  await pg.waitForSelector("haus3d-panel .pinpad", { timeout: 15000 });
   await pg.keyboard.type(pin, { delay: 60 });
   await pg.waitForFunction(() => !window.panel.shadowRoot.querySelector(".pinpad"), null, { timeout: 8000 });
   await pg.evaluate(() => window.__unlocking);
