@@ -3,13 +3,19 @@
 from __future__ import annotations
 
 DOMAIN = "haus3d"
-VERSION = "0.14.1"
+VERSION = "0.14.2"
 
 STORAGE_VERSION = 1
 STORAGE_KEY_BUILDING = f"{DOMAIN}.building"
 STORAGE_KEY_HISTORY = f"{DOMAIN}.history"
 # ungültiger gespeicherter Stand wird hierhin gesichert, statt verloren zu gehen
 STORAGE_KEY_INVALID = f"{DOMAIN}.building_invalid"
+# Bauplan-Fotos/Luftbilder je Etage (getrennt vom Grundriss, damit der klein bleibt)
+STORAGE_KEY_BACKGROUNDS = f"{DOMAIN}.backgrounds"
+BACKGROUND_MAX_CHARS = 3_000_000  # Daten-URL (JPEG, im Browser auf höchstens 1600 px verkleinert)
+
+# Signal an offene Panels (Dienste haus3d.show/notify/highlight/reload)
+SIGNAL_COMMAND = f"{DOMAIN}_command"
 
 # Anzahl der aufgehobenen Stände
 HISTORY_LIMIT = 20

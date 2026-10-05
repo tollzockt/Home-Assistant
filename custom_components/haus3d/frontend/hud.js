@@ -33,6 +33,39 @@ export function wheelPlusAngle(n, visible = WHEEL_VISIBLE) {
   return (Math.min(n, visible) * 90) / visible;
 }
 
+/**
+ * Stufenlose Lage beim Drehen mit dem Finger: offset darf gebrochen sein (2,4 Einträge). Einträge im
+ * sichtbaren Bogen sind ganz da, beim Hinein-/Hinausgleiten blenden sie über einen Platz ein bzw. aus.
+ * @returns {{i:number, angle:number, opacity:number}[]}
+ */
+export function wheelPositions(n, offset = 0, visible = WHEEL_VISIBLE) {
+  const step = 90 / visible;
+  if (n <= visible) return Array.from({ length: n }, (_, i) => ({ i, angle: i * step, opacity: 1 }));
+  return Array.from({ length: n }, (_, i) => {
+    // k in [-1, n-1): ein Platz „vor“ dem Bogen, der Rest dahinter
+    let k = (((i - offset) % n) + n) % n;
+    if (k >= n - 1) k -= n;
+    const out = Math.max(0, -k, k - (visible - 1));
+    return { i, angle: Math.max(-step, Math.min(visible * step, k * step)), opacity: Math.max(0, Math.min(1, 1 - out)) };
+  });
+}
+
+/**
+ * Winkel des Fingers um die Mitte des Rad-Knopfs in Grad: 0 = senkrecht darüber, 90 = waagerecht zur
+ * Bildschirmmitte hin (rechtes Rad: nach links, linkes Rad: nach rechts).
+ */
+export function pointerAngle(side, cx, cy, x, y) {
+  const dx = side === "right" ? cx - x : x - cx;
+  return (Math.atan2(dx, cy - y) * 180) / Math.PI;
+}
+
+/** Schwung nach dem Loslassen: Geschwindigkeit (Einträge/ms) bremst ab; Zielpunkt eingerastet. */
+export function wheelFling(offset, velocity, { friction = 0.00003, max = 6 } = {}) {
+  const v = Math.max(-0.05, Math.min(0.05, velocity));
+  const travel = Math.max(-max, Math.min(max, (v * Math.abs(v)) / (2 * friction)));
+  return Math.round(offset + travel);
+}
+
 /** Drehung eines Rads um delta Einträge (ringförmig). */
 export function rotateWheel(offset, delta, n, visible = WHEEL_VISIBLE) {
   if (n <= visible) return 0;

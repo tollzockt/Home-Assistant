@@ -7,6 +7,13 @@ const renders = (pg, ms) =>
     const sc = window.panel._scene;
     sc.controls.update(); // Dämpfung auslaufen lassen
     await new Promise((r) => setTimeout(r, 600));
+    // SwiftShader stockt nach dem Laden teils Sekunden: erst messen, wenn wieder Bilder kommen
+    await new Promise((res) => {
+      let n = 0;
+      const t0 = performance.now();
+      const f = () => (++n >= 3 || performance.now() - t0 > 8000 ? res() : requestAnimationFrame(f));
+      requestAnimationFrame(f);
+    });
     const a = sc.stats.renders;
     await new Promise((r) => setTimeout(r, ms));
     return sc.stats.renders - a;

@@ -33,7 +33,7 @@ import {
 import { ROOF_TYPES, compass16, fieldInfo, roofModel, roofSettings, weatherEntity, weatherKind } from "./exterior.js";
 import { exportFile, normalize, parseImport } from "./model.js";
 import { SIM_WEATHER, Simulator } from "./sim.js";
-import { FUNCTION_KEYS, LEGACY_FUNCTION_KEYS, MAX_CARDS, WHEEL_VISIBLE, labelPlace, nextStyle, migrateView, nextView, normalizeCards, normalizeFunctions, rotateWheel, wheelLayout, wheelPlusAngle } from "./hud.js";
+import { FUNCTION_KEYS, LEGACY_FUNCTION_KEYS, MAX_CARDS, WHEEL_VISIBLE, labelPlace, nextStyle, migrateView, nextView, normalizeCards, normalizeFunctions, pointerAngle, rotateWheel, wheelFling, wheelLayout, wheelPlusAngle, wheelPositions } from "./hud.js";
 import { entityAction } from "./actions.js";
 import { entityPlaces, houseStatus, openState, statusChips } from "./status.js";
 import { ALERT_DEFAULTS, evaluateAlerts, exteriorOpenings, normalizeAlerts, visibleAlerts } from "./alerts.js";
@@ -46,6 +46,7 @@ import { closeGaps } from "./walls.js";
 import { EDITOR_STYLE, FloorEditor } from "./editor.js";
 import { PANEL_STYLE } from "./panel-style.js";
 import { EnergyMethods } from "./panel-energy.js";
+import { TabletMethods } from "./panel-tablet.js";
 import { VIEW_PRESETS, normalizeViews, poseInBox } from "./camera.js";
 
 import { LONG_PRESS_MS, esc, plural, ENERGY_CORE, energyRows, LAYERS, DEFAULT_SETTINGS, loadSettings, fmt, ICONS, CONTACT_ICONS, DOMAIN_ICONS, SENSOR_ICONS, fmtPower, setText, iconFor, isActive } from "./panel-util.js";
@@ -341,6 +342,8 @@ class Haus3DPanel extends HTMLElement {
     this._idleTimer = null;
   }
 
+  // (Beobachter der Ecken bleibt an der Shadow-DOM-Bühne hängen und wird mit ihr entsorgt)
+
   // ------------------------------------------------------------------ Aufbau
 
   _build() {
@@ -421,6 +424,14 @@ class Haus3DPanel extends HTMLElement {
         if (this._idle) this._wake();
       }, { capture: true, passive: true });
     }
+    // Karten oben rechts und Etagenleiste dürfen sich nicht überdecken (Tablet hochkant/quer)
+    this._layoutObs = new ResizeObserver(() => this._queueLayout());
+    this._layoutObs.observe(this._els.stage);
+    this._layoutObs.observe(this._els.cards);
+    this._layoutObs.observe(this._els.floorbar);
+    // neue/entfernte Karten (Energie, eigene Karten) ebenfalls beobachten
+    new MutationObserver(() => this._queueLayout()).observe(this._els.cards, { childList: true });
+    window.addEventListener("resize", () => this._queueLayout());
     this._els.kgear.addEventListener("click", (ev) => {
       ev.stopPropagation();
       this._openSettings();
@@ -726,6 +737,7 @@ class Haus3DPanel extends HTMLElement {
       rows.forEach((r, i) => (el.querySelector(`.row[data-i="${i}"] span`).textContent = r.name));
       el.querySelector("h3").addEventListener("click", () => {
         this._energyCollapsed = el.classList.toggle("collapsed");
+        this._queueLayout();
         this._cardState({ energie: this._energyCollapsed });
         this._refreshSparks();
       });
@@ -1783,7 +1795,10 @@ class Haus3DPanel extends HTMLElement {
       el.innerHTML = `<h3><ha-icon icon="${esc(c.icon)}"></ha-icon><span>${esc(c.title)}</span><b class="short"></b>${admin ? `<ha-icon class="cedit" icon="mdi:pencil-outline" title="Karte anpassen"></ha-icon>` : ""}<ha-icon class="chev" icon="mdi:chevron-down"></ha-icon></h3>` +
         (c.entities.length ? c.entities.map((e, i) => `<div class="row" data-i="${i}"><span>${esc(e.name || this._hass?.states[e.entity]?.attributes?.friendly_name || e.entity)}</span><b>–</b></div>`).join("") : `<div class="row"><span>Noch leer – über den Stift Werte wählen.</span></div>`);
       el.classList.toggle("collapsed", !!state[c.id]);
-      el.querySelector("h3").addEventListener("click", () => this._cardState({ [c.id]: el.classList.toggle("collapsed") }));
+      el.querySelector("h3").addEventListener("click", () => {
+        this._cardState({ [c.id]: el.classList.toggle("collapsed") });
+        this._queueLayout();
+      });
       el.querySelector(".cedit")?.addEventListener("click", (ev) => {
         ev.stopPropagation();
         this._cardDialog(c.id);
@@ -1837,180 +1852,7 @@ class Haus3DPanel extends HTMLElement {
     }));
     bar.querySelectorAll("[data-step]").forEach((b) => b.addEventListener("click", () => this._setFilter(order[Math.min(order.length - 1, Math.max(0, idx + Number(b.dataset.step)))])));
     this._updateFloorBadges(this._status?.perFloor);
-  }
-
-  /** Gemerkte Ansicht je Etage (dieses Gerät): {floorId: {target, position}}. */
-  _views() {
-    try {
-      const v = JSON.parse(localStorage.getItem("haus3d.views") ?? "{}");
-      return v && typeof v === "object" ? v : {};
-    } catch {
-      return {};
-    }
-  }
-
-  _rememberView() {
-    if (!this._scene || !this._building || this._editor) return;
-    const v = this._views();
-    v[this._filter] = this._scene.getView();
-    this._store("haus3d.views", JSON.stringify(v));
-  }
-
-  _resetView() {
-    const v = this._views();
-    delete v[this._filter];
-    this._store("haus3d.views", JSON.stringify(v));
-    this._scene?.fitCamera();
-    setTimeout(() => {
-      clearTimeout(this._viewTimer);
-      const w = this._views();
-      delete w[this._filter];
-      this._store("haus3d.views", JSON.stringify(w));
-    }, 0);
-  }
-
-  /** Gespeicherte Blickwinkel (dieses Gerät, höchstens 6). */
-  _savedViews(next) {
-    if (next) this._store("haus3d.savedViews", JSON.stringify(normalizeViews(next)));
-    try {
-      return normalizeViews(JSON.parse(localStorage.getItem("haus3d.savedViews") ?? "[]"));
-    } catch {
-      return [];
-    }
-  }
-
-  /** Chip-Leiste „Blickwinkel“ über dem Funktionsrad: feste Ansichten, gemerkte, „+ Merken“. */
-  _viewChips() {
-    this._closePopup();
-    const el = document.createElement("div");
-    el.className = "popup viewpop";
-    const saved = this._savedViews();
-    el.innerHTML = `<div class="head">Blickwinkel</div><div class="chiprow">${VIEW_PRESETS.map(([k, n]) => `<button data-preset="${k}">${n}</button>`).join("")}${saved.map((v, i) => `<button data-saved="${i}" class="saved"></button>`).join("")}<button class="add">+ Merken</button></div><div class="name" hidden><input maxlength="30" placeholder="Name der Ansicht"><button class="ok">Speichern</button></div>`;
-    el.querySelectorAll("[data-saved]").forEach((b) => {
-      const v = saved[Number(b.dataset.saved)];
-      b.textContent = v.name;
-      b.title = "Langes Drücken: löschen";
-      let timer = null;
-      b.addEventListener("pointerdown", () => {
-        timer = setTimeout(() => {
-          timer = null;
-          this._savedViews(saved.filter((x) => x !== v));
-          this._toast(`„${v.name}“ gelöscht`);
-          this._viewChips();
-        }, LONG_PRESS_MS);
-      });
-      b.addEventListener("pointerup", () => clearTimeout(timer));
-      b.addEventListener("click", () => {
-        if (timer === null && !b.isConnected) return;
-        if (v.floor && v.floor !== this._filter) this._setFilter(v.floor);
-        this._scene?.setView(v);
-      });
-    });
-    el.querySelectorAll("[data-preset]").forEach((b) => b.addEventListener("click", () => this._scene?.viewPreset(b.dataset.preset, Number(this._building?.settings?.north) || 0)));
-    const box = el.querySelector(".name");
-    el.querySelector(".add").addEventListener("click", () => {
-      box.hidden = false;
-      box.querySelector("input").focus();
-    });
-    const save = () => {
-      const name = box.querySelector("input").value.trim() || `Ansicht ${saved.length + 1}`;
-      this._savedViews([...saved, { name, floor: this._filter, ...this._scene.getView() }]);
-      this._toast(`Ansicht „${name}“ gemerkt`);
-      this._viewChips();
-    };
-    box.querySelector(".ok").addEventListener("click", save);
-    box.querySelector("input").addEventListener("keydown", (ev) => ev.key === "Enter" && save());
-    el.addEventListener("click", (ev) => ev.stopPropagation());
-    this._els.stage.appendChild(el);
-    this._popup = el;
-  }
-
-  /** Vollbild umschalten (braucht einen Tipp, gibt es nicht überall). */
-  _toggleFullscreen() {
-    if (document.fullscreenElement) document.exitFullscreen?.().catch(() => {});
-    else (document.documentElement.requestFullscreen?.() ?? Promise.reject(new Error("nicht unterstützt"))).catch((err) => this._toast(`Vollbild nicht möglich: ${err.message ?? err}`));
-  }
-
-  /** Wandtablet: Kopfzeile, Bildschirm anlassen (nur über https), Startetage. */
-  _applyKiosk() {
-    const k = this._settings.kiosk ?? {};
-    this.toggleAttribute("kiosk", this._kioskUrl || k.hideHeader === true);
-    const want = k.wakeLock === true && "wakeLock" in navigator && window.isSecureContext && !document.hidden;
-    if (want && !this._wakeLock) {
-      navigator.wakeLock.request("screen").then((l) => {
-        this._wakeLock = l;
-        l.addEventListener?.("release", () => (this._wakeLock = null));
-      }).catch(() => {});
-    } else if (!want && this._wakeLock) {
-      this._wakeLock.release().catch(() => {});
-      this._wakeLock = null;
-    }
-  }
-
-  /** Ruhemodus und Dimmen (Wandtablet): Zeitgeber alle 5 s, nur wenn eingestellt. */
-  _setupIdle() {
-    this._idleCfg = normalizeIdle(this._settings.kiosk, { kiosk: this.hasAttribute("kiosk") });
-    this._lastInput = this._lastInput ?? Date.now();
-    const on = this._idleCfg.idleMs > 0 || this._idleCfg.dimFrom !== null;
-    if (on && !this._idleTimer) this._idleTimer = setInterval(() => this._idleTick(), 5000);
-    if (!on && this._idleTimer) {
-      clearInterval(this._idleTimer);
-      this._idleTimer = null;
-    }
-    if (!on) this._wake();
-  }
-
-  _idleTick(now = Date.now()) {
-    const c = this._idleCfg;
-    if (!c || !this._building) return;
-    if (!this._idle && !this._editor && idleState(this._lastInput, now, c.idleMs) === "idle") this._goIdle();
-    // Dimmen im Zeitraum, sobald eine Minute (bzw. die Ruhezeit) nichts berührt wurde
-    const d = new Date(now);
-    const quiet = now - this._lastInput >= Math.max(60000, c.idleMs || 0);
-    const dim = inTimeRange(d.getHours() * 60 + d.getMinutes(), c.dimFrom, c.dimTo) && quiet && !this._editor;
-    if (dim && !this._dimmer) {
-      const el = document.createElement("div");
-      el.className = "dimmer";
-      el.style.opacity = String(c.dimLevel);
-      // erster Tipp weckt nur den Bildschirm
-      const wake = (ev) => {
-        ev.stopPropagation();
-        ev.preventDefault();
-        this._wake();
-      };
-      el.addEventListener("pointerdown", wake);
-      el.addEventListener("click", wake);
-      this.shadowRoot.appendChild(el);
-      this._dimmer = el;
-    } else if (!dim && this._dimmer && !quiet) this._wake();
-  }
-
-  /** In Ruhe: Fenster und Menüs schließen, Startetage mit ihrer Ansicht, Bild einfrieren. */
-  _goIdle() {
-    this._idle = true;
-    this._closePopup();
-    this._closeDialog();
-    this._selectRoom(null);
-    for (const side of ["left", "right"]) if (this[`_wheel_${side}`]) this[`_wheel_${side}`].open = false;
-    this._renderWheels();
-    const start = this._startFloor ?? this._settings.kiosk?.startFloor;
-    if (start && start !== this._filter && (start === "all" || this._building.floors.some((f) => f.id === start))) this._setFilter(start);
-    else {
-      const saved = this._views()[this._filter];
-      if (saved && this._scene && poseInBox(saved, this._scene.viewBox())) this._scene.setView(saved);
-    }
-    setTimeout(() => this._idle && this._scene?.setPerf({ frozen: true }), 600);
-  }
-
-  /** Aufwachen: Bild läuft wieder, Dimmen weg. */
-  _wake() {
-    this._lastInput = Date.now();
-    if (this._idle) {
-      this._idle = false;
-      this._scene?.setPerf({ frozen: false });
-    }
-    this._dimmer?.remove();
-    this._dimmer = null;
+    this._queueLayout();
   }
 
   /** Eingebaute Funktionen (Umschalter der Ansicht), nach Schlüssel. */
@@ -2086,117 +1928,6 @@ class Haus3DPanel extends HTMLElement {
     if (this._els?.wheelR?.classList.contains("open")) this._wheel(this._els.wheelR, "right", this._functionItems(), "mdi:tune-variant", "Funktionen");
   }
 
-  /**
-   * Rad-Menü: weißer Knopf, darüber 4 Bubbles im Viertelkreis und am Ende fest das „+“ zum Hinzufügen.
-   * Mehr Einträge lassen sich wie ein Rad durchdrehen (Mausrad, Wischen oder die kleinen Pfeile).
-   */
-  _wheel(box, side, all, icon, title) {
-    const key = `_wheel_${side}`;
-    const st = (this[key] ??= { open: false, offset: 0 });
-    const plus = all.find((it) => it.plus);
-    const items = all.filter((it) => !it.plus);
-    const n = items.length;
-    st.offset = n > WHEEL_VISIBLE ? ((st.offset % n) + n) % n : 0;
-    const R = 170;
-    const pos = (angle) => {
-      const a = (angle * Math.PI) / 180;
-      return `${side}:${(4 + Math.sin(a) * R).toFixed(1)}px; bottom:${(4 + Math.cos(a) * R).toFixed(1)}px`;
-    };
-    const layout = wheelLayout(n, st.offset);
-    const bubble = (it, attr, angle, vis) => `<button class="bub${vis ? " vis" : ""}${it.on ? " on" : ""}${it.plus ? " plus" : ""}" ${attr} title="${esc(it.name)}" style="${pos(angle)}"><ha-icon icon="${esc(it.icon)}"></ha-icon><span class="lab ${labelPlace(angle)}">${esc(it.name)}</span></button>`;
-    box.classList.toggle("open", st.open);
-    box.innerHTML = `<button class="fab" title="${title}"><ha-icon icon="${st.open ? "mdi:close" : icon}"></ha-icon></button>` +
-      items.map((it, i) => bubble(it, `data-i="${i}"`, layout[i].angle, layout[i].visible)).join("") +
-      (plus ? bubble(plus, "data-plus", wheelPlusAngle(n), true) : "") +
-      (n > WHEEL_VISIBLE ? `<button class="spin up" data-d="-1" title="zurückdrehen"><ha-icon icon="mdi:chevron-up"></ha-icon></button><button class="spin down" data-d="1" title="weiterdrehen (${n} Einträge)"><ha-icon icon="mdi:chevron-down"></ha-icon></button>` : "");
-    const redraw = () => this._wheel(box, side, side === "right" ? this._functionItems() : this._quickItems(), icon, title);
-    box.querySelector(".fab").addEventListener("click", () => {
-      st.open = !st.open;
-      // nur ein Rad gleichzeitig offen (auf schmalen Bildschirmen überlappen sie sonst)
-      const other = side === "left" ? "right" : "left";
-      if (st.open && this[`_wheel_${other}`]?.open) {
-        this[`_wheel_${other}`].open = false;
-        this._renderWheels();
-      } else redraw();
-    });
-    box.querySelector("[data-plus]")?.addEventListener("click", () => {
-      if (!this._wheelDragged) plus.run();
-    });
-    box.querySelectorAll(".spin").forEach((b) => b.addEventListener("click", () => box._turn?.(Number(b.dataset.d))));
-    box.querySelectorAll(".bub[data-i]").forEach((b) => {
-      let long = false;
-      let start = null;
-      const cancel = () => {
-        clearTimeout(box._longTimer);
-        box._longTimer = null;
-      };
-      b.addEventListener("pointerdown", (ev) => {
-        long = false;
-        start = [ev.clientX, ev.clientY];
-        cancel();
-        const it = items[Number(b.dataset.i)];
-        if (it.entity) box._longTimer = setTimeout(() => {
-          long = true;
-          navigator.vibrate?.(15);
-          this._moreInfo(it.entity);
-        }, 550);
-      });
-      b.addEventListener("pointermove", (ev) => {
-        if (start && Math.hypot(ev.clientX - start[0], ev.clientY - start[1]) > 10) cancel();
-      });
-      b.addEventListener("pointerup", cancel);
-      b.addEventListener("pointerleave", cancel);
-      b.addEventListener("pointercancel", cancel);
-      b.addEventListener("contextmenu", (ev) => ev.preventDefault());
-      b.addEventListener("click", () => {
-        if (long || this._wheelDragged) return;
-        items[Number(b.dataset.i)].run();
-        // Umschalter neu zeichnen (an/aus), das Rad bleibt offen
-        if (side === "right") redraw();
-      });
-    });
-    box._turn = (d) => {
-      // Drehen bricht einen angefangenen Langdruck ab
-      clearTimeout(box._longTimer);
-      const next = rotateWheel(st.offset, d, n);
-      if (next === st.offset) return;
-      st.offset = next;
-      redraw();
-    };
-    if (!box._wheelBound) {
-      box._wheelBound = true;
-      box.addEventListener("wheel", (ev) => {
-        if (!box.classList.contains("open")) return;
-        ev.preventDefault();
-        const now = performance.now();
-        if (now - (box._lastTurn ?? 0) < 120) return; // Touchpads liefern viele kleine Schritte
-        box._lastTurn = now;
-        box._turn?.(ev.deltaY > 0 ? 1 : -1);
-      }, { passive: false });
-      // Wischen über die Bubbles dreht das Rad
-      let start = null;
-      box.addEventListener("pointerdown", (ev) => {
-        start = [ev.clientX, ev.clientY];
-        this._wheelDragged = false;
-      });
-      box.addEventListener("pointermove", (ev) => {
-        if (!start) return;
-        const d = side === "left" ? ev.clientX - start[0] - (ev.clientY - start[1]) : -(ev.clientX - start[0]) - (ev.clientY - start[1]);
-        if (Math.abs(d) > 40) {
-          this._wheelDragged = true;
-          box._turn?.(d > 0 ? 1 : -1);
-          start = [ev.clientX, ev.clientY];
-        }
-      });
-      const end = () => {
-        start = null;
-        setTimeout(() => (this._wheelDragged = false), 0);
-      };
-      box.addEventListener("pointerup", end);
-      box.addEventListener("pointercancel", end);
-    }
-  }
-
   /** Bodenfarbe weiterschalten (aus → Temperatur → Feuchte → Leistung). */
   _cycleView() {
     const before = this._view;
@@ -2266,7 +1997,7 @@ class Haus3DPanel extends HTMLElement {
 }
 
 // Dialoge und Energie-Verlauf einmischen (panel-dialogs.js, panel-energy.js)
-Object.assign(Haus3DPanel.prototype, DialogMethods, EnergyMethods);
+Object.assign(Haus3DPanel.prototype, DialogMethods, EnergyMethods, TabletMethods);
 
 // Nach einem Update ohne Neuladen ist das Element der alten Version noch registriert: ein zweites
 // define würfe einen Fehler und das Panel ließe sich gar nicht laden

@@ -250,6 +250,16 @@ export const TOUCH_STYLE = `
 .ed-banner span { flex: 1; min-width: 200px; }
 .ed-banner.stale { border-left: 4px solid var(--warning-color, #ff9800); }
 .ed-bar .gridsel { font: inherit; font-size: 13px; padding: 4px; border-radius: 8px; }
+.ed-bar.compact { flex-wrap: nowrap; position: relative; overflow: visible; }
+.ed.noprops .ed-props { display: none; }
+.ed-bar.compact > button span:not(.always) { display: none; }
+.ed-bar.compact .menubtn { gap: 4px; }
+.ed-bar.compact .menubtn .always { display: inline; max-width: 110px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ed-bar .ed-menu { position: absolute; top: 100%; left: 8px; right: 8px; z-index: 30; display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 4px; padding: 8px; border-radius: 12px; background: var(--card-background-color, #fff); box-shadow: 0 6px 20px rgba(0,0,0,.35); }
+.ed-bar .ed-menu[hidden] { display: none; }
+.ed-bar .ed-menu button { justify-content: flex-start; min-height: 44px; }
+.ed-bar .ed-menu button span { display: inline; }
+.ed-bar .ed-menu select { min-height: 44px; }
 @media (pointer: coarse) {
   .ed-bar button { min-height: 44px; min-width: 44px; }
   .ed-mods button, .ed-draftbar button, .ed-ctx button, .ed-banner button { min-height: 44px; }

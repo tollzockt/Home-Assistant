@@ -216,6 +216,15 @@ header .floors, header .temp, header .fit { display: none; }
 .cards .addcard { width: 44px; height: 44px; border-radius: 12px; border: 2px dashed var(--primary-color, #03a9f4); background: color-mix(in srgb, var(--card-background-color, #fff) 70%, transparent); color: var(--primary-color, #03a9f4); font-size: 24px; cursor: pointer; display: flex; align-items: center; justify-content: center; }
 /* Etagen-Leiste rechts */
 .floorbar { position: absolute; right: 10px; top: 50%; transform: translateY(-50%); z-index: 4; display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 6px 5px; border-radius: 24px; background: color-mix(in srgb, var(--card-background-color, #fff) 92%, transparent); color: var(--primary-text-color); box-shadow: 0 2px 10px rgba(0,0,0,.25); }
+.floorbar.below { transform: none; }
+/* Tablet/Handy hochkant: Dialoge kommen als Blatt von unten (Daumen erreicht alles) */
+@media (pointer: coarse) and (max-width: 900px) {
+  .dialog-backdrop { align-items: flex-end; justify-content: center; padding: 0; }
+  .dialog-backdrop > .dialog { width: 100%; max-height: 88%; border-radius: 16px 16px 0 0; }
+  .dialog .btns button { min-height: 44px; }
+  .en-row input, .en-row select { min-height: 40px; }
+}
+.floorbar.leftside { right: auto; left: 10px; transform: none; }
 .floorbar button { border: none; background: none; color: inherit; font: inherit; font-size: 12px; font-weight: 600; min-width: 46px; min-height: 36px; border-radius: 14px; cursor: pointer; padding: 0 6px; }
 .floorbar button.sel { background: var(--primary-color, #03a9f4); color: #fff; }
 .floorbar button.arrow { min-height: 28px; opacity: .65; --mdc-icon-size: 20px; }
@@ -226,7 +235,10 @@ header .floors, header .temp, header .fit { display: none; }
 .wheel .fab { position: absolute; bottom: 0; width: 56px; height: 56px; border-radius: 50%; border: none; background: #fff; color: #222; box-shadow: 0 4px 16px rgba(0,0,0,.35); cursor: pointer; display: flex; align-items: center; justify-content: center; --mdc-icon-size: 26px; }
 .wheel.left .fab { left: 0; } .wheel.right .fab { right: 0; }
 .wheel .bub { position: absolute; width: 48px; height: 48px; margin: 4px; border-radius: 50%; border: none; cursor: pointer; display: flex; align-items: center; justify-content: center; background: var(--card-background-color, #fff); color: var(--primary-text-color); box-shadow: 0 3px 10px rgba(0,0,0,.3); --mdc-icon-size: 22px; transition: left .25s, right .25s, bottom .25s, opacity .25s, transform .25s; opacity: 0; transform: scale(.4); pointer-events: none; }
-.wheel.open .bub.vis { opacity: 1; transform: scale(1); pointer-events: auto; }
+.wheel.open .bub.vis { opacity: var(--o, 1); transform: scale(calc(.4 + .6 * var(--o, 1))); pointer-events: auto; }
+.wheel.open .bub, .wheel.open .bub .lab { touch-action: none; }
+.wheel.dragging .bub { transition: none; }
+.wheel.open.turnable .fab::after { content: ""; position: absolute; inset: -6px; border-radius: 50%; border: 2px dashed rgba(255,255,255,.55); pointer-events: none; }
 .wheel .bub.on { background: var(--primary-color, #03a9f4); color: #fff; }
 .wheel .bub .lab { position: absolute; white-space: nowrap; font-size: 11px; padding: 2px 7px; border-radius: 8px; background: rgba(0,0,0,.72); color: #fff; pointer-events: none; z-index: 1; }
 .wheel .bub .lab.top { bottom: 52px; }
@@ -236,10 +248,6 @@ header .floors, header .temp, header .fit { display: none; }
 .wheel .bub .lab.side { top: 14px; }
 .wheel.left .bub .lab.side { left: 54px; } .wheel.right .bub .lab.side { right: 54px; }
 .wheel .bub.plus { border: 2px dashed var(--primary-color, #03a9f4); background: var(--card-background-color, #fff); color: var(--primary-color, #03a9f4); }
-.wheel .spin { position: absolute; bottom: 64px; width: 26px; height: 26px; padding: 0; border-radius: 50%; border: none; cursor: pointer; display: flex; align-items: center; justify-content: center; background: rgba(0,0,0,.55); color: #fff; --mdc-icon-size: 18px; opacity: 0; pointer-events: none; transition: opacity .2s; }
-.wheel.open .spin { opacity: .9; pointer-events: auto; }
-.wheel.left .spin.up { left: 70px; bottom: 70px; } .wheel.left .spin.down { left: 100px; bottom: 40px; }
-.wheel.right .spin.up { right: 70px; bottom: 70px; } .wheel.right .spin.down { right: 100px; bottom: 40px; }
 .qedit .qrow .fixed { flex: 1; font-size: 13px; }
 .qedit select.addkey { flex: 1; font: inherit; font-size: 13px; padding: 7px; border-radius: 8px; border: 1px solid var(--divider-color, rgba(127,127,127,.4)); background: var(--primary-background-color, #fff); color: inherit; }
 .legend { left: 50% !important; transform: translateX(-50%); bottom: 80px !important; }

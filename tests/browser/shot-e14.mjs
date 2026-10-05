@@ -1,6 +1,12 @@
 // E14: Editor am Tablet – Zeichnen mit Fertig-Leiste, Schalter „Frei“, Langdruck-Menü, Entwurf sichern und
 // fortsetzen, Zwischenspeichern
 import { start } from "./lib.mjs";
+// Editor-Werkzeug wählen (am Tablet steckt es im Menü „Werkzeug ▾“)
+const edTool = async (pg, tool) => {
+  if (await pg.locator("haus3d-panel .ed-bar.compact").count()) await pg.locator('haus3d-panel .ed-bar [data-menu="tools"]').click();
+  await pg.locator(`haus3d-panel .ed-bar button[data-tool=${tool}]`).click();
+};
+
 
 const t = await start(process.argv[2]);
 const ed = await t.page("e14", "", { width: 1024, height: 768, touch: true });
@@ -15,7 +21,7 @@ const toScreen = (x, z) => ed.evaluate(([x, z]) => {
 }, [x, z]);
 const rooms0 = await ed.evaluate(() => window.panel._editor.floor.rooms.length);
 // Vieleck mit drei Tipps, dann „Fertig“
-await ed.locator("haus3d-panel .ed-bar button[data-tool=poly]").tap();
+await edTool(ed, "poly");
 for (const [x, z] of [[13, 1], [16, 1], [16, 4]]) {
   const [sx, sy] = await toScreen(x, z);
   await ed.touchscreen.tap(sx, sy);
@@ -29,7 +35,7 @@ const rooms1 = await ed.evaluate(() => window.panel._editor.floor.rooms.length);
 t.results.zeichnen = { rooms0, rooms1, barShown };
 t.check(barShown && rooms1 === rooms0 + 1, `Fertig-Leiste: ${JSON.stringify({ rooms0, rooms1, barShown })}`);
 // Wandkette: zwei Tipps, „Kette beenden“
-await ed.locator("haus3d-panel .ed-bar button[data-tool=wall]").tap();
+await edTool(ed, "wall");
 for (const [x, z] of [[13, 6], [16, 6], [16, 8]]) {
   const [sx, sy] = await toScreen(x, z);
   await ed.touchscreen.tap(sx, sy);
@@ -39,7 +45,7 @@ await ed.locator("haus3d-panel .ed-draftbar [data-d=back]").tap();
 const walls = await ed.evaluate(() => ({ n: (window.panel._editor.floor.walls ?? []).length, draft: window.panel._editor.draft }));
 t.check(walls.n >= 2 && !walls.draft, `Wandkette: ${JSON.stringify(walls)}`);
 // Schalter „Frei“ und Langdruck auf ein Möbelstück: Menü, Rückgängig unverändert
-await ed.locator("haus3d-panel .ed-bar button[data-tool=select]").tap();
+await edTool(ed, "select");
 await ed.locator("haus3d-panel .ed-mods [data-mod=free]").tap();
 const free = await ed.evaluate(() => window.panel._editor._free({}));
 const furn = await ed.evaluate(() => window.panel._editor.floor.furniture.find((m) => m.type !== "lamp_floor") ?? window.panel._editor.floor.furniture[0]);

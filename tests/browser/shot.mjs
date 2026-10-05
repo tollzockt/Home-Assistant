@@ -6,6 +6,12 @@ import { createRequire } from "node:module";
 
 // Playwright ist global installiert: NODE_PATH="$(npm root -g)" node tests/browser/shot.mjs <ordner>
 const { chromium } = createRequire(import.meta.url)("playwright");
+// Editor-Werkzeug wählen (am Tablet steckt es im Menü „Werkzeug ▾“)
+const edTool = async (pg, tool) => {
+  if (await pg.locator("haus3d-panel .ed-bar.compact").count()) await pg.locator('haus3d-panel .ed-bar [data-menu="tools"]').click();
+  await pg.locator(`haus3d-panel .ed-bar button[data-tool=${tool}]`).click();
+};
+
 
 const root = resolve(new URL("../..", import.meta.url).pathname);
 const out = process.argv[2] ?? ".";
@@ -38,7 +44,7 @@ async function shot(name, query, viewport, deviceScaleFactor = 1) {
 async function fnToggle(page, name) {
   await page.locator("haus3d-panel .wheel.right .fab").click();
   // ggf. durchdrehen, bis der Eintrag sichtbar ist
-  for (let k = 0; k < 12 && !(await page.locator(`haus3d-panel .wheel.right .bub.vis[title^="${name}"]`).count()); k++) await page.locator("haus3d-panel .wheel.right .spin.down").click();
+  for (let k = 0; k < 12 && !(await page.locator(`haus3d-panel .wheel.right .bub.vis[title^="${name}"]`).count()); k++) await page.evaluate(() => window.panel._els.wheelR._turn(1));
   await page.waitForTimeout(300);
   await page.locator(`haus3d-panel .wheel.right .bub.vis[title^="${name}"]`).click();
   await page.locator("haus3d-panel .wheel.right .fab").click();
@@ -115,24 +121,24 @@ const toScreen = (x, z) => ed.evaluate(([x, z]) => {
   const e = window.panel._editor; const r = e.svg.getBoundingClientRect();
   return [r.left + e.tx + x * e.scale, r.top + e.tz + z * e.scale];
 }, [x, z]);
-await ed.locator("haus3d-panel .ed-bar button[data-tool=rect]").click();
+await edTool(ed, "rect");
 let [ax, ay] = await toScreen(12, 1); let [bx, by] = await toScreen(15, 4);
 await ed.mouse.move(ax, ay); await ed.mouse.down(); await ed.mouse.move((ax + bx) / 2, (ay + by) / 2, { steps: 4 }); await ed.mouse.move(bx, by, { steps: 4 }); await ed.mouse.up();
 await ed.locator("haus3d-panel .ed-props select[data-room=area_id]").selectOption("gaste_bad");
-await ed.locator("haus3d-panel .ed-bar button[data-tool=window]").click();
+await edTool(ed, "window");
 [ax, ay] = await toScreen(13.5, 1.02); await ed.mouse.click(ax, ay);
 await ed.locator("haus3d-panel .ed-props select[data-linkmode=contact]").selectOption("none");
-await ed.locator("haus3d-panel .ed-bar button[data-tool=furniture]").click();
+await edTool(ed, "furniture");
 await ed.locator("haus3d-panel .ed-props button[data-furn=bed]").click();
 [ax, ay] = await toScreen(13.5, 2.5); await ed.mouse.click(ax, ay);
 await ed.locator("haus3d-panel .ed-props input[data-num=rotation]").fill("90");
 await ed.locator("haus3d-panel .ed-props input[data-num=rotation]").press("Tab");
 // ein zusätzliches Möbel und gleich wieder rückgängig
-await ed.locator("haus3d-panel .ed-bar button[data-tool=furniture]").click();
+await edTool(ed, "furniture");
 await ed.locator("haus3d-panel .ed-props button[data-furn=plant]").click();
 [ax, ay] = await toScreen(14.5, 3.5); await ed.mouse.click(ax, ay);
 await ed.locator("haus3d-panel .ed-bar button[data-act=undo]").click();
-await ed.locator("haus3d-panel .ed-bar button[data-tool=select]").click();
+await edTool(ed, "select");
 await ed.waitForTimeout(300);
 await ed.screenshot({ path: `${out}/editor-bearbeitet.png` });
 await ed.locator("haus3d-panel .ed-bar button[data-view='3d']").click();
@@ -241,7 +247,7 @@ const plan = (x, z) => e3.evaluate(([x, z]) => {
   return [r.left + e.tx + x * e.scale, r.top + e.tz + z * e.scale];
 }, [x, z]);
 // Möbelkatalog: Kategorien, Vorschaubilder, Suche
-await e3.locator("haus3d-panel .ed-bar button[data-tool=furniture]").click();
+await edTool(e3, "furniture");
 await e3.waitForTimeout(2500);
 const catalog = await e3.evaluate(() => {
   const el = window.panel._editor.props;
@@ -262,7 +268,7 @@ const magnet = await e3.evaluate(() => { const e = window.panel._editor; const m
 await e3.keyboard.press("ArrowUp"); await e3.keyboard.press("ArrowUp");
 const nudged = await e3.evaluate(() => { const e = window.panel._editor; const m = e.floor.furniture.find((x) => x.id === e.sel.id); return { z: m.z, undo: e.undoStack.length }; });
 // eigener Zylinder mit Farbe
-await e3.locator("haus3d-panel .ed-bar button[data-tool=furniture]").click();
+await edTool(e3, "furniture");
 await e3.locator("haus3d-panel .ed-props .search").fill("");
 await e3.locator("haus3d-panel .ed-props .tile[data-furn=custom_cylinder]").click();
 [px, py] = await plan(5, 2.5); await e3.mouse.click(px, py);
@@ -270,7 +276,7 @@ await e3.locator("haus3d-panel .ed-props button[data-swatch=color][data-c='#4f7f
 await e3.locator("haus3d-panel .ed-props input[data-m=name]").fill("Regentonne");
 await e3.locator("haus3d-panel .ed-props input[data-m=name]").press("Tab");
 // Raum: Bodenfarbe und Wandfarbe
-await e3.locator("haus3d-panel .ed-bar button[data-tool=select]").click();
+await edTool(e3, "select");
 [px, py] = await plan(2, 2); await e3.mouse.click(px, py);
 await e3.locator("haus3d-panel .ed-props select[data-room=floor_material]").selectOption("walnut");
 await e3.locator("haus3d-panel .ed-props button[data-swatch=wall_color][data-c='#9cc0dc']").click();
@@ -287,7 +293,7 @@ const pick3d = await e3.evaluate(() => {
   return { x, y, hit: sc.pick(x, y, { furniture: true }), id: m.id };
 });
 // Wand ziehen: Wohnzimmer (0..7 × 0..5), Wand bei x = 7 um 0,5 m nach rechts; Küche geht mit
-await e3.locator("haus3d-panel .ed-bar button[data-tool=select]").click();
+await edTool(e3, "select");
 [px, py] = await plan(2, 2); await e3.mouse.click(px, py);
 const wall = await e3.evaluate(() => {
   const e = window.panel._editor; const r = e.floor.rooms.find((x) => x.id === "wohnzimmer");
@@ -302,13 +308,13 @@ const wallMoved = await e3.evaluate((i) => {
 }, wall);
 console.log(JSON.stringify({ wallMoved }));
 // freistehende Wand im Garten zeichnen (leicht schief gezogen -> gerade), Tür hinein, Säule daneben
-await e3.locator("haus3d-panel .ed-bar button[data-tool=wall]").click();
+await edTool(e3, "wall");
 [px, py] = await plan(13, -2); await e3.mouse.click(px, py);
 [qx, qy] = await plan(16.02, -1.8); await e3.mouse.click(qx, qy);
 await e3.keyboard.press("Escape");
-await e3.locator("haus3d-panel .ed-bar button[data-tool=door]").click();
+await edTool(e3, "door");
 [px, py] = await plan(14.5, -2); await e3.mouse.click(px, py);
-await e3.locator("haus3d-panel .ed-bar button[data-tool=furniture]").click();
+await edTool(e3, "furniture");
 await e3.locator("haus3d-panel .ed-props .search").fill("Säule");
 await e3.locator("haus3d-panel .ed-props .tile[data-furn=column]").click();
 [px, py] = await plan(16.5, -2.5); await e3.mouse.click(px, py);
@@ -401,17 +407,17 @@ await hud.waitForTimeout(400);
 await hud.screenshot({ path: `${out}/hud-offen.png` });
 const leftClosed = await hud.evaluate(() => !window.panel.shadowRoot.querySelector(".wheel.left").classList.contains("open"));
 // Funktionsrad: Raster aus, Stil durchschalten
-for (let k = 0; k < 12 && !(await hud.locator('haus3d-panel .wheel.right .bub.vis[title="Raster"]').count()); k++) await hud.locator("haus3d-panel .wheel.right .spin.down").click();
+for (let k = 0; k < 12 && !(await hud.locator('haus3d-panel .wheel.right .bub.vis[title="Raster"]').count()); k++) await hud.evaluate(() => window.panel._els.wheelR._turn(1));
 await hud.waitForTimeout(300);
 const wheelR = await hud.evaluate(() => [...window.panel.shadowRoot.querySelectorAll(".wheel.right .bub.vis")].map((b) => b.title));
 await hud.screenshot({ path: `${out}/hud-rad-gedreht.png` });
 await hud.locator('haus3d-panel .wheel.right .bub[title="Raster"]').click();
 const gridOff = await hud.evaluate(() => window.panel._settings.layers.grid === false);
-for (let k = 0; k < 12 && !(await hud.locator("haus3d-panel .wheel.right .bub.vis[title^='Stil']").count()); k++) await hud.locator("haus3d-panel .wheel.right .spin.down").click();
+for (let k = 0; k < 12 && !(await hud.locator("haus3d-panel .wheel.right .bub.vis[title^='Stil']").count()); k++) await hud.evaluate(() => window.panel._els.wheelR._turn(1));
 await hud.waitForTimeout(300);
 await hud.locator("haus3d-panel .wheel.right .bub[title^='Stil']").click();
 const styleNow = await hud.evaluate(() => window.panel._settings.style);
-for (let k = 0; k < 12 && !(await hud.locator('haus3d-panel .wheel.right .bub.vis[title="Raster"]').count()); k++) await hud.locator("haus3d-panel .wheel.right .spin.down").click();
+for (let k = 0; k < 12 && !(await hud.locator('haus3d-panel .wheel.right .bub.vis[title="Raster"]').count()); k++) await hud.evaluate(() => window.panel._els.wheelR._turn(1));
 await hud.waitForTimeout(300);
 await hud.locator('haus3d-panel .wheel.right .bub[title="Raster"]').click();
 // + öffnet „Funktionen anpassen“: eigenen Eintrag hinzufügen
@@ -465,16 +471,16 @@ const rplan = (x, z) => rf.evaluate(([x, z]) => {
   return [r.left + e.tx + x * e.scale, r.top + e.tz + z * e.scale];
 }, [x, z]);
 const roofTools = await rf.evaluate(() => [...window.panel._editor.root.querySelectorAll(".ed-bar [data-tool]")].map((b) => b.dataset.tool));
-await rf.locator("haus3d-panel .ed-bar button[data-tool=pv]").click();
+await edTool(rf, "pv");
 await rf.mouse.click(...(await rplan(3, 6.8)));
 await rf.locator("haus3d-panel .ed-props [data-rn=cols]").fill("4");
 await rf.locator("haus3d-panel .ed-props [data-rn=cols]").dispatchEvent("change");
-await rf.locator("haus3d-panel .ed-bar button[data-tool=chimney]").click();
+await edTool(rf, "chimney");
 await rf.mouse.click(...(await rplan(5.5, 2)));
-await rf.locator("haus3d-panel .ed-bar button[data-tool=skylight]").click();
+await edTool(rf, "skylight");
 await rf.mouse.click(...(await rplan(2, 1.5)));
 // PV-Feld ziehen
-await rf.locator("haus3d-panel .ed-bar button[data-tool=select]").click();
+await edTool(rf, "select");
 const pvBefore = await rf.evaluate(() => window.panel._editor.b.settings.roof.items.find((x) => x.type === "pv"));
 const a0 = await rplan(pvBefore.x, pvBefore.z);
 await rf.mouse.move(a0[0], a0[1]);

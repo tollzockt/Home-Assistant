@@ -1,5 +1,11 @@
 // E17: Garten-Linien – Zaun mit drei Tipps (Mittellinie bleibt), Mauer aus zwei Abschnitten, Hecke mit Höhe
 import { start } from "./lib.mjs";
+// Editor-Werkzeug wählen (am Tablet steckt es im Menü „Werkzeug ▾“)
+const edTool = async (pg, tool) => {
+  if (await pg.locator("haus3d-panel .ed-bar.compact").count()) await pg.locator('haus3d-panel .ed-bar [data-menu="tools"]').click();
+  await pg.locator(`haus3d-panel .ed-bar button[data-tool=${tool}]`).click();
+};
+
 
 const t = await start(process.argv[2]);
 const ed = await t.page("e17", "?garden", { width: 1280, height: 800 });
@@ -20,7 +26,7 @@ const tapAll = async (list) => {
   }
 };
 // Zaun: drei Punkte, Fertig
-await ed.locator("haus3d-panel .ed-bar button[data-tool=line]").click();
+await edTool(ed, "line");
 await ed.locator('haus3d-panel .ed-props [data-linekind] [data-k="fence"]').click();
 await ed.locator('haus3d-panel .ed-props select[data-lo="fence_style"]').selectOption("bars");
 await tapAll([[-1, -1], [12, -1], [12, 9]]);
@@ -32,7 +38,7 @@ const fence = await ed.evaluate(() => (window.panel._editor.floor.outdoor ?? [])
 t.results.zaun = { len, line: fence?.line, n: fence?.points.length, style: fence?.fence_style };
 t.check(fence?.line?.points.length === 3 && fence.points.length === 6 && fence.fence_style === "bars" && /^23,00 m$/.test(len ?? ""), `Zaun: ${JSON.stringify(t.results.zaun)}`);
 // Mauer: zwei Abschnitte → zwei Wände
-await ed.locator("haus3d-panel .ed-bar button[data-tool=line]").click();
+await edTool(ed, "line");
 await ed.locator('haus3d-panel .ed-props [data-linekind] [data-k="wall"]').click();
 const walls0 = await ed.evaluate(() => (window.panel._editor.floor.walls ?? []).length);
 await tapAll([[-2, 10], [5, 10], [5, 13]]);
@@ -41,7 +47,7 @@ await ed.waitForTimeout(200);
 const walls1 = await ed.evaluate(() => (window.panel._editor.floor.walls ?? []).filter((w) => /^mauer/.test(w.id)).map((w) => ({ t: w.thickness, tex: w.texture })));
 t.check(walls1.length === 2 && walls1.every((w) => w.t === 0.25 && w.tex === "stone"), `Mauer: ${walls0} → ${JSON.stringify(walls1)}`);
 // Hecke mit Höhe 1,6
-await ed.locator("haus3d-panel .ed-bar button[data-tool=line]").click();
+await edTool(ed, "line");
 await ed.locator('haus3d-panel .ed-props [data-linekind] [data-k="hedge"]').click();
 await ed.locator('haus3d-panel .ed-props [data-lo="height"]').fill("1.6");
 await ed.locator('haus3d-panel .ed-props [data-lo="height"]').dispatchEvent("change");

@@ -1,5 +1,15 @@
 # Änderungen
 
+## 0.14.2
+
+Tablet-Bedienung:
+- **Funktionsrad per Finger drehen**: Rad unten rechts (und links) mit dem Finger im Bogen wischen, es
+  läuft mit Schwung nach und rastet ein. Die Pfeiltasten am Rad sind weg; Mausrad geht weiter.
+- **Nichts überlappt mehr**: Liegen die Karten (Energie, Kurzwahl) über der Etagenleiste, rutscht die
+  Leiste darunter bzw. nach links oben, auch auf dem Handy und im Hochformat.
+- **Editor am Tablet**: eine Zeile mit „Werkzeug ▾“ und „⋯“ statt langer Knopfleiste, Eigenschaften
+  ein-/ausblendbar (mehr Platz zum Zeichnen), Dialoge als Blatt von unten mit großen Tasten.
+
 ## 0.14.1
 
 - Behoben: „Unable to load custom panel“ nach dem Update auf 0.14.0, solange die App bzw. Seite

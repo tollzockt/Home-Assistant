@@ -1,5 +1,11 @@
 // E15: Maße – Kantenlängen am Plan, Länge eintippen, Messen, Flächen; PV-Module über dem Kamin entfallen
 import { start } from "./lib.mjs";
+// Editor-Werkzeug wählen (am Tablet steckt es im Menü „Werkzeug ▾“)
+const edTool = async (pg, tool) => {
+  if (await pg.locator("haus3d-panel .ed-bar.compact").count()) await pg.locator('haus3d-panel .ed-bar [data-menu="tools"]').click();
+  await pg.locator(`haus3d-panel .ed-bar button[data-tool=${tool}]`).click();
+};
+
 
 const t = await start(process.argv[2]);
 const ed = await t.page("e15", "", { width: 1280, height: 800 });
@@ -16,7 +22,7 @@ const toScreen = (x, z) => ed.evaluate(([x, z]) => {
 const areas = await ed.evaluate(() => window.panel._editor.props.querySelector(".ed-areas .sum b")?.textContent ?? null);
 t.check(/m²$/.test(areas ?? ""), `Fläche gesamt: ${areas}`);
 // Rechteck zeichnen → 4 Maße, Breite eintippen
-await ed.locator("haus3d-panel .ed-bar button[data-tool=rect]").click();
+await edTool(ed, "rect");
 let [ax, ay] = await toScreen(13, 1);
 let [bx, by] = await toScreen(17, 4);
 await ed.mouse.move(ax, ay);
@@ -36,7 +42,7 @@ t.results.rechteck = pts;
 t.check(Math.abs(Math.max(...xs) - Math.min(...xs) - 5) < 1e-6, `Breite 5: ${JSON.stringify(pts)}`);
 await t.shot(ed, "editor-masse.png");
 // Messen
-await ed.locator("haus3d-panel .ed-bar button[data-tool=measure]").click();
+await edTool(ed, "measure");
 [ax, ay] = await toScreen(pts[0][0], pts[0][1]);
 [bx, by] = await toScreen(pts[1][0], pts[1][1]);
 await ed.mouse.click(ax, ay);

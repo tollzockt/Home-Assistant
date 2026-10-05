@@ -544,25 +544,37 @@ export class FloorEditor {
   renderBar() {
     const bar = this.root.querySelector(".ed-bar");
     const floors = [...this.b.floors].sort((a, b) => a.elevation - b.elevation);
-    bar.innerHTML = `
-      <select class="floorsel" title="Etage">${floors.map((f) => `<option value="${esc(f.id)}"${!this.roofMode && f.id === this.floorId ? " selected" : ""}>${esc(f.name)}</option>`).join("")}<option value="__roof"${this.roofMode ? " selected" : ""}>Dach</option></select>
-      <span class="sep"></span>
-      ${(this.roofMode ? ROOF_TOOLS : TOOLS).map(([k, icon, name]) => `<button data-tool="${k}" class="${this.tool === k ? "sel" : ""}" title="${name}"><ha-icon icon="${icon}"></ha-icon><span>${name}</span></button>`).join("")}
-      <span class="sep"></span>
-      <button data-act="undo" title="Rückgängig (Strg+Z)${this.undoStack.length ? ` – ${this.undoStack.length} Schritte` : ""}"${this.undoStack.length ? "" : " disabled"}><ha-icon icon="mdi:undo"></ha-icon></button>
-      <button data-act="redo" title="Wiederholen"${this.redoStack.length ? "" : " disabled"}><ha-icon icon="mdi:redo"></ha-icon></button>
-      ${this.roofMode ? "" : `<button data-act="gaps" title="Lücken zwischen Räumen schließen"><ha-icon icon="mdi:vector-combine"></ha-icon><span>Lücken schließen</span></button>
+    // am Tablet (oder schmal): eine Zeile, Werkzeuge und Weiteres in aufklappbaren Menüs
+    const compact = this.coarse || (this.root.clientWidth || 1200) < 1100;
+    bar.classList.toggle("compact", compact);
+    const tools = this.roofMode ? ROOF_TOOLS : TOOLS;
+    const cur = tools.find(([k]) => k === this.tool) ?? tools[0];
+    const toolsHtml = tools.map(([k, icon, name]) => `<button data-tool="${k}" class="${this.tool === k ? "sel" : ""}" title="${name}"><ha-icon icon="${icon}"></ha-icon><span>${name}</span></button>`).join("");
+    const moreHtml = `${this.roofMode ? "" : `<button data-act="gaps" title="Lücken zwischen Räumen schließen"><ha-icon icon="mdi:vector-combine"></ha-icon><span>Lücken schließen</span></button>
       <button data-act="clean" title="Räume aufräumen: doppelte Punkte und Spitzen entfernen"><ha-icon icon="mdi:broom"></ha-icon><span>Aufräumen</span></button>
-      <button data-act="magnet" class="${this.magnet ? "sel" : ""}" title="Magnet: Möbel rasten an Wänden ein (Alt beim Ziehen = frei)"><ha-icon icon="mdi:magnet"></ha-icon></button>`}
-      ${this.roofMode ? "" : `<button data-act="dims" class="${this.showDims ? "sel" : ""}" title="Maße aller Räume"><ha-icon icon="mdi:ruler"></ha-icon></button>`}
-      <button data-act="fit" title="Einpassen"><ha-icon icon="mdi:fit-to-screen-outline"></ha-icon></button>
-      <button data-act="zoomsel" title="Zur Auswahl"${this.sel ? "" : " disabled"}><ha-icon icon="mdi:magnify-scan"></ha-icon></button>
-      ${this.roofMode ? "" : `<select class="gridsel" title="Raster zum Einrasten">${GRID_CHOICES.map(([v, n]) => `<option value="${v}"${Math.abs((this.b.settings?.grid ?? 0.05) - v) < 1e-6 ? " selected" : ""}>Raster ${n}</option>`).join("")}</select>`}
-      <span class="grow"></span>
-      <span class="seg" title="Ansicht">${[["2d", "2D"], ["split", "2D + 3D"], ["3d", "3D"]].map(([k, n]) => `<button data-view="${k}" class="${this.viewMode === k ? "sel" : ""}">${n}</button>`).join("")}</span>
-      <button data-act="cancel"><ha-icon icon="mdi:close"></ha-icon><span>Abbrechen</span></button>
+      <button data-act="magnet" class="${this.magnet ? "sel" : ""}" title="Magnet: Möbel rasten an Wänden ein (Alt beim Ziehen = frei)"><ha-icon icon="mdi:magnet"></ha-icon><span>Magnet</span></button>
+      <button data-act="dims" class="${this.showDims ? "sel" : ""}" title="Maße aller Räume"><ha-icon icon="mdi:ruler"></ha-icon><span>Maße</span></button>`}
+      <button data-act="fit" title="Einpassen"><ha-icon icon="mdi:fit-to-screen-outline"></ha-icon><span>Einpassen</span></button>
+      <button data-act="zoomsel" title="Zur Auswahl"${this.sel ? "" : " disabled"}><ha-icon icon="mdi:magnify-scan"></ha-icon><span>Zur Auswahl</span></button>
+      ${this.roofMode ? "" : `<select class="gridsel" title="Raster zum Einrasten">${GRID_CHOICES.map(([v, n]) => `<option value="${v}"${Math.abs((this.b.settings?.grid ?? 0.05) - v) < 1e-6 ? " selected" : ""}>Raster ${n}</option>`).join("")}</select>`}`;
+    const views = `<span class="seg" title="Ansicht">${[["2d", "2D"], ["split", compact ? "2D+3D" : "2D + 3D"], ["3d", "3D"]].map(([k, n]) => `<button data-view="${k}" class="${this.viewMode === k ? "sel" : ""}">${n}</button>`).join("")}</span>`;
+    const history = `<button data-act="undo" title="Rückgängig (Strg+Z)${this.undoStack.length ? ` – ${this.undoStack.length} Schritte` : ""}"${this.undoStack.length ? "" : " disabled"}><ha-icon icon="mdi:undo"></ha-icon></button>
+      <button data-act="redo" title="Wiederholen"${this.redoStack.length ? "" : " disabled"}><ha-icon icon="mdi:redo"></ha-icon></button>`;
+    const save = `<button data-act="cancel" title="Abbrechen"><ha-icon icon="mdi:close"></ha-icon><span>Abbrechen</span></button>
       <button data-act="interim" title="Zwischenspeichern (Editor bleibt offen)"${this.dirty ? "" : " disabled"}><ha-icon icon="mdi:content-save-outline"></ha-icon></button>
-      <button data-act="save" class="primary"><ha-icon icon="mdi:content-save"></ha-icon><span>Speichern</span></button>`;
+      <button data-act="save" class="primary" title="Speichern"><ha-icon icon="mdi:content-save"></ha-icon><span>Speichern</span></button>`;
+    const floorsel = `<select class="floorsel" title="Etage">${floors.map((f) => `<option value="${esc(f.id)}"${!this.roofMode && f.id === this.floorId ? " selected" : ""}>${esc(f.name)}</option>`).join("")}<option value="__roof"${this.roofMode ? " selected" : ""}>Dach</option></select>`;
+    bar.innerHTML = compact
+      ? `${floorsel}
+        <button data-menu="tools" class="menubtn sel" title="Werkzeug wählen"><ha-icon icon="${cur[1]}"></ha-icon><span class="always">${cur[2]}</span><ha-icon icon="mdi:menu-down"></ha-icon></button>
+        ${history}
+        <button data-menu="more" class="menubtn" title="Weitere Funktionen"><ha-icon icon="mdi:dots-horizontal"></ha-icon></button>
+        <span class="grow"></span>
+        <button data-act="props" class="${this.root.classList.contains("noprops") ? "" : "sel"}" title="Eigenschaften ein-/ausblenden"><ha-icon icon="mdi:tune-vertical"></ha-icon></button>
+        ${views}${save}
+        <div class="ed-menu" data-for="tools" hidden>${toolsHtml}</div>
+        <div class="ed-menu" data-for="more" hidden>${moreHtml}</div>`
+      : `${floorsel}<span class="sep"></span>${toolsHtml}<span class="sep"></span>${history}${moreHtml}<span class="grow"></span>${views}${save}`;
     bar.querySelector(".gridsel")?.addEventListener("change", (ev) => this.changeBuilding((b) => (b.settings.grid = Number(ev.target.value))));
     bar.querySelector(".floorsel").addEventListener("change", (ev) => {
       this.roofMode = ev.target.value === "__roof";
@@ -586,6 +598,11 @@ export class FloorEditor {
   async _onBar(ev) {
     const b = ev.target.closest("button");
     if (!b || b.disabled) return;
+    if (b.dataset.menu) {
+      // Menü auf/zu (nur eines offen)
+      for (const m of this.root.querySelectorAll(".ed-menu")) m.hidden = m.dataset.for !== b.dataset.menu || !m.hidden;
+      return;
+    }
     if (b.dataset.view) {
       this.setViewMode(b.dataset.view);
       return;
@@ -601,7 +618,13 @@ export class FloorEditor {
       return;
     }
     const act = b.dataset.act;
-    if (act === "dims") {
+    if (act === "props") {
+      this.root.classList.toggle("noprops");
+      requestAnimationFrame(() => {
+        this.render();
+        this.scene3d?.resize();
+      });
+    } else if (act === "dims") {
       this.showDims = !this.showDims;
       try {
         localStorage.setItem("haus3d.editorDims", this.showDims ? "1" : "0");

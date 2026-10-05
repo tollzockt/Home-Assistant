@@ -78,3 +78,26 @@ test("Bodenfarbe: durchschalten und alte Einstellung übernehmen", async () => {
   assert.equal(migrateView(null, "0"), "none");
   assert.equal(migrateView("humidity", "1"), "humidity");
 });
+
+test("Rad stufenlos: Lage, Ein-/Ausblenden, Fingerwinkel, Schwung", async () => {
+  const { wheelPositions, pointerAngle, wheelFling } = await import("../../custom_components/haus3d/frontend/hud.js");
+  const p0 = wheelPositions(8, 0);
+  assert.deepEqual(p0.slice(0, 4).map((p) => [p.angle, p.opacity]), [[0, 1], [22.5, 1], [45, 1], [67.5, 1]]);
+  assert.equal(p0[4].opacity, 0);
+  assert.equal(p0[7].angle, -22.5); // wartet vor dem Bogen
+  const half = wheelPositions(8, 0.5);
+  assert.equal(half[0].angle, -11.25);
+  assert.equal(half[0].opacity, 0.5);
+  assert.equal(half[4].angle, 78.75);
+  assert.equal(half[4].opacity, 0.5);
+  // wenige Einträge: fest
+  assert.deepEqual(wheelPositions(3, 1.7).map((p) => p.angle), [0, 22.5, 45]);
+  // Finger: rechts oben über dem Knopf 0°, links daneben 90°
+  assert.ok(Math.abs(pointerAngle("right", 100, 100, 100, 0)) < 1e-9);
+  assert.ok(Math.abs(pointerAngle("right", 100, 100, 0, 100) - 90) < 1e-9);
+  assert.ok(Math.abs(pointerAngle("left", 0, 100, 100, 100) - 90) < 1e-9);
+  assert.equal(wheelFling(2.4, 0), 2);
+  assert.ok(wheelFling(2, 0.01) > 2);
+  assert.ok(wheelFling(2, -0.01) < 2);
+  assert.ok(wheelFling(0, 1) <= 6);
+});

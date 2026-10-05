@@ -25,7 +25,8 @@ export async function start(out = ".") {
   const port = server.address().port;
   const browser = await chromium.launch({
     executablePath: process.env.PW_CHROMIUM ?? "/opt/pw-browsers/chromium",
-    args: ["--use-gl=angle", "--use-angle=swiftshader", "--enable-unsafe-swiftshader"],
+    // ohne Drosselung: sonst liefert headless Chromium teils nur ~1 Bild/s (requestAnimationFrame)
+    args: ["--use-gl=angle", "--use-angle=swiftshader", "--enable-unsafe-swiftshader", "--disable-renderer-backgrounding", "--disable-background-timer-throttling", "--disable-backgrounding-occluded-windows"],
   });
   const errors = [];
   const results = {};
@@ -55,7 +56,7 @@ export async function start(out = ".") {
   async function fnToggle(pg, name) {
     await pg.locator("haus3d-panel .wheel.right .fab").click();
     const sel = `haus3d-panel .wheel.right .bub.vis[title^="${name}"]`;
-    for (let k = 0; k < 20 && !(await pg.locator(sel).count()); k++) await pg.locator("haus3d-panel .wheel.right .spin.down").click();
+    for (let k = 0; k < 20 && !(await pg.locator(sel).count()); k++) await pg.evaluate(() => window.panel._els.wheelR._turn(1));
     await pg.waitForTimeout(300);
     await pg.locator(sel).click();
     await pg.locator("haus3d-panel .wheel.right .fab").click();
