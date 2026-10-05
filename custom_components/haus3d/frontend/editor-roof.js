@@ -2,7 +2,7 @@
 // Dachfenster, PV-Felder) setzen und verschieben, Dach-Einstellungen. Wird von FloorEditor benutzt.
 
 import { allIds, newId } from "./edit-ops.js";
-import { ROOF_ITEMS, ROOF_TYPES, compass16, fieldInfo, legacyPvItems, pvLayout, roofModel, roofObstacles, roofSettings, roofSurfaceAt } from "./exterior.js";
+import { DORMER_STYLES, dormerShape, ROOF_ITEMS, ROOF_TYPES, compass16, fieldInfo, legacyPvItems, pvLayout, roofModel, roofObstacles, roofSettings, roofSurfaceAt } from "./exterior.js";
 import { COLOR_SWATCHES, textureOptions } from "./model.js";
 
 export const ROOF_TOOLS = [
@@ -10,12 +10,14 @@ export const ROOF_TOOLS = [
   ["chimney", "mdi:home-roof", "Kamin"],
   ["skylight", "mdi:window-closed-variant", "Dachfenster"],
   ["pv", "mdi:solar-panel", "PV-Feld"],
+  ["dormer", "mdi:home-roof", "Gaube"],
 ];
 
 export const ROOF_HINTS = {
   select: "Dach-Ebene: Dachfläche antippen, dann ihre Kanten (orange Punkte) ziehen, bis sie auf den Hauswänden sitzt, oder die Fläche ziehen. Kamin, Dachfenster und PV-Felder antippen und ziehen. Pfeiltasten schieben, Entf setzt zurück bzw. löscht.",
   chimney: "Auf das Dach tippen: Kamin setzen.",
   skylight: "Auf das Dach tippen: Dachfenster setzen.",
+  dormer: "Auf eine Dachfläche tippen: Gaube setzen (Front zur Traufe). Form, Breite, Höhe und Neigung rechts einstellen.",
   pv: "Auf das Dach tippen: PV-Feld setzen (Spalten × Reihen rechts einstellen).",
 };
 
@@ -132,6 +134,11 @@ export function roofSvg(ed, px) {
       const cell = lay.panels.map((p, i) => `<polygon${lay.blocked[i] ? ' data-blocked="1"' : ""} points="${rectCorners(p, lay.along, lay.w, lay.l * lay.cos).map(P).join(" ")}" fill="${lay.fits[i] ? "#1c3a6b" : lay.blocked[i] ? "url(#pvblock)" : "#e53935"}" fill-opacity="${lay.fits[i] ? 1 : 0.6}" stroke="${lay.blocked[i] ? "#e53935" : "#8fb3e8"}" stroke-width="${px(0.8)}"/>`).join("");
       parts.push(`<g data-kind="roofitem" data-id="${esc(it.id)}" style="cursor:move">${cell}<polygon points="${rectCorners(lay.center, lay.along, lay.size[0] + 0.1, lay.size[1] + 0.1).map(P).join(" ")}" fill="transparent" stroke="${stroke}" stroke-opacity="${sel ? 1 : 0.5}" stroke-width="${px(sel ? 3 : 1)}"/></g>`);
       if (sel) parts.push(`<text x="${r3(it.x)}" y="${r3(it.z - lay.size[1] / 2 - px(8))}" text-anchor="middle" font-size="${px(12)}" fill="#03a9f4">${lay.count} von ${lay.panels.length} Modulen passen</text>`);
+    } else if (it.type === "dormer") {
+      const g = dormerShape(model, it);
+      const poly = g ? [g.f0, g.f1, g.b1, g.b0] : rectCorners([it.x, it.z], [1, 0], Number(it.w) || 2, 1);
+      parts.push(`<polygon data-kind="roofitem" data-id="${esc(it.id)}" points="${poly.map(P).join(" ")}" fill="${g ? "#d7ccc8" : "#e53935"}" fill-opacity="${g ? 0.9 : 0.5}" stroke="${stroke}" stroke-width="${px(sel ? 3 : 1.5)}" style="cursor:move"/>`);
+      if (g) parts.push(`<line x1="${r3(g.f0[0])}" y1="${r3(g.f0[1])}" x2="${r3(g.f1[0])}" y2="${r3(g.f1[1])}" stroke="#5d4037" stroke-width="${px(3)}" pointer-events="none"/>`);
     } else {
       const def = ROOF_ITEMS[it.type] ?? ROOF_ITEMS.chimney;
       const w = Number(it.w) || def.w;
@@ -156,7 +163,7 @@ export function roofStartDrag(ed, ev, p) {
     const grid = ed.b.settings?.grid ?? 0.05;
     const q = [r3(Math.round(p[0] / grid) * grid), r3(Math.round(p[1] / grid) * grid)];
     const def = ROOF_ITEMS[tool];
-    const it = { id: newId(tool === "pv" ? "pv" : tool, allIds(ed.b)), type: tool, x: q[0], z: q[1], ...(tool === "pv" ? { cols: def.cols, rows: def.rows, orient: def.orient } : tool === "chimney" ? { w: def.w, d: def.d, h: def.h, rotation: 0 } : { w: def.w, l: def.l }) };
+    const it = { id: newId(tool === "pv" ? "pv" : tool, allIds(ed.b)), type: tool, x: q[0], z: q[1], ...(tool === "pv" ? { cols: def.cols, rows: def.rows, orient: def.orient } : tool === "chimney" ? { w: def.w, d: def.d, h: def.h, rotation: 0 } : tool === "dormer" ? { w: def.w, h: def.h, pitch: def.pitch, style: def.style, windows: def.windows } : { w: def.w, l: def.l }) };
     ed.changeRoof((roof) => {
       roof.items = [...(roof.items ?? []), it];
     });
@@ -318,6 +325,14 @@ export function roofProps(ed, el, pad, bindPad) {
         ${num("wp", "Modulleistung (Wp)", sel.wp ?? "", 5, ' min="50" max="1000" placeholder="400"')}
         ${pvDatalists(ed.hass)}
         <p class="muted pvinfo">${pvInfoLine(fieldInfo(model, sel, Number(ed.b.settings?.north) || 0, raw.items))}</p>`;
+    } else if (sel.type === "dormer") {
+      const g = dormerShape(model, sel);
+      body = `<label>Form</label><select data-rs="style">${DORMER_STYLES.map(([k, n]) => `<option value="${k}"${(sel.style ?? "shed") === k ? " selected" : ""}>${n}</option>`).join("")}</select>
+        <div class="row3">${num("w", "Breite (m)", sel.w ?? 2)}${num("h", "Höhe Front (m)", sel.h ?? 1.3)}${sel.style === "flat" ? "" : num("pitch", "Neigung (°)", sel.pitch ?? 15, 1)}</div>
+        ${num("windows", "Fenster", sel.windows ?? 2, 1, ' min="0" max="3"')}
+        ${colorField("color", "Wandfarbe", sel.color)}
+        ${colorField("roof_color", "Dachfarbe", sel.roof_color)}
+        <p class="muted">${g ? `Tiefe ${g.depth.toFixed(2).replace(".", ",")} m bis zum Hauptdach. Verdeckt PV-Module wie ein Kamin.` : "Passt so nicht: über First, Rand oder Kehle – oder das Gaubendach ist steiler als das Hauptdach. Verschieben, schmaler/niedriger machen oder Neigung verringern."}</p>`;
     } else if (sel.type === "chimney") {
       body = `<div class="row3">${num("w", "Breite", sel.w)}${num("d", "Tiefe", sel.d)}${num("h", "über Dach", sel.h ?? ROOF_ITEMS.chimney.h)}</div>
         ${num("rotation", "Drehung (°)", sel.rotation ?? 0, 15)}
@@ -337,7 +352,7 @@ export function roofProps(ed, el, pad, bindPad) {
       if (!Number.isFinite(v)) return;
       const k = inp.dataset.rn;
       if (k === "wp" && (inp.value === "" || v <= 0)) return upd((it) => delete it.wp);
-      upd((it) => (it[k] = k === "cols" || k === "rows" ? Math.max(1, Math.round(v)) : k === "rotation" ? ((v % 360) + 360) % 360 : Math.max(0, v)));
+      upd((it) => (it[k] = k === "cols" || k === "rows" ? Math.max(1, Math.round(v)) : k === "windows" ? Math.max(0, Math.min(3, Math.round(v))) : k === "rotation" ? ((v % 360) + 360) % 360 : Math.max(0, v)));
     }));
     el.querySelectorAll("[data-rs]").forEach((inp) => inp.addEventListener("change", () => upd((it) => (it[inp.dataset.rs] = inp.value))));
     el.querySelectorAll("[data-rt]").forEach((inp) => inp.addEventListener("change", () => upd((it) => setKey(it, inp.dataset.rt, inp.value.trim() || null))));

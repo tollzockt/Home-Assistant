@@ -654,7 +654,10 @@ export const ROOF_ITEMS = {
   chimney: { name: "Kamin", w: 0.5, d: 0.5, h: 0.9 },
   skylight: { name: "Dachfenster", w: 0.78, l: 1.18 },
   pv: { name: "PV-Feld", cols: 3, rows: 2, orient: "portrait" },
+  dormer: { name: "Gaube", w: 2.0, h: 1.3, pitch: 15, style: "shed", windows: 2 },
 };
+
+export const DORMER_STYLES = [["shed", "Schleppgaube"], ["gable", "Satteldachgaube"], ["flat", "Flachdachgaube"]];
 
 /** Walmenden eines Dachteils: [Anfang, Ende]. */
 export function partHipEnds(fr, roof) {
@@ -887,6 +890,12 @@ export function adjustRoofParts(parts, adjust, flip = false) {
 export function roofItemFootprint(model, it, grow = 0) {
   const def = ROOF_ITEMS[it?.type];
   if (!def || it.type === "pv" || !Number.isFinite(it.x) || !Number.isFinite(it.z)) return null;
+  if (it.type === "dormer") {
+    const g = dormerShape(model, it);
+    if (!g) return null;
+    const e = (p, a, o) => [p[0] + g.along[0] * a + g.out[0] * o, p[1] + g.along[1] * a + g.out[1] * o];
+    return [e(g.f0, -grow, grow), e(g.f1, grow, grow), e(g.b1, grow, -grow), e(g.b0, -grow, -grow)];
+  }
   const a = ((it.rotation || 0) * Math.PI) / 180;
   let along = [Math.cos(a), Math.sin(a)];
   let d = Number(it.d) || def.d;
@@ -918,4 +927,47 @@ export function polygonsOverlap(a, b) {
     }
   }
   return false;
+}
+
+/**
+ * Gaube auf einer Dachfläche: Front (Traufseite) an der Stelle x/z, Höhe h über der Dachfläche, Dach mit
+ * eigener Neigung trifft hinten auf das Hauptdach (Tiefe daraus berechnet). null, wenn sie nicht auf
+ * eine geneigte Fläche passt (über First, Rand oder Kehle) oder ihr Dach steiler als das Hauptdach wäre.
+ */
+export function dormerShape(model, it) {
+  const hit = roofSurfaceAt(model, [it.x, it.z]);
+  if (!hit?.out || !(model.tan > 0.05)) return null;
+  const def = ROOF_ITEMS.dormer;
+  const w = Math.max(0.5, Number(it.w) || def.w);
+  const h = Math.max(0.4, Number(it.h) || def.h);
+  const style = ["shed", "gable", "flat"].includes(it.style) ? it.style : def.style;
+  const pitch = style === "flat" ? 2 : Math.max(0, Math.min(60, Number(it.pitch ?? def.pitch)));
+  const tanP = Math.tan((pitch * Math.PI) / 180);
+  const tanM = model.tan;
+  const out = hit.out;
+  const along = [out[1], -out[0]];
+  let depth;
+  let eave = null;
+  if (style === "gable") {
+    depth = (h + (w / 2) * tanP) / tanM;
+    eave = h / tanM;
+  } else {
+    if (tanP >= tanM - 0.02) return null;
+    depth = h / (tanM - tanP);
+  }
+  const at = (p, k) => [p[0] - out[0] * k, p[1] - out[1] * k];
+  const f0 = [it.x - (along[0] * w) / 2, it.z - (along[1] * w) / 2];
+  const f1 = [it.x + (along[0] * w) / 2, it.z + (along[1] * w) / 2];
+  const b0 = at(f0, depth);
+  const b1 = at(f1, depth);
+  // alle Ecken auf derselben Dachfläche
+  const same = (p) => {
+    const q = roofSurfaceAt(model, p);
+    return q?.out && q.out[0] * out[0] + q.out[1] * out[1] > 0.95 ? q : null;
+  };
+  const hits = [f0, f1, at(f0, depth * 0.98), at(f1, depth * 0.98)].map(same);
+  if (hits.some((x) => !x)) return null;
+  const y0 = Math.min(hits[0].y, hits[1].y);
+  const yTop = y0 + h;
+  return { style, w, h, pitch, tanP, out, along, f0, f1, b0, b1, depth, eave, y0, yTop, yBack: y0 + depth * tanM, ridge: style === "gable" ? yTop + (w / 2) * tanP : null, windows: Math.max(0, Math.min(3, Math.round(Number(it.windows ?? def.windows)))) };
 }
