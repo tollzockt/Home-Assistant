@@ -6,7 +6,7 @@ const pg = await t.page("f3", "?media", { width: 1280, height: 800 });
 const E = (fn, arg) => pg.evaluate(fn, arg);
 
 // Sichtkegel der fest platzierten Kamera
-const cones = await E(() => window.panel._scene.conesGroup?.children.length ?? 0);
+const cones = await E(() => window.panel._scene.conesGroup?.children.filter((o) => o.isMesh && o.userData.cone).length ?? 0);
 t.check(cones === 1, `Sichtkegel: ${cones}`);
 
 // Klingel: neuer Zeitstempel am event-Element öffnet die Klingel-Kamera
