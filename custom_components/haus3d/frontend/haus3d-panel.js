@@ -49,6 +49,8 @@ import { TabletMethods } from "./panel-tablet.js";
 import { MEDIA_STYLE, MediaMethods } from "./panel-media.js";
 import { FX_STYLE, FxMethods } from "./panel-fx.js";
 import { USER_STYLE, UserMethods } from "./panel-user.js";
+import { ACCESS_STYLE, AccessMethods } from "./panel-access.js";
+import { ADMIN_STYLE, AdminMethods } from "./panel-admin.js";
 import { VIEW_PRESETS, normalizeViews, poseInBox } from "./camera.js";
 
 import { LONG_PRESS_MS, esc, plural, ENERGY_CORE, energyRows, LAYERS, DEFAULT_SETTINGS, loadSettings, fmt, ICONS, CONTACT_ICONS, DOMAIN_ICONS, SENSOR_ICONS, fmtPower, setText, iconFor, isActive } from "./panel-util.js";
@@ -358,7 +360,7 @@ class Haus3DPanel extends HTMLElement {
   _build() {
     this._built = true;
     this.shadowRoot.innerHTML = `
-      <style>${PANEL_STYLE}${MEDIA_STYLE}${FX_STYLE}${USER_STYLE}${EDITOR_STYLE}</style>
+      <style>${PANEL_STYLE}${MEDIA_STYLE}${FX_STYLE}${USER_STYLE}${ACCESS_STYLE}${ADMIN_STYLE}${EDITOR_STYLE}</style>
       <div class="wrap">
         <header>
           <button class="icon menu" title="Menü"><ha-icon icon="mdi:menu"></ha-icon></button>
@@ -581,8 +583,8 @@ class Haus3DPanel extends HTMLElement {
     this._renderFloorbar(options);
     this._renderWheels();
     this._els.temp.classList.toggle("on", this._view !== "none");
-    this._els.more.hidden = !this._hass?.user?.is_admin;
-    this.shadowRoot.querySelector(".edit").hidden = !this._hass?.user?.is_admin || !this._scene;
+    this._els.more.hidden = true; // Daten & Verlauf: Admin-Einstellungen
+    this.shadowRoot.querySelector(".edit").hidden = !this._editing() || !this._scene;
   }
 
   _setFilter(id) {
@@ -721,18 +723,16 @@ class Haus3DPanel extends HTMLElement {
     this._energyEl = null;
     this._energySetupEl?.remove();
     this._energySetupEl = null;
-    const rows = energyRows(this._building.settings?.energy ?? {}, hass);
+    const ecard = this._building.settings?.energy_card ?? {};
+    const rows = ecard.hidden ? [] : energyRows(this._building.settings?.energy ?? {}, hass, ecard);
     const energyCfg = this._building.settings?.energy ?? {};
     const unset = !Object.entries(energyCfg).some(([k, v]) => k !== "extra" && typeof v === "string" && v.includes(".")) && !(energyCfg.extra ?? []).length;
-    if (!rows.length && unset && hass.user?.is_admin && this._settings.layers.energy !== false && !this._cardState().energieSetupHidden) {
+    if (!rows.length && unset && this._editing() && this._settings.layers.energy !== false && !this._cardState().energieSetupHidden) {
       // frische Installation: Hinweis statt leerer Karte
       const el = document.createElement("div");
       el.className = "energy setup";
       el.innerHTML = `<h3><ha-icon icon="mdi:lightning-bolt-circle"></ha-icon><span>Energie einrichten</span><ha-icon class="icon x" icon="mdi:close" title="Ausblenden"></ha-icon></h3>`;
-      el.querySelector("h3").addEventListener("click", () => {
-        this._openSettings();
-        setTimeout(() => this._dialog?.querySelector(".energy-cfg")?.scrollIntoView({ block: "start" }), 50);
-      });
+      el.querySelector("h3").addEventListener("click", () => this._openAdmin("energy"));
       el.querySelector(".x").addEventListener("click", (ev) => {
         ev.stopPropagation();
         this._cardState({ energieSetupHidden: true });
@@ -744,7 +744,7 @@ class Haus3DPanel extends HTMLElement {
     if (rows.length) {
       const el = document.createElement("div");
       el.className = "energy";
-      el.innerHTML = `<h3><ha-icon icon="mdi:lightning-bolt-circle"></ha-icon><span>Energie</span><i class="sdot" hidden></i><ha-icon class="chev" icon="mdi:chevron-down"></ha-icon></h3>` +
+      el.innerHTML = `<h3><ha-icon icon="${esc(ecard.icon || "mdi:lightning-bolt-circle")}"></ha-icon><span>${esc(ecard.title || "Energie")}</span>${ecard.sdot === false ? "" : `<i class="sdot" hidden></i>`}<ha-icon class="chev" icon="mdi:chevron-down"></ha-icon></h3>` +
         rows.map((r, i) => `<div class="row" data-i="${i}" data-k="${r.key ?? ""}"><ha-icon icon="${r.icon}"></ha-icon><span></span>${r.key === "ertrag_heute" ? "" : `<svg class="spark" viewBox="0 0 60 16" preserveAspectRatio="none" hidden><path/></svg>`}<b></b>${r.key === "akku_ladestand" ? `<i class="bbar"><i></i></i>` : ""}</div>`).join("");
       rows.forEach((r, i) => (el.querySelector(`.row[data-i="${i}"] span`).textContent = r.name));
       el.querySelector("h3").addEventListener("click", () => {
@@ -753,8 +753,8 @@ class Haus3DPanel extends HTMLElement {
         this._cardState({ energie: this._energyCollapsed });
         this._refreshSparks();
       });
-      el.querySelector(".chev").insertAdjacentHTML("beforebegin", `<ha-icon class="chart" icon="mdi:chart-line" title="Tagesverlauf"></ha-icon>`);
-      el.querySelector(".chart").addEventListener("click", (ev) => {
+      if (ecard.chart !== false) el.querySelector(".chev").insertAdjacentHTML("beforebegin", `<ha-icon class="chart" icon="mdi:chart-line" title="Tagesverlauf"></ha-icon>`);
+      el.querySelector(".chart")?.addEventListener("click", (ev) => {
         ev.stopPropagation();
         this._energyChart(0);
       });
@@ -766,12 +766,11 @@ class Haus3DPanel extends HTMLElement {
       const collapsed = this._energyCollapsed ?? this._cardState().energie ?? !!window.matchMedia?.("(max-width: 600px)").matches;
       el.classList.toggle("collapsed", collapsed);
       el.querySelector("h3 span").insertAdjacentHTML("afterend", `<b class="short"></b>`);
-      if (this._hass?.user?.is_admin) {
-        el.querySelector(".chev").insertAdjacentHTML("beforebegin", `<ha-icon class="cedit" icon="mdi:pencil-outline" title="Anpassen"></ha-icon>`);
+      if (this._editing()) {
+        el.querySelector(".chev").insertAdjacentHTML("beforebegin", `<ha-icon class="cedit" icon="mdi:pencil-outline" title="Karte anpassen"></ha-icon>`);
         el.querySelector(".cedit").addEventListener("click", (ev) => {
           ev.stopPropagation();
-          this._openSettings();
-          setTimeout(() => this._dialog?.querySelector(".energy-cfg")?.scrollIntoView({ block: "start" }), 50);
+          this._openAdmin("cards", "energie");
         });
       }
       this._els.cards.appendChild(el);
@@ -1404,7 +1403,7 @@ class Haus3DPanel extends HTMLElement {
       revision: this._revision,
       onSave: async (building, { keepOpen = false } = {}) => {
         try {
-          const res = await this._hass.callWS({ type: "haus3d/building/save", building, revision: this._revision });
+          const res = await this._callLocked({ type: "haus3d/building/save", building, revision: this._revision }, "edit");
           this._setBuilding(res.building, res.revision, { keepCamera: true });
           if (!keepOpen) this._toast("Gespeichert.");
           return res.revision;
@@ -1417,6 +1416,7 @@ class Haus3DPanel extends HTMLElement {
       onClose: () => {
         this._editor?.destroy();
         this._editor = null;
+        if (this._editBand) this._editBand.hidden = false;
         this._els.overlay.hidden = false;
         this._scene?.start();
         this._refreshEntities();
@@ -1424,6 +1424,7 @@ class Haus3DPanel extends HTMLElement {
     });
     // Hauptansicht ruht, solange der Editor offen ist (der hat seine eigene 3D-Ansicht)
     this._scene?.stop();
+    if (this._editBand) this._editBand.hidden = true;
   }
 
   // ------------------------------------------------------------------ Einstellungen
@@ -1476,18 +1477,6 @@ class Haus3DPanel extends HTMLElement {
   }
 
   /** Gemeinsame Einstellungen speichern (ins Gebäude, mit Revision). */
-  async _saveBuildingSettings(patch, message) {
-    const building = structuredClone(this._building);
-    building.settings = { ...(building.settings ?? {}), ...patch };
-    try {
-      const res = await this._hass.callWS({ type: "haus3d/building/save", building, revision: this._revision });
-      this._setBuilding(res.building, res.revision, { keepCamera: true });
-      this._toast(message);
-    } catch (err) {
-      this._toast(`Speichern fehlgeschlagen: ${err.message ?? err.code}`);
-    }
-  }
-
   _closeDialog() {
     this._dialog?.remove();
     this._dialog = null;
@@ -1624,7 +1613,7 @@ class Haus3DPanel extends HTMLElement {
   /** Gerüst eines Raumfensters bauen (einmal bzw. wenn sich die Geräteliste ändert). */
   _createRoomPanel(p, floor, room, ids) {
     const hass = this._hass;
-    const admin = !!hass.user?.is_admin;
+    const admin = this._editing();
     p.el.innerHTML = `<div class="rp-head"><ha-icon class="grip" icon="mdi:drag"></ha-icon><b></b>${admin ? `<button class="icon cfg" title="Geräte anpassen"><ha-icon icon="mdi:tune-variant"></ha-icon></button>` : ""}<button class="icon close" title="Schließen"><ha-icon icon="mdi:close"></ha-icon></button></div>
       <div class="rp-sub"></div><div class="rp-clim" hidden><span class="cv"></span><span class="vent" hidden></span></div><div class="rp-actions"></div><div class="rp-media" hidden></div><div class="rp-list"></div>`;
     p.el.querySelector("b").textContent = room.name;
@@ -1697,7 +1686,7 @@ class Haus3DPanel extends HTMLElement {
   _updateRoomPanel(p, floor, room) {
     const hass = this._hass;
     const ids = this._panelEntities(room);
-    const sig = `${ids.join(",")}|${!!hass.user?.is_admin}|${room.name}`;
+    const sig = `${ids.join(",")}|${this._editing()}|${room.name}`;
     if (p.sig !== sig || !p.rows) {
       p.sig = sig;
       this._createRoomPanel(p, floor, room, ids);
@@ -1809,7 +1798,7 @@ class Haus3DPanel extends HTMLElement {
     box.querySelectorAll(".card, .addcard").forEach((x) => x.remove());
     const cards = normalizeCards(this._building?.settings?.cards);
     const state = this._cardState();
-    const admin = !!this._hass?.user?.is_admin;
+    const admin = this._editing();
     this._cardEls = [];
     for (const c of cards) {
       const el = document.createElement("div");
@@ -1823,20 +1812,13 @@ class Haus3DPanel extends HTMLElement {
       });
       el.querySelector(".cedit")?.addEventListener("click", (ev) => {
         ev.stopPropagation();
-        this._cardDialog(c.id);
+        this._openAdmin("cards", c.id);
       });
       el.querySelectorAll(".row[data-i]").forEach((row) => row.addEventListener("click", () => this._moreInfo(c.entities[Number(row.dataset.i)].entity)));
       box.appendChild(el);
       this._cardEls.push({ el, card: c });
     }
-    if (admin && cards.length < MAX_CARDS && this._building) {
-      const add = document.createElement("button");
-      add.className = "addcard";
-      add.title = `Karte hinzufügen (${cards.length}/${MAX_CARDS})`;
-      add.textContent = "+";
-      add.addEventListener("click", () => this._cardDialog(null));
-      box.appendChild(add);
-    }
+    // neue Karten: Admin-Einstellungen → Karten → Tab „+“
     this._updateCards();
   }
 
@@ -1920,7 +1902,7 @@ class Haus3DPanel extends HTMLElement {
   _functionItems() {
     const builtin = this._builtinFunctions();
     const items = normalizeFunctions(this._building?.settings?.functions, this._building?.settings?.functions_seen ?? LEGACY_FUNCTION_KEYS).map((f) => (f.key ? builtin[f.key] : this._entityItem(f))).filter(Boolean);
-    if (this._hass?.user?.is_admin) items.push({ plus: true, icon: "mdi:plus", name: "Funktionen anpassen", run: () => this._functionDialog() });
+    if (this._editing()) items.push({ plus: true, icon: "mdi:plus", name: "Funktionen anpassen", run: () => this._functionDialog() });
     return items;
   }
 
@@ -1936,7 +1918,7 @@ class Haus3DPanel extends HTMLElement {
   /** Einträge der Kurzwahl (unten links): Automationen, Skripte, Szenen … aus settings.quick. */
   _quickItems() {
     const items = (this._building?.settings?.quick ?? []).filter((q) => q?.entity).map((q) => this._entityItem(q));
-    if (this._hass?.user?.is_admin) items.push({ plus: true, icon: "mdi:plus", name: "Kurzwahl hinzufügen", run: () => this._quickDialog() });
+    if (this._editing()) items.push({ plus: true, icon: "mdi:plus", name: "Kurzwahl hinzufügen", run: () => this._quickDialog() });
     return items;
   }
 
@@ -2021,7 +2003,7 @@ class Haus3DPanel extends HTMLElement {
 }
 
 // Dialoge und Energie-Verlauf einmischen (panel-dialogs.js, panel-energy.js)
-Object.assign(Haus3DPanel.prototype, DialogMethods, EnergyMethods, TabletMethods, MediaMethods, FxMethods, UserMethods);
+Object.assign(Haus3DPanel.prototype, DialogMethods, EnergyMethods, TabletMethods, MediaMethods, FxMethods, UserMethods, AccessMethods, AdminMethods);
 
 // Nach einem Update ohne Neuladen ist das Element der alten Version noch registriert: ein zweites
 // define würfe einen Fehler und das Panel ließe sich gar nicht laden

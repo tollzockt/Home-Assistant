@@ -20,6 +20,7 @@ from .const import (
     STATIC_URL,
     VERSION,
 )
+from .access import Access
 from .storage import Haus3DData
 from .services import async_register_services, async_remove_services
 from .websocket import async_register_commands
@@ -47,6 +48,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Lädt die Daten, liefert das Frontend aus und registriert das Panel."""
     data = Haus3DData(hass)
     await data.async_load()
+    data.access = Access(hass)
+    await data.access.async_load()
     hass.data[DOMAIN] = data
 
     if not hass.data.get(_WS_REGISTERED):

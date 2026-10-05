@@ -6,6 +6,7 @@ import { createRequire } from "node:module";
 
 // Playwright ist global installiert: NODE_PATH="$(npm root -g)" node tests/browser/shot.mjs <ordner>
 const { chromium } = createRequire(import.meta.url)("playwright");
+const { unlock } = await import("./lib.mjs");
 // Editor-Werkzeug wählen (am Tablet steckt es im Menü „Werkzeug ▾“)
 const edTool = async (pg, tool) => {
   if (await pg.locator("haus3d-panel .ed-bar.compact").count()) await pg.locator('haus3d-panel .ed-bar [data-menu="tools"]').click();
@@ -110,6 +111,7 @@ const roomPanel = await set.evaluate(() => window.panel.shadowRoot.querySelector
 // Editor: Raum ziehen, Bereich zuweisen, Fenster setzen, Möbel platzieren, rückgängig, speichern
 for (const p of browser.contexts().flatMap((c) => c.pages())) await p.close(); // Rechenzeit freigeben
 const ed = await shot("editor", "", { width: 1280, height: 800 });
+await unlock(ed);
 await ed.locator("haus3d-panel .edit").click();
 await ed.waitForTimeout(500);
 await ed.locator("haus3d-panel .floorsel").selectOption("eg");
@@ -214,11 +216,11 @@ await dach.waitForTimeout(1200);
 outside.roofInEg = await dach.evaluate(() => window.panel._scene._roofShown());
 await dach.screenshot({ path: `${out}/eg-regen-balkon.png` });
 const schnee = await shot("walmdach-schnee", "?roof=hip&garden&weather=snowy", { width: 1280, height: 800 });
-await schnee.locator("haus3d-panel .gear").click();
+await unlock(schnee, "admin", { cat: "house" });
 await schnee.waitForTimeout(300);
-await schnee.locator("haus3d-panel .house-cfg select[data-r=type]").selectOption("shed");
-await schnee.locator("haus3d-panel .house-cfg input[data-pv=S]").fill("6");
-await schnee.locator("haus3d-panel .house-cfg button[data-rcs='#3a3d42']").click();
+await schnee.locator("haus3d-panel .catbox select[data-r=type]").selectOption("shed");
+await schnee.locator("haus3d-panel .catbox input[data-pv=S]").fill("6");
+await schnee.locator("haus3d-panel .catbox button[data-rcs='#3a3d42']").click();
 await schnee.locator("haus3d-panel .house-save").click();
 await schnee.waitForTimeout(800);
 outside.savedRoof = await schnee.evaluate(() => { const r = window.calls.filter((c) => c.type === "haus3d/building/save").at(-1)?.building.settings.roof; return `${r.type} ${r.color} S=${r.solar.S}`; });
@@ -237,6 +239,7 @@ console.log(JSON.stringify({ outside }));
 for (const p of browser.contexts().flatMap((c) => c.pages())) await p.close();
 const e3 = await shot("etappe3", "?roof=gable&lhaus&garden", { width: 1280, height: 800 });
 await e3.screenshot({ path: `${out}/l-dach.png` });
+await unlock(e3);
 await e3.locator("haus3d-panel .edit").click();
 await e3.waitForTimeout(400);
 await e3.locator("haus3d-panel .floorsel").selectOption("eg");
@@ -376,16 +379,19 @@ if (simState.newCalls !== 0 || saves !== 0) errors.push(`Simulation hat echte Au
 for (const p of browser.contexts().flatMap((c) => c.pages())) await p.close();
 const hud = await shot("hud", "?roof=gable&lhaus&garden", { width: 1280, height: 800 });
 // Karte anlegen
-await hud.locator("haus3d-panel .cards .addcard").click();
-await hud.locator("haus3d-panel .qedit .ttl").fill("Heizung");
-await hud.locator("haus3d-panel .qedit button[data-icon='mdi:fire']").click();
-await hud.locator("haus3d-panel .qedit .addv").click();
-await hud.locator("haus3d-panel .qedit input[data-ent='0']").fill("sensor.bad_temperatur");
-await hud.locator("haus3d-panel .qedit input[data-name='0']").fill("Bad");
-await hud.locator("haus3d-panel .qedit .addv").click();
-await hud.locator("haus3d-panel .qedit input[data-ent='1']").fill("climate.bad");
-await hud.locator("haus3d-panel .qedit .save").click();
+await unlock(hud, "admin", { cat: "cards", arg: "+" });
+await hud.locator("haus3d-panel .cform .ttl").fill("Heizung");
+await hud.locator("haus3d-panel .cform .add").click();
+await hud.waitForTimeout(400);
+await hud.locator("haus3d-panel .cform button[data-icon='mdi:fire']").click();
+await hud.locator("haus3d-panel .cform .addv").click();
+await hud.locator("haus3d-panel .cform input[data-ent='0']").fill("sensor.bad_temperatur");
+await hud.locator("haus3d-panel .cform input[data-name='0']").fill("Bad");
+await hud.locator("haus3d-panel .cform .addv").click();
+await hud.locator("haus3d-panel .cform input[data-ent='1']").fill("climate.bad");
+await hud.locator("haus3d-panel .cform .save").click();
 await hud.waitForTimeout(600);
+await hud.locator("haus3d-panel .dialog .close").click();
 // Kurzwahl mit 7 Einträgen anlegen (mehr als 5: Rad dreht)
 await hud.evaluate(async () => {
   const p = window.panel;
@@ -461,6 +467,7 @@ await rf.waitForTimeout(600);
 const lowerVisible = await rf.evaluate(() => { const sc = window.panel._scene; return [...sc.floors.entries()].filter(([, e]) => e.group.visible).map(([id]) => id); });
 await rf.screenshot({ path: `${out}/etage-eg-mit-kg.png` });
 await rf.locator("haus3d-panel .floorbar button[data-floor='all']").click();
+await unlock(rf);
 await rf.locator("haus3d-panel .edit").click();
 await rf.waitForTimeout(400);
 await rf.locator("haus3d-panel .floorsel").selectOption("__roof");

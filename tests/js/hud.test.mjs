@@ -29,7 +29,9 @@ test("Rad: 4 sichtbar im Viertelkreis, dahinter fest das +, mehr wird durchgedre
 test("Funktionsrad: Standard, Reihenfolge, eigene Einträge", () => {
   assert.deepEqual(normalizeFunctions(undefined).map((f) => f.key), FUNCTION_KEYS);
   const f = normalizeFunctions([{ key: "grid" }, { key: "grid" }, { key: "quatsch" }, { entity: "script.kino", name: "Kino" }, { entity: "kaputt" }, { key: "flow" }]);
-  assert.deepEqual(f, [{ key: "grid" }, { entity: "script.kino", name: "Kino" }, { key: "flow" }]);
+  // Raster, Stil, Dach … stehen seit 0.16 im Zahnrad und fallen still aus dem Rad
+  assert.deepEqual(f, [{ entity: "script.kino", name: "Kino" }, { key: "flow" }]);
+  for (const k of ["style", "roof", "grid", "weather", "labels", "devices", "furniture", "presence", "fullscreen", "shadows"]) assert.ok(!FUNCTION_KEYS.includes(k), k);
   assert.deepEqual(normalizeFunctions([]), []);
 });
 

@@ -1,5 +1,5 @@
 // E8: Energie-Karte 2.0 – Akku-Richtung, Netz-Zeile, Überschuss-Punkt, HA-Energie übernehmen, Umkehr mit Vorschau
-import { start } from "./lib.mjs";
+import { start, unlock } from "./lib.mjs";
 
 const t = await start(process.argv[2]);
 const card = (pg) =>
@@ -35,28 +35,28 @@ t.check(/hoch/.test(c2.dot) && c2.solar === "1,2 kW" && /^Einspeisung/.test(c2.n
 await pg.evaluate(() => window.panel._setSim(false));
 await pg.waitForTimeout(300);
 // Einstellungen: HA-Energie übernehmen füllt nur die Felder, gespeichert wird erst mit „Speichern“
-await pg.evaluate(() => window.panel._openSettings());
+await unlock(pg, "admin", { cat: "energy" });
 await pg.waitForTimeout(300);
 const saves = () => pg.evaluate(() => window.calls.filter((c) => c.type === "haus3d/building/save").length);
 const s0 = await saves();
-await pg.locator("haus3d-panel .energy-cfg .en-ha").click();
+await pg.locator("haus3d-panel .catbox .en-ha").click();
 await pg.waitForTimeout(300);
-const found = await pg.evaluate(() => [...window.panel.shadowRoot.querySelectorAll(".energy-cfg .en-found .fl")].map((x) => x.textContent));
+const found = await pg.evaluate(() => [...window.panel.shadowRoot.querySelectorAll(".catbox .en-found .fl")].map((x) => x.textContent));
 t.results.gefunden = found;
 t.check(found.some((f) => /sensor\.zaehler_leistung/.test(f)) && found.some((f) => /sensor\.akku_ladestand/.test(f)), `Vorschläge: ${JSON.stringify(found)}`);
-await pg.locator("haus3d-panel .energy-cfg .f-ok").click();
+await pg.locator("haus3d-panel .catbox .f-ok").click();
 await pg.waitForTimeout(300);
-const filled = await pg.evaluate(() => window.panel.shadowRoot.querySelector('.energy-cfg [data-core="netz"]').value);
+const filled = await pg.evaluate(() => window.panel.shadowRoot.querySelector('.catbox [data-core="netz"]').value);
 t.check(filled === "sensor.zaehler_leistung" && (await saves()) === s0, `Übernehmen: ${filled}, Speichern ${(await saves()) - s0}×`);
 // Umkehr: Vorschau wechselt sofort
-const prev1 = await pg.evaluate(() => window.panel.shadowRoot.querySelector(".energy-cfg .pv-akku").textContent);
-await pg.locator('haus3d-panel .energy-cfg [data-inv="akku_invert"]').check();
-const prev2 = await pg.evaluate(() => window.panel.shadowRoot.querySelector(".energy-cfg .pv-akku").textContent);
+const prev1 = await pg.evaluate(() => window.panel.shadowRoot.querySelector(".catbox .pv-akku").textContent);
+await pg.locator('haus3d-panel .catbox [data-inv="akku_invert"]').check();
+const prev2 = await pg.evaluate(() => window.panel.shadowRoot.querySelector(".catbox .pv-akku").textContent);
 t.results.vorschau = [prev1, prev2];
 t.check(prev1 === "aktuell: entlädt 32 W" && prev2 === "aktuell: lädt 32 W", `Vorschau: ${prev1} / ${prev2}`);
-await pg.evaluate(() => window.panel.shadowRoot.querySelector(".energy-cfg").scrollIntoView());
+await pg.evaluate(() => window.panel.shadowRoot.querySelector(".catbox").scrollIntoView());
 await t.shot(pg, "energie-einstellungen.png");
-await pg.locator("haus3d-panel .energy-cfg .en-save").click();
+await pg.locator("haus3d-panel .catbox .en-save").click();
 await pg.waitForTimeout(500);
 const saved = await pg.evaluate(() => window.panel._building.settings.energy);
 t.check(saved.netz === "sensor.zaehler_leistung" && saved.akku_invert === true, `Gespeichert: ${JSON.stringify(saved)}`);

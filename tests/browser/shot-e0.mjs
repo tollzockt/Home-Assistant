@@ -1,5 +1,5 @@
 // E0: Meldungen liegen über der Simulationsleiste, die Hauptansicht ruht im Editor, Gartenhaus = Balkonkraftwerk
-import { start } from "./lib.mjs";
+import { start, unlock } from "./lib.mjs";
 
 const t = await start(process.argv[2]);
 const pg = await t.page("e0", "?quality=schoen");
@@ -17,6 +17,7 @@ t.check(boxes.a && boxes.b && boxes.a[1] <= boxes.b[0], `Meldung verdeckt durch 
 await t.shot(pg, "e0-simbar-meldung.png");
 await pg.evaluate(() => window.panel._setSim(false));
 await pg.waitForTimeout(500);
+await unlock(pg);
 await pg.locator("haus3d-panel .edit").click();
 await pg.waitForTimeout(500);
 const running = await pg.evaluate(() => window.panel._scene._running);

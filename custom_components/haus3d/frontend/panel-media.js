@@ -18,7 +18,7 @@ export const MediaMethods = {
     this._closeDialog();
     const st = this._hass?.states[entityId];
     const name = st?.attributes?.friendly_name ?? entityId;
-    const admin = !!this._hass?.user?.is_admin;
+    const admin = this._editing();
     const bell = this._building?.settings?.doorbell ?? {};
     const el = document.createElement("div");
     el.className = "dialog-backdrop";
@@ -170,7 +170,7 @@ export const MediaMethods = {
     if (!r) return this._moreInfo(entityId);
     this._closePopup?.();
     this._closeDialog();
-    const admin = !!this._hass?.user?.is_admin;
+    const admin = this._editing();
     const auto = domainOf(entityId) === "automation";
     const name = st.attributes?.friendly_name ?? entityId;
     const el = document.createElement("div");

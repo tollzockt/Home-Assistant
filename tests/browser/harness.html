@@ -169,6 +169,27 @@ const hass = {
   callWS: async (msg) => {
     window.calls.push(msg);
     if (msg.type === "haus3d/building/get") return { building: data, revision: 1 };
+    if (msg.type.startsWith("haus3d/pin/")) {
+      const pins = (window.pins ??= { edit: "0000", admin: "0000" });
+      const tokens = (window.tokens ??= {});
+      if (msg.type === "haus3d/pin/status") return { edit_default: pins.edit === "0000", admin_default: pins.admin === "0000" };
+      if (msg.type === "haus3d/pin/verify") {
+        if (msg.pin !== pins[msg.scope]) return { ok: false };
+        const token = `tok-${msg.scope}-${Math.random().toString(36).slice(2)}`;
+        tokens[token] = msg.scope;
+        return { ok: true, token, scope: msg.scope };
+      }
+      if (msg.type === "haus3d/pin/lock") {
+        delete tokens[msg.token];
+        return { ok: true };
+      }
+      if (msg.type === "haus3d/pin/set") {
+        if (tokens[msg.token] !== "admin") throw { code: "locked", message: "Gesperrt" };
+        pins[msg.scope] = msg.pin;
+        return { ok: true };
+      }
+    }
+    if (params.has("pinlock") && ["haus3d/building/save", "haus3d/history/snapshot", "haus3d/history/restore", "haus3d/background/set"].includes(msg.type) && !(window.tokens ?? {})[msg.token]) throw { code: "locked", message: "Gesperrt" };
     if (msg.type === "haus3d/building/save") return { building: msg.building, revision: (msg.revision ?? 1) + 1 };
     if (msg.type === "frontend/get_user_data") return { value: window.userData ?? (params.has("userdata") ? { settings: { style: "night", layers: { grid: false } }, views: [{ name: "Garten", position: [20, 12, 20], target: [5, 0, 5] }] } : null) };
     if (msg.type === "frontend/set_user_data") {

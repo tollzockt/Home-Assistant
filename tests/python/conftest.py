@@ -27,3 +27,11 @@ async def setup_integration(hass: HomeAssistant) -> MockConfigEntry:
     assert await hass.config_entries.async_setup(entry.entry_id)
     await hass.async_block_till_done()
     return entry
+
+
+@pytest.fixture
+async def admin_token(hass: HomeAssistant, setup_integration) -> str:
+    """Admin-Freigabe mit der Standard-PIN (wie nach „Admin-Einstellungen“ + 0000)."""
+    token = await hass.data[DOMAIN].access.async_verify("admin", "0000", "fixture")
+    assert token
+    return token

@@ -4,6 +4,7 @@
 // Duplizieren und Vorlagen (settings.templates, auf allen Etagen nutzbar).
 
 import { allIds, newId } from "./edit-ops.js";
+import { withToken } from "./access.js";
 import {
   MULTI_KINDS,
   alignGuides,
@@ -499,7 +500,7 @@ export const PlanMethods = {
       g.fillRect(0, 0, w, h);
       g.drawImage(bmp, 0, 0, w, h);
       const image = c.toDataURL("image/jpeg", 0.82);
-      await this.hass.callWS({ type: "haus3d/background/set", floor_id: this.floorId, image });
+      await this.hass.callWS(withToken({ type: "haus3d/background/set", floor_id: this.floorId, image }));
       this._bgCache ??= new Map();
       const old = this._bgCache.get(this.floorId)?.url;
       if (old) URL.revokeObjectURL(old);
@@ -520,7 +521,7 @@ export const PlanMethods = {
   async _removeBackground() {
     if (!(await this._ask("Bauplan-Foto dieser Etage entfernen?"))) return;
     try {
-      await this.hass.callWS({ type: "haus3d/background/set", floor_id: this.floorId, image: null });
+      await this.hass.callWS(withToken({ type: "haus3d/background/set", floor_id: this.floorId, image: null }));
     } catch {
       /* Feld trotzdem entfernen */
     }

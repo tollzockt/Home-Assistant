@@ -85,7 +85,9 @@ export function labelPlace(angle) {
 /** Eingebaute Funktionen bis 0.13 (wer sie ausgeblendet hat, soll sie nicht wiederbekommen). */
 export const LEGACY_FUNCTION_KEYS = ["flow", "temp", "style", "roof", "grid", "weather", "labels", "devices", "furniture", "fit"];
 /** Eingebaute Funktionen des Funktionsrads (Reihenfolge = Standard). */
-export const FUNCTION_KEYS = [...LEGACY_FUNCTION_KEYS, "presence", "security", "goodnight", "view", "fullscreen", "walk", "shadows"];
+// Stil, Dach, Raster, Wetter, Raumnamen, Geräte, Möbel, Anwesenheit, Schatten und Vollbild stehen seit
+// 0.16 im Zahnrad; gespeicherte Listen verlieren sie still (normalizeFunctions).
+export const FUNCTION_KEYS = ["flow", "temp", "security", "goodnight", "view", "walk", "fit"];
 
 /**
  * Einträge des Funktionsrads aus den Einstellungen: eingebaute (key) und eigene (entity), ohne Doppelte.

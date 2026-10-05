@@ -48,6 +48,7 @@ class Haus3DData:
         self._lock = asyncio.Lock()
         self._bg_store: Store[dict[str, Any]] = Store(hass, STORAGE_VERSION, STORAGE_KEY_BACKGROUNDS)
         self._backgrounds: dict[str, str] | None = None
+        self.access: Any = None  # access.Access, gesetzt in __init__.py
 
     async def async_load(self) -> None:
         """Lädt den gespeicherten Stand; beim ersten Start den mitgelieferten Startstand."""

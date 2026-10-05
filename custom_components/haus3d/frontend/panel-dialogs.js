@@ -251,93 +251,6 @@ export const DialogMethods = {
     this._popup = el;
   },
 
-  _openSettings() {
-    this._closePopup();
-    this._closeDialog();
-    const st = this._settings;
-    const el = document.createElement("div");
-    el.className = "dialog-backdrop";
-    el.innerHTML = `
-      <div class="dialog" role="dialog" aria-label="Einstellungen">
-        <div class="dialog-head"><span>Einstellungen</span><button class="icon close" title="Schließen"><ha-icon icon="mdi:close"></ha-icon></button></div>
-        <div class="dialog-body">
-          <h4>Darstellung</h4>
-          <div class="seg" data-key="style">
-            <button data-value="auto">Auto</button><button data-value="day">Tag</button><button data-value="night">Nacht</button><button data-value="cyber">Cyberpunk</button>
-          </div>
-          <h4>Qualität</h4>
-          <div class="seg" data-key="quality">${QUALITY_CHOICES.map(([k, n]) => `<button data-value="${k}">${n}</button>`).join("")}</div>
-          <label class="chkrow"><input type="checkbox" data-perfhud${st.perfHud ? " checked" : ""}> Leistungsanzeige (Bilder/s)</label>
-          <p class="hint">Automatisch: am Tablet ausgewogen, die Auflösung passt sich der Rechenleistung an. „Akku“ zeichnet am sparsamsten.</p>
-          <h4>Geräte anzeigen als</h4>
-          <div class="seg" data-key="deviceMode">
-            <button data-value="icons">Symbole</button><button data-value="3d">3D-Objekte</button>
-          </div>
-          <h4>Einblenden</h4>
-          <div class="toggles">
-            ${LAYERS.map(([k, name]) => `<label><input type="checkbox" data-layer="${k}"${st.layers[k] !== false ? " checked" : ""}><span>${name}</span></label>`).join("")}
-          </div>
-          <p class="hint">Darstellung und Einblenden gelten für dieses Gerät/diesen Browser.</p>
-          <h4>Simulation</h4>
-          <p class="hint">Zum Ausprobieren: Schalten, Wetter, Tag/Nacht und Solarleistung werden nur simuliert, nichts geht an echte Geräte, der Grundriss wird nicht gespeichert.</p>
-          <div class="btns"><button class="simtoggle${this._sim ? "" : " primary"}">${this._sim ? "Simulation beenden" : "Simulation starten"}</button></div>
-          <h4>Wandtablet (dieses Gerät)</h4>
-          <div class="kiosk-cfg"></div>
-          ${this._hass?.user?.is_admin ? `<h4>Haus & Wetter (für alle)</h4><div class="house-cfg"></div><h4>Hinweise (für alle)</h4><div class="alerts-cfg"></div><h4>Abläufe & Sicherheit (für alle)</h4><div class="routines-cfg"></div><h4>Energie-Anzeige (für alle)</h4><div class="energy-cfg"></div>` : ""}
-        </div>
-      </div>`;
-    const syncSeg = () => {
-      for (const seg of el.querySelectorAll(".seg")) for (const b of seg.querySelectorAll("button")) b.classList.toggle("sel", st[seg.dataset.key] === b.dataset.value);
-    };
-    syncSeg();
-    for (const seg of el.querySelectorAll(".seg")) {
-      seg.addEventListener("click", (ev) => {
-        const b = ev.target.closest("button");
-        if (!b) return;
-        st[seg.dataset.key] = b.dataset.value;
-        syncSeg();
-        this._saveSettings();
-        if (seg.dataset.key === "style") this._applyStyle();
-        else if (seg.dataset.key === "quality") this._applyQuality();
-        else this._refreshEntities();
-      });
-    }
-    for (const box of el.querySelectorAll("input[data-layer]")) {
-      box.addEventListener("change", () => {
-        st.layers[box.dataset.layer] = box.checked;
-        this._saveSettings();
-        this._scene?.setLayers(st.layers);
-        this._applyOverlayLayers();
-        if (box.dataset.layer === "sun") this._applySun();
-        if (box.dataset.layer === "lightcolor") this._updateStates();
-      });
-    }
-    el.querySelector("[data-perfhud]").addEventListener("change", (ev) => {
-      st.perfHud = ev.target.checked;
-      this._saveSettings();
-      this._applyQuality();
-    });
-    el.querySelector(".close").addEventListener("click", () => this._closeDialog());
-    el.addEventListener("click", (ev) => {
-      if (ev.target === el) this._closeDialog();
-    });
-    el.querySelector(".simtoggle").addEventListener("click", () => {
-      this._closeDialog();
-      this._setSim(!this._sim);
-    });
-    const cfg = el.querySelector(".energy-cfg");
-    if (cfg) this._renderEnergyConfig(cfg);
-    this._renderKioskConfig(el.querySelector(".kiosk-cfg"));
-    const house = el.querySelector(".house-cfg");
-    if (house) this._renderHouseConfig(house);
-    const al = el.querySelector(".alerts-cfg");
-    if (al) this._renderAlertsConfig(al);
-    const rt = el.querySelector(".routines-cfg");
-    if (rt) this._renderRoutinesConfig(rt);
-    this._els.stage.appendChild(el);
-    this._dialog = el;
-  },
-
   /** Wandtablet: Kopfzeile, Bildschirm anlassen, Startetage, Ruhe und Dimmen (nur dieses Gerät). */
   _renderKioskConfig(box) {
     const k = { ...(this._settings.kiosk ?? {}) };
@@ -578,7 +491,7 @@ export const DialogMethods = {
         const building = structuredClone(this._building);
         building.settings.energy = { ...energy, extra: energy.extra.filter((x) => x.entity) };
         try {
-          const res = await hass.callWS({ type: "haus3d/building/save", building, revision: this._revision });
+          const res = await this._callLocked({ type: "haus3d/building/save", building, revision: this._revision }, "admin");
           this._setBuilding(res.building, res.revision, { keepCamera: true });
           this._toast("Energie-Anzeige gespeichert.");
         } catch (err) {
@@ -661,7 +574,7 @@ export const DialogMethods = {
           }
         }
         try {
-          const res = await this._hass.callWS({ type: "haus3d/building/save", building, revision: this._revision });
+          const res = await this._callLocked({ type: "haus3d/building/save", building, revision: this._revision }, "edit");
           p.editing = false;
           this._setBuilding(res.building, res.revision, { keepCamera: true });
           this._toast("Geräte gespeichert.");
@@ -671,68 +584,6 @@ export const DialogMethods = {
       });
     };
     render();
-  },
-
-  /** Karte anlegen oder anpassen: Titel, Symbol, Werte (Entität + Name). id = null: neue Karte. */
-  _cardDialog(id) {
-    this._closeDialog();
-    const hass = this._hass;
-    const all = normalizeCards(this._building?.settings?.cards);
-    const card = structuredClone(all.find((c) => c.id === id) ?? { id: `karte_${Date.now().toString(36)}`, title: "Neue Karte", icon: "mdi:card-text-outline", entities: [] });
-    const icons = ["mdi:card-text-outline", "mdi:fire", "mdi:radiator", "mdi:water-boiler", "mdi:thermometer", "mdi:washing-machine", "mdi:server", "mdi:pool", "mdi:car-electric", "mdi:battery-charging", "mdi:weather-partly-cloudy", "mdi:home-automation"];
-    const el = document.createElement("div");
-    el.className = "dialog-backdrop";
-    const render = () => {
-      el.innerHTML = `<div class="dialog qedit" role="dialog" aria-label="Karte">
-        <div class="dialog-head"><span>${id ? "Karte anpassen" : "Neue Karte"}</span><button class="icon close" title="Schließen"><ha-icon icon="mdi:close"></ha-icon></button></div>
-        <div class="dialog-body">
-          <h4>Titel</h4><div class="qrow"><input class="ttl" value="${esc(card.title)}"></div>
-          <h4>Symbol</h4><div class="qrow" style="flex-wrap:wrap">${icons.map((ic) => `<button class="icon ${ic === card.icon ? "on" : ""}" data-icon="${ic}" title="${ic}" style="${ic === card.icon ? "background:var(--primary-color,#03a9f4);color:#fff" : ""}"><ha-icon icon="${ic}"></ha-icon></button>`).join("")}</div>
-          <h4>Werte</h4>
-          ${card.entities.map((e, i) => `<div class="qrow"><input class="nm" data-name="${i}" value="${esc(e.name ?? "")}" placeholder="Name"><input list="card-ents" data-ent="${i}" value="${esc(e.entity)}" placeholder="Entität"><button class="icon" data-rm="${i}" title="Entfernen"><ha-icon icon="mdi:delete-outline"></ha-icon></button></div>`).join("")}
-          <datalist id="card-ents">${Object.keys(hass.states).sort().map((x) => `<option value="${esc(x)}">${esc(hass.states[x].attributes.friendly_name ?? "")}</option>`).join("")}</datalist>
-          <div class="btns"><button class="addv">+ Wert</button></div>
-          <div class="btns">${id ? `<button class="del">Karte löschen</button>` : ""}<button class="save primary">Speichern</button></div>
-        </div></div>`;
-      const sync = () => {
-        card.title = el.querySelector(".ttl").value.trim() || card.title;
-        el.querySelectorAll("[data-ent]").forEach((i) => (card.entities[Number(i.dataset.ent)].entity = i.value.trim()));
-        el.querySelectorAll("[data-name]").forEach((i) => (card.entities[Number(i.dataset.name)].name = i.value.trim() || undefined));
-      };
-      el.querySelectorAll("[data-icon]").forEach((b) => b.addEventListener("click", () => {
-        sync();
-        card.icon = b.dataset.icon;
-        render();
-      }));
-      el.querySelectorAll("[data-rm]").forEach((b) => b.addEventListener("click", () => {
-        sync();
-        card.entities.splice(Number(b.dataset.rm), 1);
-        render();
-      }));
-      el.querySelector(".addv").addEventListener("click", () => {
-        sync();
-        card.entities.push({ entity: "" });
-        render();
-      });
-      el.querySelector(".del")?.addEventListener("click", () => {
-        this._closeDialog();
-        this._saveBuildingSettings({ cards: all.filter((c) => c.id !== id) }, "Karte gelöscht.");
-      });
-      el.querySelector(".save").addEventListener("click", () => {
-        sync();
-        card.entities = card.entities.filter((e) => e.entity.includes("."));
-        const next = id ? all.map((c) => (c.id === id ? card : c)) : [...all, card];
-        this._closeDialog();
-        this._saveBuildingSettings({ cards: next.slice(0, MAX_CARDS) }, "Karte gespeichert.");
-      });
-      el.querySelector(".close").addEventListener("click", () => this._closeDialog());
-    };
-    render();
-    el.addEventListener("click", (ev) => {
-      if (ev.target === el) this._closeDialog();
-    });
-    this._els.stage.appendChild(el);
-    this._dialog = el;
   },
 
   /** Funktionsrad anpassen: eingebaute Umschalter ein-/ausblenden, sortieren, eigene Einträge (Entitäten) hinzufügen. */
@@ -916,7 +767,7 @@ export const DialogMethods = {
     const rooms = building.floors.reduce((n, f) => n + f.rooms.length, 0);
     if (!(await this._confirm(`Grundriss mit ${plural(building.floors.length, "Etage", "Etagen")} und ${plural(rooms, "Raum", "Räumen")} importieren?`, "Importieren", { sub: "Der aktuelle Stand wird vorher im Verlauf gesichert." }))) return;
     try {
-      const res = await this._hass.callWS({ type: "haus3d/building/save", building, revision: this._revision });
+      const res = await this._callLocked({ type: "haus3d/building/save", building, revision: this._revision }, "admin");
       this._setBuilding(res.building, res.revision);
       this._toast("Grundriss importiert.");
     } catch (err) {
@@ -927,7 +778,7 @@ export const DialogMethods = {
 
   async _snapshot() {
     try {
-      await this._hass.callWS({ type: "haus3d/history/snapshot" });
+      await this._callLocked({ type: "haus3d/history/snapshot" }, "admin");
       this._toast("Stand gesichert.");
     } catch (err) {
       this._toast(`Sichern fehlgeschlagen: ${err.message ?? err.code}`);
@@ -959,7 +810,7 @@ export const DialogMethods = {
         this._closePopup();
         if (!(await this._confirm(`Stand vom ${when} wiederherstellen?`, "Wiederherstellen", { sub: "Der aktuelle Stand wird vorher gesichert." }))) return;
         try {
-          const res = await this._hass.callWS({ type: "haus3d/history/restore", history_id: item.id });
+          const res = await this._callLocked({ type: "haus3d/history/restore", history_id: item.id }, "admin");
           this._setBuilding(res.building, res.revision);
           this._toast("Stand wiederhergestellt.");
         } catch (err) {

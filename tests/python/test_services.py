@@ -30,20 +30,20 @@ async def test_services_removed_on_unload(hass: HomeAssistant, setup_integration
     assert not hass.services.has_service(DOMAIN, "show")
 
 
-async def test_background_roundtrip(hass: HomeAssistant, setup_integration, hass_ws_client) -> None:
+async def test_background_roundtrip(hass: HomeAssistant, setup_integration, hass_ws_client, admin_token) -> None:
     ws = await hass_ws_client(hass)
     await ws.send_json({"id": 1, "type": "haus3d/background/get", "floor_id": "eg"})
     assert (await ws.receive_json())["result"] == {"image": None}
-    await ws.send_json({"id": 2, "type": "haus3d/background/set", "floor_id": "eg", "image": IMG})
+    await ws.send_json({"id": 2, "type": "haus3d/background/set", "token": admin_token, "floor_id": "eg", "image": IMG})
     assert (await ws.receive_json())["success"]
     await ws.send_json({"id": 3, "type": "haus3d/background/get", "floor_id": "eg"})
     assert (await ws.receive_json())["result"] == {"image": IMG}
-    await ws.send_json({"id": 4, "type": "haus3d/background/set", "floor_id": "eg", "image": "javascript:x"})
+    await ws.send_json({"id": 4, "type": "haus3d/background/set", "token": admin_token, "floor_id": "eg", "image": "javascript:x"})
     assert not (await ws.receive_json())["success"]
-    await ws.send_json({"id": 5, "type": "haus3d/background/set", "floor_id": "eg", "image": IMG + "A" * 3_000_001})
+    await ws.send_json({"id": 5, "type": "haus3d/background/set", "token": admin_token, "floor_id": "eg", "image": IMG + "A" * 3_000_001})
     res = await ws.receive_json()
     assert res["error"]["code"] == "too_large"
-    await ws.send_json({"id": 6, "type": "haus3d/background/set", "floor_id": "eg", "image": None})
+    await ws.send_json({"id": 6, "type": "haus3d/background/set", "token": admin_token, "floor_id": "eg", "image": None})
     assert (await ws.receive_json())["success"]
     await ws.send_json({"id": 7, "type": "haus3d/background/get", "floor_id": "eg"})
     assert (await ws.receive_json())["result"] == {"image": None}

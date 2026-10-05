@@ -67,16 +67,35 @@ export const ENERGY_GROUPS = [
   ["Akku", ["akku_ladestand", "akku_leistung"]],
 ];
 
-/** Zeilen der Energie-Anzeige: feste Werte des Balkonkraftwerks plus frei gewählte (settings.energy.extra). */
-export function energyRows(energy, hass) {
-  const rows = ENERGY_CORE.filter(([key]) => energy[key] && hass.states[energy[key]]).map(([key, icon, name]) => ({ key, icon, name, entity: energy[key] }));
+/**
+ * Alle möglichen Zeilen der Energie-Karte (feste Werte plus settings.energy.extra) in der Reihenfolge
+ * von settings.energy_card.rows, mit hidden und eigenem Namen (custom). id: Schlüssel bzw. x:Entität.
+ */
+export function energyRowList(energy, hass, card = null) {
+  const rows = ENERGY_CORE.filter(([key]) => energy[key] && hass.states[energy[key]]).map(([key, icon, name]) => ({ id: key, key, icon, base: name, entity: energy[key] }));
   for (const x of energy.extra ?? []) {
     const id = typeof x === "string" ? x : x?.entity;
     const st = id && hass.states[id];
     if (!st) continue;
-    rows.push({ key: null, entity: id, name: (typeof x === "object" && x.name) || st.attributes.friendly_name || id, icon: st.attributes.icon ?? SENSOR_ICONS[st.attributes.device_class] ?? "mdi:flash" });
+    rows.push({ id: `x:${id}`, key: null, entity: id, base: (typeof x === "object" && x.name) || st.attributes.friendly_name || id, icon: st.attributes.icon ?? SENSOR_ICONS[st.attributes.device_class] ?? "mdi:flash" });
   }
-  return rows;
+  const order = (card?.rows ?? []).map((r) => r?.key);
+  const cfg = new Map((card?.rows ?? []).filter((r) => r?.key).map((r) => [r.key, r]));
+  const pos = (r) => {
+    const i = order.indexOf(r.id);
+    return i < 0 ? order.length + rows.indexOf(r) : i;
+  };
+  return [...rows]
+    .sort((a, b) => pos(a) - pos(b))
+    .map((r) => {
+      const c = cfg.get(r.id);
+      return { ...r, hidden: !!c?.hidden, custom: c?.name || undefined, name: c?.name || r.base };
+    });
+}
+
+/** Sichtbare Zeilen der Energie-Karte. */
+export function energyRows(energy, hass, card = null) {
+  return energyRowList(energy, hass, card).filter((r) => !r.hidden);
 }
 
 /** Ebenen und ihre Namen im Einstellungsfenster. */
