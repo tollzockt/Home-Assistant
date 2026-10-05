@@ -38,6 +38,7 @@ import { HouseScene } from "./scene.js";
 import { GRID_CHOICES, TOUCH_STYLE, TouchMethods } from "./editor-touch.js";
 import { MEASURE_STYLE, MeasureMethods } from "./editor-measure.js";
 import { LineMethods } from "./editor-lines.js";
+import { PIPE_HINT, PipeMethods } from "./editor-pipes.js";
 import { PLAN_HINTS, PLAN_STYLE, PlanMethods } from "./editor-plan.js";
 import { furnitureThumb, renderThumbs } from "./thumbs.js";
 import { closeGaps, computeWalls, labelPoint, pieceFootprint, signedArea } from "./walls.js";
@@ -86,6 +87,7 @@ const TOOLS = [
   ["device", "mdi:lightbulb-on-outline", "Gerät"],
   ["outdoor", "mdi:tree-outline", "Garten"],
   ["line", "mdi:vector-polyline", "Linie"],
+  ["pipe", "mdi:pipe", "Leitung"],
   ["measure", "mdi:tape-measure", "Messen"],
 ];
 const HINTS = {
@@ -100,6 +102,7 @@ const HINTS = {
   device: "Rechts ein Gerät wählen, dann an seine Stelle tippen. Ziehen im Auswahl-Modus verschiebt es.",
   outdoor: "Punkte der Gartenfläche antippen, ersten Punkt erneut antippen zum Abschließen.",
   line: "Weg, Hecke, Zaun oder Mauer: Punkte antippen (0/45/90°, „Frei“ ohne Einrasten), „Fertig“ beendet.",
+  pipe: PIPE_HINT,
   measure: "Zwei Punkte antippen – rastet an Ecken und Wänden ein. Bis zu drei Messungen bleiben stehen (werden nicht gespeichert).",
 };
 
@@ -913,6 +916,7 @@ export class FloorEditor {
       poly.points.forEach((p, i) => parts.push(`<circle data-kind="vertex" data-i="${i}" cx="${r3(p[0])}" cy="${r3(p[1])}" r="${px(this.coarse ? 13 : 7)}" fill="#03a9f4" stroke="#fff" stroke-width="${px(2)}"/>`));
     }
     parts.push(this._openingParts(px, P));
+    parts.push(this._pipeParts(px, P));
     parts.push(this._lineDraftParts(px, P));
     parts.push(this._dimParts(px));
     parts.push(this._planParts(px, P));
@@ -949,6 +953,7 @@ export class FloorEditor {
         this.render();
       }
       if (this.draft?.points?.length >= 3) this._finishPolygon();
+      if (this.draft?.pipe && this.draft.line.length >= 2) this._finishPipe();
     });
     this.svg.addEventListener("pointerdown", (ev) => {
       this.svg.setPointerCapture(ev.pointerId);
@@ -988,6 +993,9 @@ export class FloorEditor {
       if (!drag) {
         if (this.draft?.points && (this.tool === "poly" || this.tool === "outdoor")) {
           this.draft.hover = this._snap(p);
+          this.render();
+        } else if (this.draft?.pipe && this.tool === "pipe") {
+          this.draft.hover = this._pipeSnap(ev, p, this.draft.line.at(-1));
           this.render();
         } else if (this.draft?.line && this.tool === "line") {
           this.draft.hover = this._wallSnap(this.draft.line.at(-1), p, this._free(ev));
@@ -1049,6 +1057,10 @@ export class FloorEditor {
     }
     if (tool === "line") {
       this._lineTap(ev, p);
+      return null;
+    }
+    if (tool === "pipe") {
+      this._pipeTap(ev, p);
       return null;
     }
     if (tool === "poly" || tool === "outdoor") {
@@ -1204,6 +1216,12 @@ export class FloorEditor {
       this.renderProps();
       this.render();
       return { mode: "room", id, start: p, moved: false, first: true };
+    }
+    if (kind === "pipe") {
+      this.sel = { kind: "pipe", id };
+      this.renderProps();
+      this.render();
+      return null;
     }
     if (kind === "outdoor") {
       this.sel = { kind: "outdoor", id };
@@ -1480,6 +1498,7 @@ export class FloorEditor {
     else if (sel.kind === "furniture") this.change((fl) => ({ ...fl, furniture: fl.furniture.filter((m) => m.id !== sel.id) }));
     else if (sel.kind === "outdoor") this.change((fl) => ({ ...fl, outdoor: fl.outdoor.filter((o) => o.id !== sel.id) }));
     else if (sel.kind === "wall") this.change((fl) => removeWall(fl, sel.id));
+    else if (sel.kind === "pipe") this.change((fl) => ({ ...fl, pipes: (fl.pipes ?? []).filter((x) => x.id !== sel.id) }));
     else if (sel.kind === "device") this.change((fl) => ({ ...fl, placements: fl.placements.filter((x) => x.entity_id !== sel.id) }));
     this.sel = null;
     this.renderProps();
@@ -1548,6 +1567,11 @@ export class FloorEditor {
       );
 
     if (this.tool === "line") return this._lineToolProps(el);
+    if (this.tool === "pipe") return this._pipeToolProps(el);
+    if (sel?.kind === "pipe") {
+      const l = (f.pipes ?? []).find((x) => x.id === sel.id);
+      return l ? this._pipeProps(el, l) : this._clearSel();
+    }
     if (this.tool === "furniture") {
       el.innerHTML = `<h3>Möbel einfügen</h3><p class="muted">Möbel wählen, dann in den Plan tippen.</p>
         <input class="search" type="search" placeholder="Suchen …" value="${esc(this.furnSearch)}"><div class="cats"></div>`;
@@ -2055,4 +2079,4 @@ export class FloorEditor {
 }
 
 // Tablet: Schalter, Zeichen-Leiste, Langdruck, Entwurf sichern (editor-touch.js)
-Object.assign(FloorEditor.prototype, TouchMethods, MeasureMethods, LineMethods, PlanMethods);
+Object.assign(FloorEditor.prototype, TouchMethods, MeasureMethods, LineMethods, PlanMethods, PipeMethods);

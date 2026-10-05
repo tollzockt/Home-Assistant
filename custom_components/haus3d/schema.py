@@ -122,6 +122,18 @@ OUTDOOR_SCHEMA = vol.Schema(
     extra=vol.ALLOW_EXTRA,
 )
 
+PIPE_SCHEMA = vol.Schema(
+    {
+        vol.Required("id"): _ID,
+        vol.Required("type"): vol.In(["strom", "wasser_kalt", "wasser_warm"]),
+        vol.Required("points"): vol.All([_POINT], vol.Length(min=2, max=MAX_POINTS)),
+        vol.Optional("heights", default=None): vol.Any(None, vol.All([vol.Coerce(float)], vol.Length(max=MAX_POINTS))),
+        vol.Optional("entity", default=None): vol.Any(None, vol.All(str, vol.Length(max=255))),
+        vol.Optional("room", default=None): vol.Any(None, _ID),
+    },
+    extra=vol.ALLOW_EXTRA,
+)
+
 FLOOR_SCHEMA = vol.Schema(
     {
         vol.Required("id"): _ID,
@@ -135,6 +147,7 @@ FLOOR_SCHEMA = vol.Schema(
         vol.Optional("placements", default=list): vol.All([PLACEMENT_SCHEMA], vol.Length(max=MAX_ITEMS)),
         vol.Optional("background", default=None): vol.Any(None, dict),
         vol.Optional("outdoor", default=list): vol.All([OUTDOOR_SCHEMA], vol.Length(max=MAX_ITEMS)),
+        vol.Optional("pipes", default=list): vol.All([PIPE_SCHEMA], vol.Length(max=MAX_ITEMS)),
     },
     extra=vol.ALLOW_EXTRA,
 )

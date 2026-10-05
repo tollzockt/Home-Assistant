@@ -15,6 +15,7 @@ import { ROOF_ITEMS, adjustRoofParts, findPvShed, freeEdges, panelArraySlots, pa
 import { centroid, computeWalls, labelPoint, pieceFootprint, pointInPolygon, wallPieces } from "./walls.js";
 import { SceneFx } from "./scene-fx.js";
 import { SceneWalk } from "./scene-walk.js";
+import { ScenePipes } from "./scene-pipes.js";
 
 const OUTDOOR = {
   lawn: { color: 0x6aa84f, y: -0.035, h: 0 },
@@ -439,6 +440,7 @@ export class HouseScene {
     this.anchors = [];
     this.flow = null;
     this._houseFlow = null; // hing an root, ist mit weg
+    this._pipes = new Map();
     this.building = building;
     this.warnings = [];
     this.lampBulbs.clear();
@@ -905,6 +907,7 @@ export class HouseScene {
       this.anchors.push({ key: `room:${floor.id}:${area.id}`, floorId: floor.id, position: new THREE.Vector3(c[0], elev + y + 0.05, c[1]) });
     }
 
+    this._buildPipes(floor, entry, elev);
     this.root.add(group, garden);
     this.floors.set(floor.id, entry);
   }
@@ -1724,6 +1727,11 @@ export class HouseScene {
     const target = [pts.reduce((s, p) => s + p[0], 0) / pts.length, pts.reduce((s, p) => s + p[1], 0) / pts.length];
     const sc = labelPoint(shed.room.points);
     const start = new THREE.Vector3(sc[0], top + 0.6, sc[1]);
+    // Stromleitungen gelegt: Fluss läuft dort entlang, keine Luftlinie
+    if ((building.floors ?? []).some((f) => (f.pipes ?? []).some((p) => p.type === "strom"))) {
+      this.anchors.push({ key: "energy", floorId: shed.floor.id, position: start.clone().add(new THREE.Vector3(0, 0.6, 0)) });
+      return;
+    }
     const end = new THREE.Vector3(target[0], top + 0.3, target[1]);
     const ctrl = start.clone().lerp(end, 0.5);
     ctrl.y += Math.max(1.5, start.distanceTo(end) * 0.25);
@@ -2002,7 +2010,8 @@ export class HouseScene {
     const flowing = !this._frozen && this.flow && this.flow.speed > 0 && this.layers.flow !== false && this.isFloorVisible(this.flow.floorId);
     const weatherOn = !this._frozen && !!this._weather && this.layers.weather !== false;
     const houseFlow = this._houseFlowActive();
-    const ambient = flowing || weatherOn || houseFlow;
+    const pipesOn = this._pipesActive();
+    const ambient = flowing || weatherOn || houseFlow || pipesOn;
     const interval = ambientInterval(this.quality.ambientFps);
     const render = shouldRender({ dirty: this._dirty, moving, animating, ambient, now, lastRender: this._lastRender ?? -Infinity, interval });
     if (render) {
@@ -2016,6 +2025,7 @@ export class HouseScene {
       }
       if (weatherOn) this._stepWeather(ambDt);
       if (houseFlow) this._stepHouseFlow(ambDt);
+      if (pipesOn) this._stepPipes(ambDt);
       const t0 = performance.now();
       this.renderer.render(this.scene, this.camera);
       this.stats.renders++;
@@ -2294,4 +2304,4 @@ function outline(points, y, material, heights = null) {
   return new THREE.LineLoop(new THREE.BufferGeometry().setFromPoints(pts), material);
 }
 
-Object.assign(HouseScene.prototype, SceneFx, SceneWalk);
+Object.assign(HouseScene.prototype, SceneFx, SceneWalk, ScenePipes);

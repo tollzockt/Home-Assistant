@@ -343,6 +343,14 @@ export function watchedEntities(building, hass, byArea, { links = null, extra = 
   const put = (id) => {
     if (typeof id === "string" && id.includes(".") && id !== "none") ids.add(id);
   };
+  // Leitungen: eigener Sensor, sonst Leistung des Zielraums
+  const pipeRooms = new Set();
+  for (const floor of building.floors ?? []) {
+    for (const p of floor.pipes ?? []) {
+      if (p.entity) put(p.entity);
+      else if (p.type === "strom" && p.room) pipeRooms.add(p.room);
+    }
+  }
   for (const floor of building.floors ?? []) {
     for (const room of placesOf(floor)) {
       for (const id of byArea.get(room.area_id) ?? []) {
@@ -355,7 +363,7 @@ export function watchedEntities(building, hass, byArea, { links = null, extra = 
         else if (d === "binary_sensor" && ["moisture", "smoke", "gas", "carbon_monoxide", "heat", "safety"].includes(hass.states[id]?.attributes?.device_class)) ids.add(id); // Hinweise
       }
       for (const id of presenceSensors(room, hass, byArea)) ids.add(id); // Anwesenheit
-      if (power) {
+      if (power || pipeRooms.has(room.id)) {
         // Bodenfarbe „Leistung“: Leistungssensoren nur in dieser Ansicht beobachten
         if (room.power && room.power !== "none") ids.add(room.power);
         else for (const id of byArea.get(room.area_id) ?? []) if (domainOf(id) === "sensor" && hass.states[id]?.attributes?.device_class === "power") ids.add(id);

@@ -31,10 +31,10 @@ const off = await E(() => {
 });
 t.check(off === false, "Ebene Schatten aus");
 
-// Energiefluss im Haus: Küche verbraucht, Netz bezieht
-const hf = await E(() => window.panel._scene._houseFlow?.list.map((f) => f.key) ?? []);
+// Energiefluss im Haus: keine Luftlinien mehr (läuft in den Leitungen, siehe shot-h6)
+const hf = await E(() => window.panel._scene._houseFlow?.list.length ?? 0);
 t.results.hausfluss = hf;
-t.check(hf.includes("grid") && hf.length >= 2, `Energiefluss im Haus: ${JSON.stringify(hf)}`);
+t.check(hf === 0, `Luftlinien im Haus: ${hf}`);
 
 // Jahreszeit: Winter macht den Rasen blasser, Herbst das Laub orange
 const season = await E(async () => {

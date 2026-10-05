@@ -324,7 +324,7 @@ export const DialogMethods = {
       <div class="en-row"><span>genau (°)</span><button class="nstep" data-step="-5">−5°</button><input data-north type="number" min="0" max="359" step="1" value="${northNow}"><button class="nstep" data-step="5">+5°</button></div>
       <p class="hint">Wichtig für Sonnenstand und PV-Ausrichtung: Grad im Uhrzeigersinn, um die Norden von „oben im Plan“ abweicht.</p>
       <label class="en-row"><span>Jahreszeit im Garten</span><select data-season>${SEASONS.map(([k, n]) => `<option value="${k}"${(this._building?.settings?.season ?? "auto") === k ? " selected" : ""}>${n}</option>`).join("")}</select></label>
-      <label class="en-row"><span>Energiefluss im Haus</span><select data-houseflow><option value="on"${this._building?.settings?.house_flow === false ? "" : " selected"}>Räume mit Verbrauch und Netz</option><option value="off"${this._building?.settings?.house_flow === false ? " selected" : ""}>aus (nur PV → Haus)</option></select></label>
+      <label class="en-row"><span>Energiefluss im Haus</span><select data-houseflow><option value="on"${this._building?.settings?.house_flow === false ? "" : " selected"}>in den Leitungen (Editor → Leitung)</option><option value="off"${this._building?.settings?.house_flow === false ? " selected" : ""}>aus</option></select></label>
       <p class="hint">Das Dach erscheint nur in der Ansicht „Alle“. Wählt man eine Etage, schaut man hinein. Module liegen auf den Dachflächen, die in die Richtung zeigen (L-Dach: Hauptdach und Flügel).</p>
       <div class="btns"><button class="house-save primary">Speichern</button></div>`;
     // PV-Felder: Richtung, Spalten × Reihen, hoch/quer, Abstand von links (von außen gesehen), ab Reihe

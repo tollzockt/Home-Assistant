@@ -85,3 +85,17 @@ def test_energy_card_keys_kept_and_coerced() -> None:
     assert e["ueberschuss"] == {"hoch": 800.0, "mittel": 150}
     assert e["pv_zaehler"] is None
     assert validate_building(_building(energy={"kurz": "quatsch", "ueberschuss": 3}))["settings"]["energy"]["kurz"] == ""
+
+
+def test_pipes_validated() -> None:
+    raw = _building()
+    raw["floors"] = [{"id": "eg", "name": "EG", "elevation": 0, "height": 2.5, "rooms": []}]
+    raw["floors"][0]["pipes"] = [{"id": "leitung", "type": "strom", "points": [[0, 0], [1, 0]], "heights": [0.03, 0.3], "room": "r1"}]
+    pipe = validate_building(raw)["floors"][0]["pipes"][0]
+    assert pipe["entity"] is None and pipe["heights"] == [0.03, 0.3]
+    raw["floors"][0]["pipes"] = [{"id": "x", "type": "gas", "points": [[0, 0], [1, 0]]}]
+    try:
+        validate_building(raw)
+    except Exception:  # noqa: BLE001
+        return
+    raise AssertionError("unbekannter Leitungstyp angenommen")

@@ -36,7 +36,7 @@ export function normalize(building) {
   b.settings = { wall_exterior: 0.24, wall_interior: 0.12, grid: 0.05, ...(b.settings ?? {}) };
   b.settings.energy = { ...DEFAULT_ENERGY, ...(b.settings.energy ?? {}) };
   for (const f of b.floors) {
-    for (const key of ["rooms", "openings", "furniture", "placements", "outdoor", "walls"]) f[key] = f[key] ?? [];
+    for (const key of ["rooms", "openings", "furniture", "placements", "outdoor", "walls", "pipes"]) f[key] = f[key] ?? [];
     f.background = f.background ?? null;
     f.cut_height = f.cut_height ?? 1.15;
   }

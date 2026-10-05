@@ -252,7 +252,7 @@ export const SceneFx = {
         if (mats.some((m) => m.transparent && m.opacity < 0.6)) return;
         let p = o;
         while (p) {
-          if (p.userData.layer === "flow" || p.userData.layer === "weather" || p.userData.layer === "grid") return;
+          if (p.userData.layer === "flow" || p.userData.layer === "pipes" || p.userData.layer === "weather" || p.userData.layer === "grid") return;
           p = p.parent;
         }
         occluders.push(o);

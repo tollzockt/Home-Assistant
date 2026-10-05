@@ -74,12 +74,14 @@ export const TouchMethods = {
     if (!d) return;
     if (kind === "len") return this._draftLen();
     if (kind === "done") {
+      if (d.pipe) return this._finishPipe();
       if (d.line) return this._finishLine();
       if (d.points?.length >= 3) return this._finishPolygon();
       this.draft = null;
     } else if (kind === "back") {
       if (d.line) {
         d.line.pop();
+        d.heights?.pop();
         if (!d.line.length) this.draft = null;
       } else if (d.wall) this.draft = null;
       else {

@@ -1,8 +1,8 @@
 // Jahreszeit, Energiefluss im Haus, PV-Verschattung und Schatten-Zeitraffer (Mixin für Haus3DPanel).
 
-import { daySamples, houseFlowItems, resolveSeason, shadingSummary } from "./fx.js";
-import { gridState } from "./energy.js";
+import { daySamples, resolveSeason, shadingSummary } from "./fx.js";
 import { roomPower } from "./devices.js";
+import { pipeFlow } from "./pipes.js";
 import { energyEntities } from "./energymodel.js";
 import { esc, fmt } from "./panel-util.js";
 import { sunFromHass } from "./sun.js";
@@ -16,22 +16,32 @@ export const FxMethods = {
     this._scene?.setSeason(resolveSeason(this._building?.settings?.season ?? "auto", new Date(), Number.isFinite(lat) ? lat : 50));
   },
 
-  /** Verbrauch je Raum und Netz → Linien vom Hausanschluss (Ebene „Energiefluss“). */
-  _updateHouseFlow(energy) {
-    if (!this._scene || !this._building) return;
-    if (this._settings.layers.flow === false || this._building.settings?.house_flow === false) return this._scene.setHouseFlow([]);
+  /**
+   * Fluss in den gelegten Leitungen (Strom: Sensor oder Verbrauch des Zielraums, Wasser: Durchfluss/Ventil).
+   * Ersetzt die frühere Luftlinie vom Hausanschluss zu den Räumen.
+   */
+  _updatePipes() {
+    if (!this._scene?.setPipeFlow || !this._building) return;
     const hass = this._hass;
-    const cfg = this._building.settings?.energy ?? {};
-    const exclude = new Set(energyEntities(cfg));
-    const watts = new Map();
+    const exclude = new Set(energyEntities(this._building.settings?.energy ?? {}));
+    const rooms = new Map(this._building.floors.flatMap((f) => (f.rooms ?? []).map((r) => [r.id, r])));
+    const map = new Map();
     for (const f of this._building.floors) {
-      for (const r of f.rooms ?? []) {
-        if (r.energy_role) continue;
-        const w = roomPower(r, hass, this._byArea, exclude);
-        if (w != null) watts.set(r.id, w);
+      for (const p of f.pipes ?? []) {
+        const room = p.room ? rooms.get(p.room) : null;
+        const w = !p.entity && room ? roomPower(room, hass, this._byArea, exclude) : null;
+        map.set(p.id, pipeFlow(p, hass, w));
       }
     }
-    this._scene.setHouseFlow(houseFlowItems(watts, gridState(energy?.netz)));
+    const off = this._building.settings?.house_flow === false;
+    this._scene.setPipeFlow(off ? new Map() : map);
+  },
+
+  /** Energiefluss im Haus: läuft nur noch in den Leitungen (Luftlinien gibt es nicht mehr). */
+  _updateHouseFlow() {
+    if (!this._scene || !this._building) return;
+    this._scene.setHouseFlow([]);
+    this._updatePipes();
   },
 
   /** Verschattung der PV-Felder heute (oder am Tag day): Verlust je Feld, Verlauf, Zeitraffer. */

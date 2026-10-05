@@ -112,6 +112,7 @@ export const LAYERS = [
   ["shadows", "Schatten der Sonne"],
   ["solar", "Solarmodule"],
   ["flow", "Energiefluss"],
+  ["pipes", "Leitungen (Strom, Wasser)"],
   ["devices", "Geräte"],
   ["labels", "Raumnamen"],
   ["climate", "Temperatur & Feuchte"],

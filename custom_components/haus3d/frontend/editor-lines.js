@@ -41,7 +41,7 @@ export const LineMethods = {
   /** Entwurf: Band in der gewählten Breite und Gesamtlänge. */
   _lineDraftParts(px, P) {
     const d = this.draft;
-    if (!d?.line) return "";
+    if (!d?.line || d.pipe) return "";
     const pts = [...d.line, ...(d.hover ? [d.hover] : [])];
     const o = this._lineOpts();
     const poly = pts.length > 1 ? offsetPolyline(pts, Math.max(o.width, px(4))) : [];
