@@ -7,6 +7,32 @@ Energiefluss.
 Das Datenformat ist kompatibel mit [NeonPlan 3D](https://github.com/Mastershort/neonplan3d): Exporte von
 dort lassen sich direkt einlesen, und Exporte von Haus 3D kann NeonPlan wieder öffnen.
 
+## Neu in 0.17: Leitungen, Netzwerk, Energie neu
+
+- **Leitungen** (Editor → „Leitung“): Strom, Wasser kalt und Wasser warm am Boden bzw. an der Wand verlegen.
+  Punkte rasten an Wandoberflächen und Ecken ein, die Höhe wählt man je Punkt (Boden, Sockelleiste,
+  Steckdose, Schalter, Decke) – ein Wechsel läuft an der Wand senkrecht. Vom Anfang (Zählerschrank,
+  Hauswasser) zum Verbraucher zeichnen. Strom fließt, wenn der eigene Leistungssensor oder der
+  **Zielraum** Strom braucht; Wasser, wenn der Durchfluss > 0 bzw. Ventil/Pumpe an ist. Der Energiefluss
+  im Haus läuft nur noch in diesen Leitungen (keine Luftlinien zu den Räumen mehr; die Linie vom
+  Balkonkraftwerk erscheint nur, solange noch keine Stromleitung gelegt ist). Ebene „Leitungen“ im Zahnrad.
+- **Netzwerkgeräte** (Integration „UniFi Network“, allgemein device_tracker mit `source_type: router`):
+  Symbol bzw. 3D-Gerät im Raum (Bereich des Geräts) oder frei im Editor platziert; Tipp öffnet
+  online/offline, IP, WLAN, Signal, Access Point, Laufzeit, Clients und **Neu starten** (mit Nachfrage).
+  „Netzwerk“ im Funktionsrad listet alle Geräte.
+- **Energie neu**: Grundlage sind Haus (Verbrauch), Netzbezug und Einspeisung – ein Netz-Sensor mit
+  Vorzeichen oder zwei getrennte. Dazu beliebig viele **PV-Anlagen, Balkonkraftwerke und AC-Speicher**
+  mit eigenen Entitäten; Erzeugung, Ertrag heute und Speicher werden **zusammengerechnet** (Verbrauch
+  ohne eigenen Sensor = Erzeugung + Netz − Speicherladung). Alte Einstellungen werden übernommen.
+- **Raum antippen** fährt die Kamera hin; das Raumfenster öffnet sich mit **Gedrückthalten**.
+- **Heizkörper/Thermostat antippen**: Fenster mit Ist/Soll, − und +, Betriebsarten.
+- **Größere Trefferflächen**: Geräte in 3D treffen auch knapp daneben.
+- **Kameras** genauer ausrichten: orangen Griff im Editor ziehen (1°), Öffnungswinkel, Neigung und
+  Reichweite; der Sichtkegel folgt (geneigt: Bereich am Boden).
+- **Modus-Leiste oben**: „Bearbeiten“ bzw. „Admin“ mit **Beenden**; im Zahnrad steht „Beenden“ an der
+  Stelle, an der man den Modus gestartet hat.
+- Anwesenheit oben: Name und Ort nicht mehr halb verdeckt.
+
 ## Neu in 0.16: Einstellungen, Bearbeiten und PIN
 
 - **Zahnrad** (für alle, schlicht): Stil, Qualität, Geräte, Anzeige-Kacheln (Raster, Raumnamen, Dach,
@@ -320,11 +346,12 @@ auf gleicher Höhe auf, schließt Lücken zwischen Räumen und trägt die Energi
 
 ### Energie-Entitäten
 
-Zahnrad → „Energie-Anzeige (für alle)“: Balkonkraftwerk, Haus (PV Dach, Netz, Verbrauch) und Akku.
-„Aus HA-Energie übernehmen“ schlägt Entitäten aus dem Energie-Dashboard vor (füllt nur die Felder,
-gespeichert wird mit „Speichern“). Zeigt der Akku „lädt“ statt „entlädt“ (oder das Netz Bezug statt
-Einspeisung), das Vorzeichen umkehren – die Vorschau zeigt es sofort. Leistungen in kW und Energien in
-Wh werden automatisch umgerechnet.
+Admin-Einstellungen → Energie: **Haus** (Verbrauch, optional), **Netz** (ein Sensor mit Vorzeichen,
++ = Bezug, oder getrennt Bezug/Einspeisung) und darunter **PV, Balkonkraftwerk, AC-Speicher** über
+„+“ (je Leistung, Ertrag heute bzw. Ladestand, Kapazität). Alle Erzeuger und Speicher werden
+zusammengerechnet; die Summen stehen live darunter. „Aus HA-Energie übernehmen“ schlägt Entitäten aus
+dem Energie-Dashboard vor. Zeigt etwas mit falschem Vorzeichen, „umkehren“ anhaken. Leistungen in kW und
+Energien in Wh werden automatisch umgerechnet.
 
 ## Entwicklung und Tests
 

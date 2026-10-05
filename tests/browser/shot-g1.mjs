@@ -55,7 +55,7 @@ await pg.waitForFunction(() => window.panel._editing(), null, { timeout: 5000 })
 await pg.waitForTimeout(300);
 const ed = await E(() => {
   const r = window.panel.shadowRoot;
-  return { band: !!r.querySelector(".modes .mode.edit"), edit: !r.querySelector(".edit").hidden, cedit: r.querySelectorAll(".cedit").length, plus: window.panel._quickItems().some((i) => i.plus) };
+  return { band: !!r.querySelector(".modes .mode.m-edit"), edit: !r.querySelector(".edit").hidden, cedit: r.querySelectorAll(".cedit").length, plus: window.panel._quickItems().some((i) => i.plus) };
 });
 t.results.bearbeiten = ed;
 t.check(ed.band && ed.edit && ed.cedit >= 1 && ed.plus, `Bearbeiten frei: ${JSON.stringify(ed)}`);
@@ -119,7 +119,7 @@ const ended = await E(async () => {
   } catch (e) {
     code = e.code;
   }
-  return { band: !!r.querySelector(".modes .mode.edit"), cedit: r.querySelectorAll(".cedit").length, tokens: Object.keys(window.tokens).length };
+  return { band: !!r.querySelector(".modes .mode.m-edit"), cedit: r.querySelectorAll(".cedit").length, tokens: Object.keys(window.tokens).length };
 });
 t.check(!ended.band && !ended.cedit && ended.tokens === 0, `Beenden: ${JSON.stringify(ended)}`);
 
@@ -145,10 +145,10 @@ t.check(warn === 2 && pins.edit === "4711", `PIN ändern: ${JSON.stringify({ war
 await t.shot(pg, "admin-pin.png");
 await pg.locator("haus3d-panel .dialog .close").click();
 // Admin bleibt aktiv (oben „Admin · Beenden“), bis man es beendet
-const adminBar = await E(() => !!window.panel.shadowRoot.querySelector(".modes .mode.admin"));
+const adminBar = await E(() => !!window.panel.shadowRoot.querySelector(".modes .mode.m-admin"));
 await t.shot(pg, "admin-aktiv.png");
 await pg.locator("haus3d-panel .modes [data-end=admin]").click();
-const adminOff = await E(() => !window.panel.shadowRoot.querySelector(".modes .mode.admin") && !Object.keys(window.tokens).length);
+const adminOff = await E(() => !window.panel.shadowRoot.querySelector(".modes .mode.m-admin") && !Object.keys(window.tokens).length);
 t.check(adminBar && adminOff, `Admin-Modus oben mit Beenden: ${JSON.stringify({ adminBar, adminOff })}`);
 // alte PIN öffnet Bearbeiten nicht mehr, neue schon
 await E(() => {

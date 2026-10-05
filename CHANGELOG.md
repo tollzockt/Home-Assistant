@@ -1,5 +1,25 @@
 # Änderungen
 
+## 0.17.0
+
+### Neu
+- **Leitungen** im Editor (Strom, Wasser kalt/warm) entlang Boden und Wand, mit Höhe je Punkt; in 3D als
+  Rohr mit laufenden Punkten, solange Strom bzw. Wasser fließt (eigener Sensor oder Zielraum). Ersetzt die
+  Luftlinien vom Hausanschluss zu den Räumen.
+- **Netzwerkgeräte** (UniFi Network): Symbole/3D-Geräte, Fenster mit IP, WLAN, Signal, Access Point,
+  Laufzeit, Clients, Neustart; Liste „Netzwerk“ im Funktionsrad.
+- **Energie neu**: Haus, Netzbezug, Einspeisung als Grundlage; PV, Balkonkraftwerk und AC-Speicher als
+  Erweiterungen mit eigenen Entitäten, alle Werte summiert. Bestehende Einstellungen werden übernommen.
+- **Heizkörper antippen** öffnet ein Thermostat-Fenster.
+- **Kameras**: Dreh-Griff im Editor, Öffnungswinkel, Neigung, Reichweite.
+
+### Geändert
+- Raum antippen fährt die Kamera hin; Raumfenster per Gedrückthalten.
+- Größere Trefferflächen für Geräte in 3D.
+- Bearbeiten- und Admin-Modus stehen oben mit „Beenden“; Admin endet auch im Zahnrad über „Beenden“.
+- Anwesenheit: Text nicht mehr verdeckt.
+- Popups: Name in der Kopfzeile wird nicht mehr vom Schließen-Knopf verdrängt.
+
 ## 0.16.0
 
 ### Wichtig beim Update

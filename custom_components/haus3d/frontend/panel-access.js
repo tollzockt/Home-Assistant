@@ -185,8 +185,8 @@ export const AccessMethods = {
     const box = this.shadowRoot?.querySelector(".modes");
     if (!box) return;
     const parts = [];
-    if (this._editMode) parts.push(`<span class="mode edit"><ha-icon icon="mdi:pencil"></ha-icon><span class="mt">Bearbeiten</span>${this._scene ? `<button class="plan" title="Grundriss bearbeiten"><ha-icon icon="mdi:floor-plan"></ha-icon><span class="mt">Grundriss</span></button>` : ""}<button class="end" data-end="edit">Beenden</button></span>`);
-    if (this._adminMode) parts.push(`<span class="mode admin"><button class="open" title="Admin-Einstellungen öffnen"><ha-icon icon="mdi:cog"></ha-icon><span class="mt">Admin</span></button><button class="end" data-end="admin">Beenden</button></span>`);
+    if (this._editMode) parts.push(`<span class="mode m-edit"><ha-icon icon="mdi:pencil"></ha-icon><span class="mt">Bearbeiten</span>${this._scene ? `<button class="plan" title="Grundriss bearbeiten"><ha-icon icon="mdi:floor-plan"></ha-icon><span class="mt">Grundriss</span></button>` : ""}<button class="end" data-end="edit">Beenden</button></span>`);
+    if (this._adminMode) parts.push(`<span class="mode m-admin"><button class="open" title="Admin-Einstellungen öffnen"><ha-icon icon="mdi:cog"></ha-icon><span class="mt">Admin</span></button><button class="end" data-end="admin">Beenden</button></span>`);
     box.innerHTML = parts.join("");
     box.hidden = !parts.length;
     box.querySelector(".plan")?.addEventListener("click", () => this._openEditor());
@@ -225,12 +225,12 @@ export const ACCESS_STYLE = `
 .modes { display: flex; gap: 6px; flex: none; }
 .modes[hidden] { display: none; }
 .mode { display: inline-flex; align-items: center; gap: 6px; height: 36px; padding: 0 3px 0 10px; border-radius: 18px; color: #fff; font-weight: 600; font-size: 14px; white-space: nowrap; box-shadow: 0 1px 4px rgba(0,0,0,.25); }
-.mode.edit { background: #2e7d32; }
-.mode.admin { background: #e65100; padding-left: 3px; }
+.mode.m-edit { background: #2e7d32; }
+.mode.m-admin { background: #e65100; padding-left: 3px; }
 .mode button { display: inline-flex; align-items: center; gap: 4px; font: inherit; border: 0; border-radius: 15px; height: 30px; padding: 0 10px; cursor: pointer; background: rgba(255,255,255,.2); color: #fff; }
 .mode button.end { background: #fff; color: #333; }
-.mode.edit button.end { color: #2e7d32; }
-.mode.admin button.end { color: #e65100; }
+.mode.m-edit button.end { color: #2e7d32; }
+.mode.m-admin button.end { color: #e65100; }
 .mode button.open { background: transparent; padding: 0 6px; }
 @media (max-width: 700px) { .mode .mt { display: none; } }
 @media (pointer: coarse) { .mode { height: 44px; } .mode button { height: 38px; } }
