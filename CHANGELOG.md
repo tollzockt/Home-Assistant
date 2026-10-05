@@ -1,5 +1,10 @@
 # Änderungen
 
+## 0.14.1
+
+- Behoben: „Unable to load custom panel“ nach dem Update auf 0.14.0, solange die App bzw. Seite
+  noch die alte Version geladen hatte (das Panel-Element wurde ein zweites Mal registriert).
+
 ## 0.14.0
 
 Großes Update: Alltag, Energie, Optik, Wandtablet und Editor. Gespeicherte Grundrisse bleiben erhalten.

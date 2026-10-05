@@ -20,3 +20,13 @@ test("Frontend-Module laden", async () => {
     assert.equal(r.status, 0, `${f}: ${r.stderr}`);
   }
 });
+
+test("Element nur registrieren, wenn noch nicht vorhanden (Update ohne Neuladen)", async () => {
+  const { readFileSync, readdirSync } = await import("node:fs");
+  const dir = new URL("../../custom_components/haus3d/frontend/", import.meta.url);
+  for (const f of readdirSync(dir).filter((x) => x.endsWith(".js"))) {
+    for (const line of readFileSync(new URL(f, dir), "utf8").split("\n")) {
+      if (line.includes("customElements.define(")) assert.match(line, /^if \(!customElements\.get\(/, `${f}: ${line.trim()}`);
+    }
+  }
+});

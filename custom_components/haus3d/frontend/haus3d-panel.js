@@ -2265,7 +2265,9 @@ class Haus3DPanel extends HTMLElement {
 
 }
 
-if (!customElements.get("haus3d-panel")) // Dialoge einmischen (panel-dialogs.js)
+// Dialoge und Energie-Verlauf einmischen (panel-dialogs.js, panel-energy.js)
 Object.assign(Haus3DPanel.prototype, DialogMethods, EnergyMethods);
 
-customElements.define("haus3d-panel", Haus3DPanel);
+// Nach einem Update ohne Neuladen ist das Element der alten Version noch registriert: ein zweites
+// define würfe einen Fehler und das Panel ließe sich gar nicht laden
+if (!customElements.get("haus3d-panel")) customElements.define("haus3d-panel", Haus3DPanel);
