@@ -329,7 +329,10 @@ export const TabletMethods = {
 
   /** Gespeicherte Blickwinkel (dieses Gerät, höchstens 6). */
   _savedViews(next) {
-    if (next) this._store("haus3d.savedViews", JSON.stringify(normalizeViews(next)));
+    if (next) {
+      this._store("haus3d.savedViews", JSON.stringify(normalizeViews(next)));
+      this._pushUserData();
+    }
     try {
       return normalizeViews(JSON.parse(localStorage.getItem("haus3d.savedViews") ?? "[]"));
     } catch {

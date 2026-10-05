@@ -14,6 +14,7 @@ import { ambientInterval, lodState, resolveQuality, shouldRender } from "./perf.
 import { ROOF_ITEMS, adjustRoofParts, findPvShed, freeEdges, panelArraySlots, panelSlots, pvLayout, roofFaces, roofFloor, roofParts, roofRooms, roofSettings, roofSurfaceAt, roomRoofGroups, scatter, seeded, panelBasis, roofObstacles, dormerShape } from "./exterior.js";
 import { centroid, computeWalls, labelPoint, pieceFootprint, pointInPolygon, wallPieces } from "./walls.js";
 import { SceneFx } from "./scene-fx.js";
+import { SceneWalk } from "./scene-walk.js";
 
 const OUTDOOR = {
   lawn: { color: 0x6aa84f, y: -0.035, h: 0 },
@@ -2250,4 +2251,4 @@ function outline(points, y, material, heights = null) {
   return new THREE.LineLoop(new THREE.BufferGeometry().setFromPoints(pts), material);
 }
 
-Object.assign(HouseScene.prototype, SceneFx);
+Object.assign(HouseScene.prototype, SceneFx, SceneWalk);

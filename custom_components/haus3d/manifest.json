@@ -10,5 +10,5 @@
   "issue_tracker": "https://github.com/tollzockt/Haus3d-HomeAssistant/issues",
   "requirements": [],
   "single_config_entry": true,
-  "version": "0.14.2"
+  "version": "0.15.0"
 }

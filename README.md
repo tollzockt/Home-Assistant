@@ -7,6 +7,38 @@ Energiefluss.
 Das Datenformat ist kompatibel mit [NeonPlan 3D](https://github.com/Mastershort/neonplan3d): Exporte von
 dort lassen sich direkt einlesen, und Exporte von Haus 3D kann NeonPlan wieder öffnen.
 
+## Neu in 0.15
+
+- **Tablet**: Funktionsrad mit dem Finger drehen, nichts überlappt, Editor in einer Zeile, Dialoge als
+  Blatt von unten.
+- **Kameras** (Kamerafenster, Sichtkegel, Klingel öffnet die Kamera), **Medien und Saugroboter** im
+  Raumfenster, **Kurzwahl 2.0** (läuft gerade, zuletzt, Ablauf ansehen).
+- **Energiefluss im ganzen Haus**, **echte Schatten** mit **PV-Verschattungs-Check** und
+  Schatten-Zeitraffer, Kontaktschatten unter Möbeln, **Jahreszeiten** im Garten.
+- **Meine Ansicht** je Benutzer (alle Geräte), **Dienste** `haus3d.show/notify/highlight/reload` für
+  Automationen, **Begehen** aus Augenhöhe.
+- **Editor**: Bauplan-Foto nachzeichnen, Fluchtlinien und Länge/Winkel eintippen, Mehrfachauswahl mit
+  Kopieren/Einfügen und Vorlagen, **L-Treppe mit Podest oder gewendelt**, U- und Wendeltreppe, Gauben.
+
+### Dienste für Automationen
+
+Offene Haus-3D-Seiten (z. B. das Wandtablet) folgen diesen Diensten. Mit `target` nur das Gerät, dessen
+Name unter Zahnrad → Wandtablet → „Name dieses Geräts“ steht; ohne `target` alle.
+
+```yaml
+# Klingel: Flur-Tablet zeigt das EG von oben und einen Hinweis
+- action: haus3d.show
+  data: { floor: eg, view: oben, target: flur-tablet }
+- action: haus3d.notify
+  data: { message: "Paket an der Haustür", level: info, room: flur, target: flur-tablet }
+# Raum kurz blinken lassen
+- action: haus3d.highlight
+  data: { room: kueche, seconds: 15 }
+```
+
+`view` ist `iso`, `oben`, `sued`, `nord`, `ost`, `west` oder der Name einer gemerkten Ansicht; `room` die
+Raum-ID oder der Raumname. `haus3d.reload` lädt den Grundriss neu.
+
 ## Neu in 0.14
 
 Statusleiste, Hinweise am Modell, Gute-Nacht-Check, Anwesenheit, Energie-Karte 2.0 mit Tagesverlauf,
@@ -179,8 +211,8 @@ Damit HACS sie als Update anbietet, braucht es ein **Release**:
 
 1. Auf GitHub im Repository rechts **Releases → Draft a new release** (bzw. „Create a new release“).
 2. **Choose a tag** → neuen Tag eintippen, genau wie die Version in `manifest.json` mit „v“ davor,
-   z. B. `v0.14.2` → „Create new tag“. Ziel-Zweig: `main`.
-3. Titel z. B. `0.14.2`, kurze Beschreibung, bei „Release label“ **None** (nicht Pre-release),
+   z. B. `v0.15.0` → „Create new tag“. Ziel-Zweig: `main`.
+3. Titel z. B. `0.15.0`, kurze Beschreibung, bei „Release label“ **None** (nicht Pre-release),
    **Publish release**.
 4. In Home Assistant: **HACS → Haus 3D** (ggf. ⋮ → „Informationen aktualisieren“) → **Herunterladen**/
    **Aktualisieren** → Home Assistant **neu starten**.

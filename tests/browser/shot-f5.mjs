@@ -79,6 +79,7 @@ t.check(walked.moved < 200 && walked.dist < 19, `Wand hält auf: ${JSON.stringif
 await pg.keyboard.down("ArrowLeft");
 await pg.keyboard.up("ArrowLeft");
 await pg.locator("haus3d-panel .walkui .exit").click();
+await pg.waitForTimeout(2000); // Kamera fährt zurück
 const after = await E(() => ({ walking: window.panel._scene.isWalking(), view: window.panel._scene.getView(), ui: !!window.panel.shadowRoot.querySelector(".walkui") }));
 const same = after.view.position.every((v, i) => Math.abs(v - before.position[i]) < 0.05);
 t.check(!after.walking && !after.ui && same, `Begehen verlassen: ${JSON.stringify({ after, before })}`);

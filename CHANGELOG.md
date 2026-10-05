@@ -1,5 +1,46 @@
 # Änderungen
 
+## 0.15.0
+
+### Kameras, Medien, Kurzwahl
+- **Kameras** als Symbol im Raum; Tipp öffnet das Kamerafenster (Standbild alle 2 s, „Live“ über HA).
+  Fest platzierte Kameras bekommen im Editor eine **Blickrichtung**; der **Sichtkegel** erscheint in 2D
+  und 3D.
+- **Klingel**: Kamera als „Klingel-Kamera“ markieren und einen Auslöser wählen (event.… mit
+  device_class doorbell oder ein Binärsensor). Klingeln weckt das Tablet und öffnet die Kamera.
+- **Raumfenster**: Medienplayer (Titel, Zurück/Wiedergabe/Weiter, stumm, Lautstärke, an/aus),
+  **Saugroboter** (Saugen, Pause, Zur Station, Suchen, Akku), Kamera-Vorschau.
+- **Kurzwahl 2.0**: laufende Automationen/Skripte drehen einen Ring, darunter „vor 10 min“ bzw.
+  „aus“. Langes Drücken: Auslösen, Stoppen, Ein/Aus, **Ablauf ansehen** (Trace), Bearbeiten.
+
+### Licht, Schatten, Energie
+- **Echte Schatten** der Sonne (Qualität „Ausgewogen“ und „Schön“, Ebene „Schatten“ im Funktionsrad).
+- **PV-Verschattung prüfen** (PV-Feld antippen): Verlust je Feld über einen Tag, stärkste Uhrzeit,
+  beliebiger Tag; **Schatten-Zeitraffer** lässt die Sonne über den Tag laufen.
+- **Kontaktschatten** unter Möbeln und Bäumen.
+- **Jahreszeiten im Garten**: Rasen und Laub nach Datum (oder fest: Zahnrad → Haus & Wetter).
+- **Energiefluss im ganzen Haus**: Linien vom Hausanschluss zu Räumen mit Verbrauch und zum Netz
+  (rot Bezug, grün Einspeisung); abschaltbar unter Haus & Wetter.
+
+### Benutzer, Dienste, Begehen
+- **Meine Ansicht**: Stil, Ebenen, Qualität und gemerkte Blickwinkel gelten für den HA-Benutzer auf
+  allen Geräten. Am Wandtablet abschaltbar („Eigene Ansicht“).
+- **Dienste** `haus3d.show`, `haus3d.notify`, `haus3d.highlight`, `haus3d.reload` steuern offene
+  Haus-3D-Seiten aus Automationen, mit `target` nur ein bestimmtes Tablet.
+- **Begehen** (Funktionsrad): Blick aus Augenhöhe, Ziehen schaut sich um, Tippen auf den Boden geht hin,
+  Joystick/WASD/Pfeiltasten; Wände halten auf, Türen lassen durch.
+
+### Editor
+- **Bauplan-Foto** je Etage unterlegen (verkleinert, getrennt vom Grundriss gespeichert), verschieben,
+  drehen, Deckkraft, **Maßstab aus zwei Punkten**.
+- **Fang-Hilfen**: Fluchtlinien zu vorhandenen Ecken; **Länge und Winkel eintippen** (Ziffern tippen
+  springt ins Feld).
+- **Mehrfachauswahl** (Schalter „Mehrfach“, Umschalt-Klick oder Rahmen aufziehen): verschieben,
+  Pfeiltasten, kopieren/einfügen (Strg+C/V), duplizieren (Strg+D), löschen; **Vorlagen** für alle Etagen.
+- **Treppen**: L-Treppe **mit Podest** oder **gewendelt**, U-Treppe, Wendeltreppe; Deckenloch passend
+  zur Form. **Gauben** (Schlepp-, Sattel-, Flachdach) im Dach-Editor, verdecken PV-Module.
+- Behoben: Kontrollkästchen im Editor waren verschoben; Keller allein gewählt lag unter dem Rasen.
+
 ## 0.14.2
 
 Tablet-Bedienung:

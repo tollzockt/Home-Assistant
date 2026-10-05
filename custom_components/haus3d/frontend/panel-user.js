@@ -166,9 +166,11 @@ export const UserMethods = {
     if (!floor) return;
     const room = panel && panel.floorId === floorId ? floor.rooms.find((r) => r.id === panel.roomId) : null;
     this._walkPrev = this._filter;
+    const view = this._scene.getView(); // vor der Etagenwahl (die verschiebt den Blick)
     this._setFilter(floorId);
     const c = room ? room.points.reduce((s, p) => [s[0] + p[0] / room.points.length, s[1] + p[1] / room.points.length], [0, 0]) : null;
     if (!this._scene.enterWalk(floorId, c)) return this._toast("Begehen geht nur auf Etagen mit Räumen.");
+    this._scene._walk.saved = view;
     this._closePopup?.();
     this._els.stage.classList.add("walking");
     const ui = document.createElement("div");
@@ -215,12 +217,13 @@ export const UserMethods = {
 
   _stopWalk() {
     if (!this._scene?.isWalking()) return;
+    // erst die Etage zurück, dann die Kamera (sonst verschiebt die Etagenwahl den Blick)
+    if (this._walkPrev && this._walkPrev !== this._filter) this._setFilter(this._walkPrev);
     this._scene.exitWalk();
     this._walkUi?.remove();
     this._walkUi = null;
     window.removeEventListener("keydown", this._walkEsc);
     this._els.stage.classList.remove("walking");
-    if (this._walkPrev && this._walkPrev !== this._filter) this._setFilter(this._walkPrev);
   },
 };
 
@@ -232,7 +235,7 @@ export const USER_STYLE = `
 .notice button { font: inherit; border: 0; border-radius: 10px; padding: 6px 12px; min-height: 36px; cursor: pointer; background: rgba(255,255,255,.95); color: #222; }
 .notice button.icon { background: transparent; color: #fff; }
 @keyframes h3dpulse { 50% { box-shadow: 0 0 0 6px rgba(198,40,40,.35); } }
-.stage.walking .floorbar, .stage.walking .cards, .stage.walking .wheel, .stage.walking .overlay, .stage.walking .rp { display: none !important; }
+.stage.walking .floorbar, .stage.walking .cards, .stage.walking .wheel, .stage.walking .overlay, .stage.walking .roompanel, .stage.walking .alertbar, .stage.walking .lapsechip { display: none !important; }
 .walkui { position: absolute; inset: 0; pointer-events: none; z-index: 6; }
 .walkui .walkbar { pointer-events: auto; position: absolute; top: 12px; left: 50%; transform: translateX(-50%); display: flex; align-items: center; gap: 10px; padding: 6px 6px 6px 14px; border-radius: 24px; background: var(--card-background-color, #fff); box-shadow: 0 2px 10px rgba(0,0,0,.3); font-weight: 600; }
 .walkui .walkbar button { font: inherit; border: 0; border-radius: 18px; min-height: 40px; padding: 0 16px; cursor: pointer; background: var(--primary-color, #03a9f4); color: #fff; }

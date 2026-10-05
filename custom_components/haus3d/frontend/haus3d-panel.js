@@ -48,6 +48,7 @@ import { EnergyMethods } from "./panel-energy.js";
 import { TabletMethods } from "./panel-tablet.js";
 import { MEDIA_STYLE, MediaMethods } from "./panel-media.js";
 import { FX_STYLE, FxMethods } from "./panel-fx.js";
+import { USER_STYLE, UserMethods } from "./panel-user.js";
 import { VIEW_PRESETS, normalizeViews, poseInBox } from "./camera.js";
 
 import { LONG_PRESS_MS, esc, plural, ENERGY_CORE, energyRows, LAYERS, DEFAULT_SETTINGS, loadSettings, fmt, ICONS, CONTACT_ICONS, DOMAIN_ICONS, SENSOR_ICONS, fmtPower, setText, iconFor, isActive } from "./panel-util.js";
@@ -357,7 +358,7 @@ class Haus3DPanel extends HTMLElement {
   _build() {
     this._built = true;
     this.shadowRoot.innerHTML = `
-      <style>${PANEL_STYLE}${MEDIA_STYLE}${FX_STYLE}${EDITOR_STYLE}</style>
+      <style>${PANEL_STYLE}${MEDIA_STYLE}${FX_STYLE}${USER_STYLE}${EDITOR_STYLE}</style>
       <div class="wrap">
         <header>
           <button class="icon menu" title="Menü"><ha-icon icon="mdi:menu"></ha-icon></button>
@@ -471,6 +472,8 @@ class Haus3DPanel extends HTMLElement {
     try {
       const res = await this._hass.callWS({ type: "haus3d/building/get" });
       this._setBuilding(res.building, res.revision);
+      this._subscribeCommands();
+      this._loadUserData();
       // Simulation war in diesem Browser an: wieder starten (Band oben zeigt es deutlich)
       if (this._settings.sim && !this._sim) {
         if (this.hasAttribute("kiosk")) this._toastAction("Simulation war aktiv.", "Fortsetzen", () => this._setSim(true));
@@ -1009,7 +1012,7 @@ class Haus3DPanel extends HTMLElement {
     const lightLooks = new Map();
     if (lightColors) for (const id of onEntities) if (id.startsWith("light.")) lightLooks.set(id, lightLook(hass.states[id]));
     const heating = new Set(this._watched.filter((id) => id.startsWith("climate.") && hass.states[id]?.attributes?.hvac_action === "heating"));
-    const alertRooms = this._evalAlerts(energy);
+    const alertRooms = this._applyHighlight(this._evalAlerts(energy));
     if (this._securityView) temps.clear(); // Böden neutral grau
     this._scene?.applyStates({ security, lit, temps, tempMode: view !== "none" || this._securityView, tempColor: (v) => viewColor(view, v) ?? [0.6, 0.6, 0.6], open, covers, feedIn: energy.einspeisung, onEntities, heating, heatRooms, alerts: alertRooms, lights, lightLooks });
     this._updateHouseFlow(energy);
@@ -1453,6 +1456,7 @@ class Haus3DPanel extends HTMLElement {
 
   _saveSettings() {
     this._store("haus3d.settings", JSON.stringify(this._settings));
+    this._pushUserData();
   }
 
   _applyOverlayLayers() {
@@ -1497,6 +1501,8 @@ class Haus3DPanel extends HTMLElement {
     let timer = null;
     target.addEventListener("pointerdown", (ev) => {
       if (ev.pointerType === "mouse" && ev.button !== 0) return;
+      if (this._scene?.isWalking()) return; // Begehen: eigene Bedienung
+
       down = { x: ev.clientX, y: ev.clientY, t: performance.now(), long: false };
       clearTimeout(timer);
       timer = setTimeout(() => {
@@ -1523,6 +1529,7 @@ class Haus3DPanel extends HTMLElement {
       clearTimeout(timer);
       const d = down;
       down = null;
+      if (this._scene?.isWalking()) return;
       if (!d || d.long || Math.hypot(ev.clientX - d.x, ev.clientY - d.y) > 8) return;
       const hit = this._scene?.pick(ev.clientX, ev.clientY);
       if (hit?.entity_id) this._activate(hit.entity_id);
@@ -1901,6 +1908,8 @@ class Haus3DPanel extends HTMLElement {
         this._renderWheels();
       } },
       goodnight: { icon: "mdi:weather-night", name: "Gute Nacht", on: false, run: () => this._checkSheet("goodnight") },
+      walk: { icon: "mdi:walk", name: "Begehen", on: false, run: () => this._startWalk() },
+      shadows: layer("shadows", "mdi:box-shadow", "Schatten"),
       fit: { icon: "mdi:fit-to-screen-outline", name: "Ansicht einpassen", on: false, run: () => this._resetView() },
       view: { icon: "mdi:camera-switch-outline", name: "Blickwinkel", on: false, run: () => this._viewChips() },
       ...(document.fullscreenEnabled ? { fullscreen: { icon: document.fullscreenElement ? "mdi:fullscreen-exit" : "mdi:fullscreen", name: "Vollbild", on: !!document.fullscreenElement, run: () => this._toggleFullscreen() } } : {}),
@@ -2012,7 +2021,7 @@ class Haus3DPanel extends HTMLElement {
 }
 
 // Dialoge und Energie-Verlauf einmischen (panel-dialogs.js, panel-energy.js)
-Object.assign(Haus3DPanel.prototype, DialogMethods, EnergyMethods, TabletMethods, MediaMethods, FxMethods);
+Object.assign(Haus3DPanel.prototype, DialogMethods, EnergyMethods, TabletMethods, MediaMethods, FxMethods, UserMethods);
 
 // Nach einem Update ohne Neuladen ist das Element der alten Version noch registriert: ein zweites
 // define würfe einen Fehler und das Panel ließe sich gar nicht laden

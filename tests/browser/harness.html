@@ -170,6 +170,11 @@ const hass = {
     window.calls.push(msg);
     if (msg.type === "haus3d/building/get") return { building: data, revision: 1 };
     if (msg.type === "haus3d/building/save") return { building: msg.building, revision: (msg.revision ?? 1) + 1 };
+    if (msg.type === "frontend/get_user_data") return { value: window.userData ?? (params.has("userdata") ? { settings: { style: "night", layers: { grid: false } }, views: [{ name: "Garten", position: [20, 12, 20], target: [5, 0, 5] }] } : null) };
+    if (msg.type === "frontend/set_user_data") {
+      window.userData = msg.value;
+      return null;
+    }
     if (msg.type === "haus3d/background/get") return { image: (window.bgImages ??= {})[msg.floor_id] ?? null };
     if (msg.type === "haus3d/background/set") {
       (window.bgImages ??= {})[msg.floor_id] = msg.image;
@@ -198,6 +203,14 @@ const hass = {
     return {};
   },
   callService: async (domain, service, d) => { window.calls.push({ domain, service, ...d }); },
+  // Dienst-Abo: window.sendCommand({service: "notify", …}) schickt einen Befehl wie Home Assistant
+  connection: {
+    subscribeMessage: async (cb, msg) => {
+      window.calls.push(msg);
+      window.sendCommand = cb;
+      return () => (window.sendCommand = null);
+    },
+  },
 };
 window.hass = hass;
 document.addEventListener("hass-more-info", (e) => window.events.push(e.detail.entityId));
