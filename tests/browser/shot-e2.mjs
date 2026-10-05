@@ -1,5 +1,5 @@
 // E2: Raumfenster 2.0 – Schnellaktionen, Thermostat-Stepper, Zeilen bleiben erhalten, Finger-Scrollen
-import { start } from "./lib.mjs";
+import { start, unlock } from "./lib.mjs";
 
 const t = await start(process.argv[2]);
 const pg = await t.page("e2", "?climate&quality=schoen", { width: 1024, height: 768, touch: true });
@@ -63,6 +63,8 @@ await t.shot(pg, "raumfenster-2.png");
 // Geräte anpassen öffnen und abbrechen: Fenster baut sich wieder auf
 await pg.evaluate(() => window.panel._selectRoom({ floorId: "eg", roomId: "wohnzimmer" }));
 await pg.waitForTimeout(200);
+await unlock(pg); // „Geräte anpassen“ gibt es nur im Bearbeiten-Modus
+await pg.waitForTimeout(300);
 const wz = pg.locator(`${P}`).filter({ hasText: "Wohnzimmer" });
 await wz.locator(".cfg").tap();
 await pg.waitForTimeout(200);

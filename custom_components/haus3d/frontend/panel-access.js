@@ -205,8 +205,7 @@ export const ACCESS_STYLE = `
 .pinpad .keys { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
 .pinpad .keys button { height: 62px; border-radius: 16px; border: 1px solid var(--divider-color, rgba(127,127,127,.3)); background: var(--secondary-background-color, rgba(127,127,127,.08)); color: inherit; font: inherit; font-size: 24px; font-weight: 500; cursor: pointer; touch-action: manipulation; }
 .pinpad .keys button:active { background: var(--primary-color, #03a9f4); color: #fff; }
-.editband { position: absolute; left: 50%; top: 10px; transform: translateX(-50%); z-index: 8; display: flex; align-items: center; gap: 10px; padding: 6px 6px 6px 14px; border-radius: 24px; background: #2e7d32; color: #fff; box-shadow: 0 2px 12px rgba(0,0,0,.3); font-weight: 600; white-space: nowrap; }
+.editband { position: absolute; left: 50%; bottom: 16px; transform: translateX(-50%); z-index: 8; display: flex; align-items: center; gap: 10px; padding: 6px 6px 6px 14px; border-radius: 24px; background: #2e7d32; color: #fff; box-shadow: 0 2px 12px rgba(0,0,0,.3); font-weight: 600; white-space: nowrap; }
 .editband button { display: inline-flex; align-items: center; gap: 6px; font: inherit; border: 0; border-radius: 18px; min-height: 40px; padding: 0 14px; cursor: pointer; background: rgba(255,255,255,.18); color: #fff; }
 .editband button.primary { background: #fff; color: #2e7d32; }
-:host([editing]) .alertbar { top: 64px; }
 `;

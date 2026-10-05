@@ -1,5 +1,5 @@
 // F3: Kamera (Sichtkegel, Kamerafenster, Klingel), Medien und Saugroboter im Raumfenster, Kurzwahl 2.0
-import { start } from "./lib.mjs";
+import { start, unlock } from "./lib.mjs";
 
 const t = await start(process.argv[2]);
 const pg = await t.page("f3", "?media", { width: 1280, height: 800 });
@@ -69,7 +69,8 @@ const vcalls = await E(() => window.calls.filter((c) => c.domain === "vacuum").m
 t.check(vcalls.includes("start"), `Saugen: ${JSON.stringify(vcalls)}`);
 await t.shot(pg, "raum-sauger.png");
 
-// Kurzwahl 2.0: läuft-Ring, „läuft …“, Langdruck → Ablauf-Fenster
+// Kurzwahl 2.0: läuft-Ring, „läuft …“, Langdruck → Ablauf-Fenster („Ablauf ansehen“ im Bearbeiten-Modus)
+await unlock(pg);
 await pg.locator("haus3d-panel .wheel.left .fab").click();
 await pg.waitForTimeout(300);
 const bub = await E(() => {
