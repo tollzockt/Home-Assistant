@@ -75,14 +75,14 @@ const tabs = await E(() => {
 });
 t.results.kartenTabs = tabs;
 t.check(tabs?.title === "Karten" && tabs.sel === "Energie" && tabs.tabs.at(-1) === "+" && !tabs.pin, `Energie-Stift öffnet Karten-Tab: ${JSON.stringify(tabs)}`);
-// Energie-Karte: Netz ausblenden, Akku nach oben, Titel ändern
+// Energie-Karte: Ertrag ausblenden, Speicher nach oben, Titel ändern
 await E(() => {
   const f = window.panel.shadowRoot.querySelector(".cform");
   const rows = [...f.querySelectorAll(".erow")];
   const idx = (name) => rows.findIndex((r) => r.querySelector(".nm").placeholder === name);
-  f.querySelector(`[data-vis="${idx("Netz")}"]`).click();
+  f.querySelector(`[data-vis="${idx("Ertrag heute")}"]`).click();
 });
-const akkuIdx = await E(() => [...window.panel.shadowRoot.querySelectorAll(".cform .erow")].findIndex((r) => r.querySelector(".nm").placeholder === "Akku"));
+const akkuIdx = await E(() => [...window.panel.shadowRoot.querySelectorAll(".cform .erow")].findIndex((r) => r.querySelector(".nm").placeholder === "Speicher"));
 for (let i = akkuIdx; i > 0; i--) await pg.locator(`haus3d-panel .cform [data-up="${i}"]`).click();
 await pg.locator("haus3d-panel .cform .ttl").fill("Strom");
 await t.shot(pg, "karten-energie.png");
@@ -93,7 +93,7 @@ const ecard = await E(() => {
   return { title: el.querySelector("h3 span").textContent, rows: [...el.querySelectorAll(".row span")].map((s) => s.textContent) };
 });
 t.results.energieKarte = ecard;
-t.check(ecard.title === "Strom" && ecard.rows[0] === "Akku" && !ecard.rows.includes("Netz"), `Energie-Karte angepasst: ${JSON.stringify(ecard)}`);
+t.check(ecard.title === "Strom" && ecard.rows[0] === "Speicher" && !ecard.rows.includes("Ertrag heute"), `Energie-Karte angepasst: ${JSON.stringify(ecard)}`);
 // Tab „+“: Karte anlegen, dann „Entfernen“
 await pg.locator('haus3d-panel .ctabs [data-tab="+"]').click();
 await pg.locator("haus3d-panel .cform .ttl").fill("Wasser");
