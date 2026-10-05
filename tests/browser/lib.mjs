@@ -42,6 +42,7 @@ export async function start(out = ".") {
       if (m.type() === "error" || m.type() === "warning") errors.push(`${name} [${m.type()}]: ${m.text()}`);
     });
     if (!/quality=/.test(query)) query = `${query}${query ? "&" : "?"}quality=schoen`; // SwiftShader: Stufe festlegen
+    if (!/schatten=/.test(query)) query += "&schatten=aus"; // Schattenkarten sind in SwiftShader sehr langsam
     const data = process.env.HARNESS_DATA ? `&data=${process.env.HARNESS_DATA}` : "";
     await pg.goto(`http://localhost:${port}/tests/browser/harness.html${query}${data}`);
     await pg.waitForTimeout(wait);

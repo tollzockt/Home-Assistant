@@ -13,6 +13,7 @@ import { getTexture, planarUVs } from "./textures.js";
 import { ambientInterval, lodState, resolveQuality, shouldRender } from "./perf.js";
 import { ROOF_ITEMS, adjustRoofParts, findPvShed, freeEdges, panelArraySlots, panelSlots, pvLayout, roofFaces, roofFloor, roofParts, roofRooms, roofSettings, roofSurfaceAt, roomRoofGroups, scatter, seeded, panelBasis, roofObstacles, dormerShape } from "./exterior.js";
 import { centroid, computeWalls, labelPoint, pieceFootprint, pointInPolygon, wallPieces } from "./walls.js";
+import { SceneFx } from "./scene-fx.js";
 
 const OUTDOOR = {
   lawn: { color: 0x6aa84f, y: -0.035, h: 0 },
@@ -436,6 +437,7 @@ export class HouseScene {
     this.floors.clear();
     this.anchors = [];
     this.flow = null;
+    this._houseFlow = null; // hing an root, ist mit weg
     this.building = building;
     this.warnings = [];
     this.lampBulbs.clear();
@@ -459,6 +461,7 @@ export class HouseScene {
       grid.userData.layer = "grid";
       this.root.add(grid);
     }
+    this._contactShadows();
     this.setFilter(this.filter, { fit: !keepCamera });
     if (this._deviceList) this.setDevices(this._deviceList);
     this.applyLayers();
@@ -470,6 +473,11 @@ export class HouseScene {
       this._sunR = Math.max(30, box.getSize(new THREE.Vector3()).length() * 2);
     }
     this._placeSun();
+    this._applyShadows();
+    // Jahreszeit auf neue Materialien (Texturen) erneut anwenden
+    const season = this._season;
+    this._season = null;
+    if (season) this.setSeason(season);
   }
 
   // ------------------------------------------------------------------ Ebenen, Geräte, Auswahl
@@ -490,6 +498,7 @@ export class HouseScene {
     this.devicesGroup.visible = on("devices") && this._deviceList?.length > 0;
     this._syncGarden();
     if (this.weather) this.weather.obj.visible = on("weather");
+    this._applyShadows();
     this._lodCheck(true);
     this._cameraMoved();
   }
@@ -1713,6 +1722,7 @@ export class HouseScene {
     for (const [id, entry] of this.floors) for (const w of entry.roofWrappers ?? []) w.visible = this.filter !== id;
     this._syncGarden();
     this._syncDeviceVisibility();
+    this._syncHouseFlow();
     if (fit) this.fitCamera();
     this._cameraMoved();
   }
@@ -1947,7 +1957,8 @@ export class HouseScene {
     // Hintergrund-Animationen nur, wenn sichtbar (Ebene an) und die Ansicht nicht ruht
     const flowing = !this._frozen && this.flow && this.flow.speed > 0 && this.layers.flow !== false && this.isFloorVisible(this.flow.floorId);
     const weatherOn = !this._frozen && !!this._weather && this.layers.weather !== false;
-    const ambient = flowing || weatherOn;
+    const houseFlow = this._houseFlowActive();
+    const ambient = flowing || weatherOn || houseFlow;
     const interval = ambientInterval(this.quality.ambientFps);
     const render = shouldRender({ dirty: this._dirty, moving, animating, ambient, now, lastRender: this._lastRender ?? -Infinity, interval });
     if (render) {
@@ -1960,6 +1971,7 @@ export class HouseScene {
         this.flow.dots.forEach((d, i) => d.position.copy(this.flow.curve.getPointAt((this.flow.phase + i / n) % 1)));
       }
       if (weatherOn) this._stepWeather(ambDt);
+      if (houseFlow) this._stepHouseFlow(ambDt);
       const t0 = performance.now();
       this.renderer.render(this.scene, this.camera);
       this.stats.renders++;
@@ -1993,6 +2005,7 @@ export class HouseScene {
   setQuality(profile) {
     const prev = this.quality;
     this.quality = profile;
+    this._applyShadows();
     const dpr = Math.min(window.devicePixelRatio || 1, profile.dpr ?? profile.maxDpr);
     if (Math.abs(this.renderer.getPixelRatio() - dpr) > 1e-3) {
       this.renderer.setPixelRatio(dpr);
@@ -2088,6 +2101,7 @@ export class HouseScene {
   }
 
   _snowTint(k) {
+    this._snowK = k;
     const white = new THREE.Color(0xf4f7fb);
     const mats = this._groundRoofMats();
     const tint = (m, f) => {
@@ -2235,3 +2249,5 @@ function outline(points, y, material, heights = null) {
   const pts = points.map(([x, z], i) => new THREE.Vector3(x, y + (heights ? Number(heights[i]) || 0 : 0), z));
   return new THREE.LineLoop(new THREE.BufferGeometry().setFromPoints(pts), material);
 }
+
+Object.assign(HouseScene.prototype, SceneFx);

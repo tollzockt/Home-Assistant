@@ -47,6 +47,7 @@ import { PANEL_STYLE } from "./panel-style.js";
 import { EnergyMethods } from "./panel-energy.js";
 import { TabletMethods } from "./panel-tablet.js";
 import { MEDIA_STYLE, MediaMethods } from "./panel-media.js";
+import { FX_STYLE, FxMethods } from "./panel-fx.js";
 import { VIEW_PRESETS, normalizeViews, poseInBox } from "./camera.js";
 
 import { LONG_PRESS_MS, esc, plural, ENERGY_CORE, energyRows, LAYERS, DEFAULT_SETTINGS, loadSettings, fmt, ICONS, CONTACT_ICONS, DOMAIN_ICONS, SENSOR_ICONS, fmtPower, setText, iconFor, isActive } from "./panel-util.js";
@@ -126,6 +127,12 @@ class Haus3DPanel extends HTMLElement {
     }
     const coarse = !!window.matchMedia?.("(pointer: coarse)").matches;
     const profile = resolveQuality(name, { coarse });
+    try {
+      // ?schatten=aus (z. B. für Tests mit Software-Grafik)
+      if (new URLSearchParams(location.search).get("schatten") === "aus") profile.shadows = false;
+    } catch {
+      /* egal */
+    }
     if (profile.auto) {
       let saved = NaN;
       try {
@@ -350,7 +357,7 @@ class Haus3DPanel extends HTMLElement {
   _build() {
     this._built = true;
     this.shadowRoot.innerHTML = `
-      <style>${PANEL_STYLE}${MEDIA_STYLE}${EDITOR_STYLE}</style>
+      <style>${PANEL_STYLE}${MEDIA_STYLE}${FX_STYLE}${EDITOR_STYLE}</style>
       <div class="wrap">
         <header>
           <button class="icon menu" title="Menü"><ha-icon icon="mdi:menu"></ha-icon></button>
@@ -1005,6 +1012,7 @@ class Haus3DPanel extends HTMLElement {
     const alertRooms = this._evalAlerts(energy);
     if (this._securityView) temps.clear(); // Böden neutral grau
     this._scene?.applyStates({ security, lit, temps, tempMode: view !== "none" || this._securityView, tempColor: (v) => viewColor(view, v) ?? [0.6, 0.6, 0.6], open, covers, feedIn: energy.einspeisung, onEntities, heating, heatRooms, alerts: alertRooms, lights, lightLooks });
+    this._updateHouseFlow(energy);
     this._renderRoomPanel();
 
     for (const { el, icon } of this._iconEls) {
@@ -1089,7 +1097,7 @@ class Haus3DPanel extends HTMLElement {
     ];
     const el = document.createElement("div");
     el.className = "popup pvpop";
-    el.innerHTML = `<div class="head"></div><div class="scroll">${rows.map(() => `<div class="item"><span></span><b></b></div>`).join("")}${p?.estimated ? `<p class="hint">Geschätzt aus der Gesamtleistung (PV Dach) nach Größe und Sonnenstand.</p>` : ""}</div>${f.entity ? `<div class="foot"><button class="more"><ha-icon icon="mdi:information-outline"></ha-icon><span>Weitere Infos</span></button></div>` : ""}`;
+    el.innerHTML = `<div class="head"></div><div class="scroll">${rows.map(() => `<div class="item"><span></span><b></b></div>`).join("")}${p?.estimated ? `<p class="hint">Geschätzt aus der Gesamtleistung (PV Dach) nach Größe und Sonnenstand.</p>` : ""}</div><div class="foot"><button class="shade"><ha-icon icon="mdi:weather-partly-cloudy"></ha-icon><span>Verschattung prüfen</span></button>${f.entity ? `<button class="more"><ha-icon icon="mdi:information-outline"></ha-icon><span>Weitere Infos</span></button>` : ""}</div>`;
     el.querySelector(".head").textContent = `PV-Feld ${f.name}`;
     el.querySelectorAll(".item").forEach((row, i) => {
       row.querySelector("span").textContent = rows[i][0];
@@ -1099,6 +1107,7 @@ class Haus3DPanel extends HTMLElement {
       this._closePopup();
       this._moreInfo(f.entity);
     });
+    el.querySelector(".shade").addEventListener("click", () => this._pvShadingDialog());
     el.addEventListener("click", (ev) => ev.stopPropagation());
     this._els.stage.appendChild(el);
     this._popup = el;
@@ -1427,7 +1436,8 @@ class Haus3DPanel extends HTMLElement {
   _applySun() {
     if (!this._scene) return;
     const on = this._settings.layers.sun !== false;
-    this._scene.setSun(on ? sunFromHass(this._hass) : null, Number(this._building?.settings?.north) || 0);
+    if (!this._lapseTimer) this._scene.setSun(on ? sunFromHass(this._hass) : null, Number(this._building?.settings?.north) || 0);
+    this._applySeason();
   }
 
   _applyStyle() {
@@ -2002,7 +2012,7 @@ class Haus3DPanel extends HTMLElement {
 }
 
 // Dialoge und Energie-Verlauf einmischen (panel-dialogs.js, panel-energy.js)
-Object.assign(Haus3DPanel.prototype, DialogMethods, EnergyMethods, TabletMethods, MediaMethods);
+Object.assign(Haus3DPanel.prototype, DialogMethods, EnergyMethods, TabletMethods, MediaMethods, FxMethods);
 
 // Nach einem Update ohne Neuladen ist das Element der alten Version noch registriert: ein zweites
 // define würfe einen Fehler und das Panel ließe sich gar nicht laden

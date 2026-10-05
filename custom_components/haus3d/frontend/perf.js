@@ -3,9 +3,9 @@
 
 /** Qualitätsstufen. ambientFps: Bilder/s für Hintergrund-Animationen (Energiefluss, Wetter). */
 export const QUALITY = {
-  akku: { label: "Akku", maxDpr: 1, glow: false, weatherScale: 0.35, ambientFps: 12, cullInterior: true },
-  ausgewogen: { label: "Ausgewogen", maxDpr: 1.5, glow: true, weatherScale: 0.7, ambientFps: 24, cullInterior: true },
-  schoen: { label: "Schön", maxDpr: 2, glow: true, weatherScale: 1, ambientFps: 30, cullInterior: false },
+  akku: { label: "Akku", maxDpr: 1, glow: false, weatherScale: 0.35, ambientFps: 12, cullInterior: true, shadows: false, shadowSize: 1024 },
+  ausgewogen: { label: "Ausgewogen", maxDpr: 1.5, glow: true, weatherScale: 0.7, ambientFps: 24, cullInterior: true, shadows: true, shadowSize: 1024 },
+  schoen: { label: "Schön", maxDpr: 2, glow: true, weatherScale: 1, ambientFps: 30, cullInterior: false, shadows: true, shadowSize: 2048 },
 };
 
 /** Auswahl in den Einstellungen. */

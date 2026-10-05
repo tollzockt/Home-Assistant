@@ -89,6 +89,7 @@ export const LAYERS = [
   ["grid", "Raster im Hintergrund"],
   ["roof", "Dach (in „Alle“)"],
   ["weather", "Wetter (Regen, Schnee)"],
+  ["shadows", "Schatten der Sonne"],
   ["solar", "Solarmodule"],
   ["flow", "Energiefluss"],
   ["devices", "Geräte"],
