@@ -101,6 +101,7 @@ await pg.locator("haus3d-panel .cform .add").click();
 await pg.waitForTimeout(400);
 const added = await E(() => ({ tab: window.panel.shadowRoot.querySelector(".ctabs .sel")?.textContent, cards: (window.panel._building.settings.cards ?? []).map((c) => c.title) }));
 await pg.locator("haus3d-panel .cform .del").click();
+await pg.waitForTimeout(600); // Nachfrage nimmt Tipps erst nach 0,4 s an
 await pg.locator("haus3d-panel .confirm .yes").click();
 await pg.waitForTimeout(400);
 const removed = await E(() => (window.panel._building.settings.cards ?? []).map((c) => c.title));
@@ -144,15 +145,15 @@ t.check(warn === 2 && pins.edit === "4711", `PIN ändern: ${JSON.stringify({ war
 await t.shot(pg, "admin-pin.png");
 await pg.locator("haus3d-panel .dialog .close").click();
 // alte PIN öffnet Bearbeiten nicht mehr, neue schon
-await E(() => (window.__e = window.panel._startEdit()));
+await E(() => {
+  window.__e = window.panel._startEdit();
+});
 await pg.waitForSelector("haus3d-panel .pinpad");
 await pg.keyboard.type("0000", { delay: 60 });
 await pg.waitForTimeout(900);
 const still = await E(() => !window.panel._editing());
 for (let i = 0; i < 4; i++) await pg.keyboard.press("Backspace");
 await pg.keyboard.type("4711", { delay: 60 });
-await pg.waitForTimeout(1200);
-console.log("DBG", JSON.stringify(await E(() => ({ pad: !!window.panel.shadowRoot.querySelector(".pinpad"), dots: window.panel.shadowRoot.querySelectorAll(".pinpad .dots i.on").length, editing: window.panel._editing(), mode: window.panel._editMode, pins: window.pins, calls: window.calls.filter((c) => /pin/.test(c.type)).slice(-4) }))));
 await pg.waitForFunction(() => window.panel._editing(), null, { timeout: 5000 });
 t.check(still, "alte PIN gilt nicht mehr");
 await E(() => window.panel._endEdit());

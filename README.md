@@ -7,6 +7,23 @@ Energiefluss.
 Das Datenformat ist kompatibel mit [NeonPlan 3D](https://github.com/Mastershort/neonplan3d): Exporte von
 dort lassen sich direkt einlesen, und Exporte von Haus 3D kann NeonPlan wieder öffnen.
 
+## Neu in 0.16: Einstellungen, Bearbeiten und PIN
+
+- **Zahnrad** (für alle, schlicht): Stil, Qualität, Geräte, Anzeige-Kacheln (Raster, Raumnamen, Dach,
+  Schatten, Wetter, Geräte, Möbel, Anwesenheit, Vollbild, Simulation) und zwei große Felder:
+  - **Bearbeiten** 🔒: schaltet alle Bearbeitungs-Knöpfe frei (Grundriss, Stifte an den Karten,
+    Raumgeräte, „+“ an den Rädern …). Das Feld heißt dann **Beenden**; oben steht ein grünes Band.
+  - **Admin-Einstellungen** 🔒: Fenster mit Kategorien (Haus & Wetter, Energie, Karten, Hinweise,
+    Abläufe & Sicherheit, Kurzwahl & Funktionsrad, Anzeige, Wandtablet, Daten & Verlauf, PIN & Zugang).
+- **PIN**: je eine eigene PIN für Bearbeiten und Admin, **Standard 0000** – bitte gleich unter
+  Admin-Einstellungen → PIN & Zugang ändern. Eine falsche PIN löst nichts aus. Wer die PIN kennt, darf
+  bearbeiten, auch ohne Admin-Konto in Home Assistant; ohne PIN speichert niemand etwas (auch kein
+  HA-Admin). Freigaben enden mit „Beenden“, beim Schließen bzw. nach 10 min ohne Bedienung.
+- **Karten** inkl. **Energie-Karte** als Tabs (Admin → Karten, oder Stift an der Karte im
+  Bearbeiten-Modus): Titel, Symbol, Zeilen ein-/ausblenden, umbenennen, sortieren; Tab „+“ legt eine Karte
+  an, unten „Entfernen“ (Energie: „Ausblenden“).
+- Das Funktionsrad unten rechts enthält die Anzeige-Schalter nicht mehr (die stehen im Zahnrad).
+
 ## Neu in 0.15
 
 - **Tablet**: Funktionsrad mit dem Finger drehen, nichts überlappt, Editor in einer Zeile, Dialoge als
@@ -211,8 +228,8 @@ Damit HACS sie als Update anbietet, braucht es ein **Release**:
 
 1. Auf GitHub im Repository rechts **Releases → Draft a new release** (bzw. „Create a new release“).
 2. **Choose a tag** → neuen Tag eintippen, genau wie die Version in `manifest.json` mit „v“ davor,
-   z. B. `v0.15.0` → „Create new tag“. Ziel-Zweig: `main`.
-3. Titel z. B. `0.15.0`, kurze Beschreibung, bei „Release label“ **None** (nicht Pre-release),
+   z. B. `v0.16.0` → „Create new tag“. Ziel-Zweig: `main`.
+3. Titel z. B. `0.16.0`, kurze Beschreibung, bei „Release label“ **None** (nicht Pre-release),
    **Publish release**.
 4. In Home Assistant: **HACS → Haus 3D** (ggf. ⋮ → „Informationen aktualisieren“) → **Herunterladen**/
    **Aktualisieren** → Home Assistant **neu starten**.

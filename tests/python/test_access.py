@@ -69,13 +69,13 @@ async def test_set_pin_via_ws(hass: HomeAssistant, setup_integration, hass_ws_cl
 async def test_edit_pin_keeps_admin_settings(hass: HomeAssistant, setup_integration, hass_ws_client) -> None:
     data = hass.data[DOMAIN]
     acc = data.access
-    admin = await acc.async_verify("admin", "0000", "a", now=10.0)
+    admin = await acc.async_verify("admin", "0000", "a")
     ws = await hass_ws_client(hass)
     b = copy.deepcopy(data.building)
     b["settings"]["alerts"] = {"rain": False}
     await ws.send_json({"id": 1, "type": "haus3d/building/save", "building": b, "token": admin})
     assert (await ws.receive_json())["success"]
-    edit = await acc.async_verify("edit", "0000", "e", now=10.0)
+    edit = await acc.async_verify("edit", "0000", "e")
     b2 = copy.deepcopy(data.building)
     b2["settings"]["alerts"] = {"rain": True}
     b2["settings"]["cards"] = [{"id": "k1", "title": "Test", "entities": []}]

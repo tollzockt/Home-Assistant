@@ -427,7 +427,11 @@ export const ADMIN_STYLE = `
 .cform .lbl { display: block; margin: 12px 0 4px; font-size: 13px; color: var(--secondary-text-color); }
 .cform .iconrow { flex-wrap: wrap; }
 .cform .iconrow .icon.on { background: var(--primary-color, #03a9f4); color: #fff; }
+.cform .qrow { display: flex; gap: 8px; align-items: center; margin-bottom: 6px; }
+.cform .qrow input:not([type=checkbox]) { flex: 1; min-width: 0; font: inherit; padding: 9px 10px; border-radius: 10px; border: 1px solid var(--divider-color, rgba(127,127,127,.4)); background: transparent; color: var(--primary-text-color); }
+.cform .qrow .icon { flex: none; }
 .cform .erow { align-items: center; }
+.cform .erow ha-icon { flex: none; color: var(--secondary-text-color); }
 .cform .erow input[type=checkbox] { width: 20px; height: 20px; flex: none; }
 .danger-row { margin-top: 18px; padding-top: 12px; border-top: 1px solid var(--divider-color, rgba(127,127,127,.3)); }
 .btns.col { flex-direction: column; align-items: stretch; }

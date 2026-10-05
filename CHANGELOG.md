@@ -1,5 +1,26 @@
 # Änderungen
 
+## 0.16.0
+
+### Wichtig beim Update
+- **Speichern braucht jetzt eine PIN** (Standard **0000** für Bearbeiten und Admin). Bitte direkt unter
+  Zahnrad → Admin-Einstellungen → PIN & Zugang eigene PINs setzen.
+- Stifte, „+“ und Editor erscheinen erst nach **Bearbeiten** (PIN), auch für HA-Admins.
+- Das ⋮-Menü (Export, Import, Verlauf) ist jetzt unter Admin-Einstellungen → Daten & Verlauf.
+
+### Neu
+- **Schlichtes Zahnrad** mit Stil, Qualität, Geräte-Darstellung, Anzeige-Kacheln, Simulation und den
+  Feldern **Bearbeiten** (wird zu **Beenden**) und **Admin-Einstellungen**.
+- **Admin-Fenster mit Kategorien**; antippen zeigt die Einstellungen dieses Bereichs, „‹“ zurück.
+- **PIN-Feld** mit großen Tasten (Tablet), Tastatur geht auch. Falsche PIN: nichts passiert. Eigene PIN je
+  Bereich (4–8 Ziffern), nur als Hash gespeichert; Durchprobieren wird still gebremst.
+- **Karten als Tabs** inkl. **Energie-Karte**: Titel, Symbol, Zeilen anzeigen/ausblenden, eigene Namen,
+  Reihenfolge (▲▼), Überschuss-Ampel und Verlauf-Knopf schaltbar; Tab „+“ = neue Karte, unten
+  „Entfernen“. Der Stift an einer Karte öffnet direkt ihren Tab.
+- Grünes Band „Bearbeiten aktiv“ mit „Grundriss“ und „Beenden“.
+- Funktionsrad: Stil, Dach, Raster, Wetter, Raumnamen, Geräte, Möbel, Anwesenheit, Schatten und Vollbild
+  sind ins Zahnrad gewandert.
+
 ## 0.15.0
 
 ### Kameras, Medien, Kurzwahl
