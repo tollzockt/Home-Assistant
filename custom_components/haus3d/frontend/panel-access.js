@@ -117,13 +117,28 @@ export const AccessMethods = {
     return true;
   },
 
-  /** „Beenden“: Bearbeiten aus, Freigabe zurückgeben (außer das Admin-Fenster ist offen). */
+  /** „Beenden“: Bearbeiten aus, Freigabe zurückgeben (außer Admin ist noch aktiv). */
   _endEdit() {
     if (!this._editMode) return;
     this._editMode = false;
-    if (this._editor) this._editor.close?.();
-    if (!this._adminOpen) this._lockAccess();
+    if (!this._adminMode) this._lockAccess();
     this._refreshEditUi();
+  },
+
+  /** Admin-Modus (nach Admin-PIN) bis „Beenden“ bzw. 10 min Ruhe. */
+  _startAdminMode() {
+    this._adminMode = true;
+    this._watchAccess();
+    this._renderModes();
+  },
+
+  _endAdmin() {
+    if (!this._adminMode) return;
+    this._adminMode = false;
+    if (this._adminOpen) this._closeDialog();
+    this._adminOpen = false;
+    if (!this._editMode) this._lockAccess();
+    this._renderModes();
   },
 
   _lockAccess() {
@@ -145,10 +160,11 @@ export const AccessMethods = {
       if (accessScope()) return;
       clearInterval(this._accessTimer);
       this._accessTimer = null;
-      if (this._editMode) {
+      if (this._editMode || this._adminMode) {
         this._editMode = false;
+        this._adminMode = false;
         this._refreshEditUi();
-        this._toast("Bearbeiten beendet (10 min nichts geändert).");
+        this._toast("Bearbeiten/Admin beendet (10 min nichts geändert).");
       }
     }, 20000);
   },
@@ -156,7 +172,7 @@ export const AccessMethods = {
   /** Knöpfe zum Bearbeiten ein-/ausblenden (Kopf, Karten, Raumfenster, Räder, Band). */
   _refreshEditUi() {
     this.toggleAttribute("editing", !!this._editMode);
-    this._renderEditBand();
+    this._renderModes();
     this._renderToolbar?.();
     if (this._building) this._refreshEntities?.();
     for (const p of this._panels ?? []) p.sig = null;
@@ -164,17 +180,18 @@ export const AccessMethods = {
     this._renderWheels?.();
   },
 
-  _renderEditBand() {
-    this._editBand?.remove();
-    this._editBand = null;
-    if (!this._editMode || !this._els?.stage) return;
-    const el = document.createElement("div");
-    el.className = "editband";
-    el.innerHTML = `<ha-icon icon="mdi:pencil"></ha-icon><span>Bearbeiten aktiv</span>${this._scene ? `<button class="plan"><ha-icon icon="mdi:floor-plan"></ha-icon><span>Grundriss</span></button>` : ""}<button class="end primary">Beenden</button>`;
-    el.querySelector(".plan")?.addEventListener("click", () => this._openEditor());
-    el.querySelector(".end").addEventListener("click", () => this._endEdit());
-    this._els.stage.appendChild(el);
-    this._editBand = el;
+  /** Aktive Modi oben (Kopfzeile bzw. am Wandtablet oben in der Ansicht), je mit „Beenden“. */
+  _renderModes() {
+    const box = this.shadowRoot?.querySelector(".modes");
+    if (!box) return;
+    const parts = [];
+    if (this._editMode) parts.push(`<span class="mode edit"><ha-icon icon="mdi:pencil"></ha-icon><span class="mt">Bearbeiten</span>${this._scene ? `<button class="plan" title="Grundriss bearbeiten"><ha-icon icon="mdi:floor-plan"></ha-icon><span class="mt">Grundriss</span></button>` : ""}<button class="end" data-end="edit">Beenden</button></span>`);
+    if (this._adminMode) parts.push(`<span class="mode admin"><button class="open" title="Admin-Einstellungen öffnen"><ha-icon icon="mdi:cog"></ha-icon><span class="mt">Admin</span></button><button class="end" data-end="admin">Beenden</button></span>`);
+    box.innerHTML = parts.join("");
+    box.hidden = !parts.length;
+    box.querySelector(".plan")?.addEventListener("click", () => this._openEditor());
+    box.querySelector(".open")?.addEventListener("click", () => this._openAdmin());
+    box.querySelectorAll("[data-end]").forEach((b) => b.addEventListener("click", () => (b.dataset.end === "edit" ? this._endEdit() : this._endAdmin())));
   },
 
   /**
@@ -205,7 +222,17 @@ export const ACCESS_STYLE = `
 .pinpad .keys { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
 .pinpad .keys button { height: 62px; border-radius: 16px; border: 1px solid var(--divider-color, rgba(127,127,127,.3)); background: var(--secondary-background-color, rgba(127,127,127,.08)); color: inherit; font: inherit; font-size: 24px; font-weight: 500; cursor: pointer; touch-action: manipulation; }
 .pinpad .keys button:active { background: var(--primary-color, #03a9f4); color: #fff; }
-.editband { position: absolute; left: 50%; bottom: 16px; transform: translateX(-50%); z-index: 8; display: flex; align-items: center; gap: 10px; padding: 6px 6px 6px 14px; border-radius: 24px; background: #2e7d32; color: #fff; box-shadow: 0 2px 12px rgba(0,0,0,.3); font-weight: 600; white-space: nowrap; }
-.editband button { display: inline-flex; align-items: center; gap: 6px; font: inherit; border: 0; border-radius: 18px; min-height: 40px; padding: 0 14px; cursor: pointer; background: rgba(255,255,255,.18); color: #fff; }
-.editband button.primary { background: #fff; color: #2e7d32; }
+.modes { display: flex; gap: 6px; flex: none; }
+.modes[hidden] { display: none; }
+.mode { display: inline-flex; align-items: center; gap: 6px; height: 36px; padding: 0 3px 0 10px; border-radius: 18px; color: #fff; font-weight: 600; font-size: 14px; white-space: nowrap; box-shadow: 0 1px 4px rgba(0,0,0,.25); }
+.mode.edit { background: #2e7d32; }
+.mode.admin { background: #e65100; padding-left: 3px; }
+.mode button { display: inline-flex; align-items: center; gap: 4px; font: inherit; border: 0; border-radius: 15px; height: 30px; padding: 0 10px; cursor: pointer; background: rgba(255,255,255,.2); color: #fff; }
+.mode button.end { background: #fff; color: #333; }
+.mode.edit button.end { color: #2e7d32; }
+.mode.admin button.end { color: #e65100; }
+.mode button.open { background: transparent; padding: 0 6px; }
+@media (max-width: 700px) { .mode .mt { display: none; } }
+@media (pointer: coarse) { .mode { height: 44px; } .mode button { height: 38px; } }
+:host([kiosk]) .modes { position: absolute; top: 8px; left: 50%; transform: translateX(-50%); z-index: 9; }
 `;

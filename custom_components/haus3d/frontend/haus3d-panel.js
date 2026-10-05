@@ -365,6 +365,7 @@ class Haus3DPanel extends HTMLElement {
         <header>
           <button class="icon menu" title="Menü"><ha-icon icon="mdi:menu"></ha-icon></button>
           <div class="title">Haus 3D</div>
+          <div class="modes" hidden></div>
           <div class="status" aria-label="Status"><div class="people"></div><div class="chips"></div></div>
           <div class="floors" role="tablist" aria-label="Etage"></div>
           <button class="icon temp" title="Temperaturansicht"><ha-icon icon="mdi:thermometer"></ha-icon></button>
@@ -1379,7 +1380,7 @@ class Haus3DPanel extends HTMLElement {
     box.innerHTML = list
       .map((p) => {
         const pic = p.picture && !this._settings.initialsOnly ? `<img alt="" src="${esc(p.picture)}">` : `<span class="ini">${esc(p.name.slice(0, 2).toUpperCase())}</span>`;
-        return `<button class="avatar${p.home ? " home" : " away"}" data-entity="${esc(p.entity_id)}" title="${esc(`${p.full}: ${p.zone}`)}">${pic}${p.home ? "" : `<small>${esc(p.zone)}</small>`}</button>`;
+        return `<button class="avatar${p.home ? " home" : " away"}" data-entity="${esc(p.entity_id)}" title="${esc(`${p.full}: ${p.zone}`)}"><span class="pic">${pic}</span><span class="pn"><b>${esc(p.name)}</b><small>${esc(p.zone)}</small></span></button>`;
       })
       .join("");
     box.querySelectorAll(".avatar").forEach((b) => b.addEventListener("click", () => this._moreInfo(b.dataset.entity)));

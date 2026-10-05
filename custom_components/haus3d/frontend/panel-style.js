@@ -167,12 +167,17 @@ header .status::-webkit-scrollbar { display: none; }
 .status .chip.warn { background: #f57c00; color: #fff; }
 .status .chip.crit { background: #d32f2f; color: #fff; }
 .status .chip.ok { background: rgba(76,175,80,.85); color: #fff; }
-.status .avatar { position: relative; width: 36px; height: 36px; padding: 0; border-radius: 50%; border: 2px solid rgba(255,255,255,.6); background: rgba(255,255,255,.25); color: inherit; cursor: pointer; overflow: visible; flex: none; }
-.status .avatar img, .status .avatar .ini { width: 100%; height: 100%; border-radius: 50%; object-fit: cover; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 600; }
-.status .avatar.home::after { content: ""; position: absolute; right: -2px; bottom: -2px; width: 10px; height: 10px; border-radius: 50%; background: #43a047; border: 2px solid var(--app-header-background-color, var(--primary-color, #03a9f4)); }
-.status .avatar.away { filter: grayscale(1); opacity: .7; }
-.status .avatar small { position: absolute; left: 50%; top: 100%; transform: translateX(-50%); font-size: 9px; white-space: nowrap; line-height: 1; margin-top: 1px; }
-@media (pointer: coarse) { .status .chip { height: 44px; } .status .avatar { width: 44px; height: 44px; } }
+.status .avatar { display: inline-flex; align-items: center; gap: 6px; height: 36px; padding: 0 10px 0 0; border-radius: 18px; border: 0; background: rgba(255,255,255,.18); color: inherit; cursor: pointer; flex: none; font: inherit; }
+.status .avatar .pic { position: relative; width: 36px; height: 36px; flex: none; }
+.status .avatar img, .status .avatar .ini { width: 100%; height: 100%; border-radius: 50%; box-sizing: border-box; border: 2px solid rgba(255,255,255,.6); object-fit: cover; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 600; background: rgba(255,255,255,.25); }
+.status .avatar.home .pic::after { content: ""; position: absolute; right: -1px; bottom: -1px; width: 10px; height: 10px; border-radius: 50%; background: #43a047; border: 2px solid var(--app-header-background-color, var(--primary-color, #03a9f4)); }
+.status .avatar.away .pic { filter: grayscale(1); opacity: .75; }
+.status .avatar .pn { display: flex; flex-direction: column; align-items: flex-start; line-height: 1.15; text-align: left; }
+.status .avatar .pn b { font-size: 12px; font-weight: 600; }
+.status .avatar .pn small { font-size: 11px; opacity: .85; white-space: nowrap; max-width: 110px; overflow: hidden; text-overflow: ellipsis; }
+@media (max-width: 900px) { .status .avatar .pn b { display: none; } }
+@media (max-width: 600px) { .status .avatar { padding: 0; background: transparent; } .status .avatar .pn { display: none; } }
+@media (pointer: coarse) { .status .chip { height: 44px; } .status .avatar { height: 44px; border-radius: 22px; } .status .avatar .pic { width: 44px; height: 44px; } }
 @media (max-width: 600px) { .status .chip span { display: none; } .status .chip.ok span, .status .chip.warn span { display: inline; } }
 .floorbar button { position: relative; }
 .floorbar .badge { position: absolute; right: -4px; top: -2px; min-width: 16px; height: 16px; padding: 0 4px; border-radius: 8px; background: #ffc107; color: #3b2a00; font-size: 10px; line-height: 16px; box-sizing: border-box; }

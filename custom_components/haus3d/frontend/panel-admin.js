@@ -61,7 +61,7 @@ export const AdminMethods = {
         </div>
         <div class="bigtiles">
           <button class="bigtile edit${editing ? " active" : ""}"><ha-icon icon="${editing ? "mdi:check" : "mdi:pencil"}"></ha-icon><span>${editing ? "Beenden" : "Bearbeiten"}</span>${editing ? "" : '<ha-icon class="lk" icon="mdi:lock"></ha-icon>'}</button>
-          <button class="bigtile admin"><ha-icon icon="mdi:cog"></ha-icon><span>Admin-Einstellungen</span><ha-icon class="lk" icon="mdi:lock"></ha-icon></button>
+          ${this._adminMode ? `<div class="bigtile admin active"><button class="aopen"><ha-icon icon="mdi:cog"></ha-icon><span>Admin-Einstellungen</span></button><button class="aend">Beenden</button></div>` : `<button class="bigtile admin"><ha-icon icon="mdi:cog"></ha-icon><span>Admin-Einstellungen</span><ha-icon class="lk" icon="mdi:lock"></ha-icon></button>`}
         </div>
       </div></div>`;
     for (const s of el.querySelectorAll(".seg")) {
@@ -101,7 +101,13 @@ export const AdminMethods = {
       }
       if (await this._startEdit()) this._closeDialog();
     });
-    el.querySelector(".bigtile.admin").addEventListener("click", () => this._openAdmin());
+    if (this._adminMode) {
+      el.querySelector(".aopen").addEventListener("click", () => this._openAdmin());
+      el.querySelector(".aend").addEventListener("click", () => {
+        this._endAdmin();
+        this._openSettings();
+      });
+    } else el.querySelector(".bigtile.admin").addEventListener("click", () => this._openAdmin());
     el.querySelector(".close").addEventListener("click", () => this._closeDialog());
     el.addEventListener("click", (ev) => ev.target === el && this._closeDialog());
     this._els.stage.appendChild(el);
@@ -115,8 +121,11 @@ export const AdminMethods = {
    * Bearbeiten-Modus ohne Admin-PIN (Stift an einer Karte).
    */
   async _openAdmin(cat = null, arg = null) {
-    const viaEdit = cat === "cards" && this._editing();
-    if (!viaEdit && !(await this._pinPad("admin"))) return;
+    const viaEdit = cat === "cards" && this._editing() && !this._adminMode;
+    if (!viaEdit) {
+      if (!(await this._pinPad("admin"))) return;
+      this._startAdminMode();
+    }
     this._closePopup();
     this._closeDialog();
     this._adminOpen = true;
@@ -161,8 +170,7 @@ export const AdminMethods = {
       this._adminOpen = false;
       this._adminShow = null;
       this._closeDialog();
-      // Admin-Freigabe endet mit dem Fenster (Bearbeiten-Modus behält seine)
-      if (!this._editMode) this._lockAccess();
+      // Admin bleibt aktiv, bis „Beenden“ gedrückt wird (oben bzw. im Zahnrad)
     };
     el.querySelector(".close").addEventListener("click", close);
     el.addEventListener("click", (ev) => ev.target === el && close());
@@ -413,6 +421,10 @@ export const ADMIN_STYLE = `
 .bigtile { position: relative; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; min-height: 104px; border-radius: 18px; border: 2px solid var(--divider-color, rgba(127,127,127,.35)); background: var(--secondary-background-color, rgba(127,127,127,.06)); color: var(--primary-text-color); font: inherit; font-size: 15px; font-weight: 600; cursor: pointer; --mdc-icon-size: 30px; }
 .bigtile .lk { position: absolute; right: 10px; top: 10px; --mdc-icon-size: 16px; color: var(--secondary-text-color); }
 .bigtile.edit.active { background: #2e7d32; border-color: #2e7d32; color: #fff; }
+.bigtile.admin.active { background: #e65100; border-color: #e65100; color: #fff; padding: 8px; gap: 8px; cursor: default; }
+.bigtile.admin.active button { font: inherit; border: 0; cursor: pointer; border-radius: 12px; display: flex; align-items: center; justify-content: center; gap: 8px; width: 100%; }
+.bigtile.admin.active .aopen { background: transparent; color: #fff; flex: 1; font-size: 14px; }
+.bigtile.admin.active .aend { background: #fff; color: #e65100; min-height: 40px; }
 .dialog.admin { width: min(820px, calc(100vw - 24px)); height: min(86vh, 760px); max-height: min(86vh, 760px); display: flex; flex-direction: column; }
 .dialog.admin .dialog-body { flex: 1; overflow-y: auto; }
 .dialog.admin .dialog-head .back { margin-right: 4px; }
