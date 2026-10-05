@@ -87,7 +87,7 @@ export const LEGACY_FUNCTION_KEYS = ["flow", "temp", "style", "roof", "grid", "w
 /** Eingebaute Funktionen des Funktionsrads (Reihenfolge = Standard). */
 // Stil, Dach, Raster, Wetter, Raumnamen, Geräte, Möbel, Anwesenheit, Schatten und Vollbild stehen seit
 // 0.16 im Zahnrad; gespeicherte Listen verlieren sie still (normalizeFunctions).
-export const FUNCTION_KEYS = ["flow", "temp", "security", "goodnight", "view", "walk", "fit"];
+export const FUNCTION_KEYS = ["flow", "temp", "security", "network", "goodnight", "view", "walk", "fit"];
 
 /**
  * Einträge des Funktionsrads aus den Einstellungen: eingebaute (key) und eigene (entity), ohne Doppelte.

@@ -499,6 +499,7 @@ export class HouseScene {
       });
     }
     this.devicesGroup.visible = on("devices") && this._deviceList?.length > 0;
+    this._syncPipeDots?.();
     this._syncGarden();
     if (this.weather) this.weather.obj.visible = on("weather");
     this._applyShadows();

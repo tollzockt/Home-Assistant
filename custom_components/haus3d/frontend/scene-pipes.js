@@ -74,16 +74,22 @@ export const ScenePipes = {
       p.speed = f.active ? f.speed : 0;
       p.reverse = !!f.reverse;
       p.tube.material = p.active ? p.mats.on : p.mats.idle;
-      for (const d of p.dots) d.visible = p.active;
     }
+    this._syncPipeDots();
     if (changed) {
       this._stepPipes(0);
       this.invalidate?.();
     }
   },
 
+  /** Punkte nur, solange es fließt und die Ebene „Energiefluss“ an ist. */
+  _syncPipeDots() {
+    const on = this.layers?.flow !== false;
+    for (const p of this._pipes?.values() ?? []) for (const d of p.dots) d.visible = on && p.active;
+  },
+
   _pipesActive() {
-    if (this._frozen || this.layers?.pipes === false) return false;
+    if (this._frozen || this.layers?.pipes === false || this.layers?.flow === false) return false;
     for (const p of this._pipes?.values() ?? []) if (p.active && this.isFloorVisible(p.floorId)) return true;
     return false;
   },

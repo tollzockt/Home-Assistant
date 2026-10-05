@@ -32,6 +32,7 @@ export function iconKind(stateObj) {
   if (!stateObj) return null;
   const domain = domainOf(stateObj.entity_id);
   if (ICON_DOMAINS.includes(domain)) return domain;
+  if (domain === "device_tracker" && stateObj.attributes?.source_type === "router") return "network"; // UniFi u. a.
   if (domain === "binary_sensor" && CONTACT_CLASSES.includes(stateObj.attributes?.device_class)) return "contact";
   return null;
 }

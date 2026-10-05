@@ -156,11 +156,24 @@ if (params.has("sun")) {
 }
 if (params.get("light") === "rgb") states["light.wohnzimmer_decke"].attributes = { ...states["light.wohnzimmer_decke"].attributes, rgb_color: [0, 0, 255], brightness: 255 };
 if (params.get("weather")) add(st("weather.zuhause", params.get("weather"), { friendly_name: "Zuhause" }), null);
+// ?lan: Netzwerkgeräte wie aus „UniFi Network“ (Access Point im Flur, Client im Wohnzimmer, einer offline)
+const devices = {};
+if (params.has("lan")) {
+  const uni = (id, dev) => ({ platform: "unifi", device_id: dev });
+  devices.ap_flur = { id: "ap_flur", name: "AP Flur", model: "U6 Lite", manufacturer: "Ubiquiti Networks", area_id: "flur" };
+  add(st("device_tracker.ap_flur", "home", { source_type: "router", ip: "192.168.1.20", mac: "aa:bb:cc:00:00:01", friendly_name: "AP Flur" }), null, uni("x", "ap_flur"));
+  add(st("sensor.ap_flur_uptime", new Date(Date.now() - (3 * 86400 + 4 * 3600) * 1000).toISOString(), { device_class: "timestamp" }), null, uni("x", "ap_flur"));
+  add(st("sensor.ap_flur_clients", "7", {}), null, uni("x", "ap_flur"));
+  add(st("button.ap_flur_restart", "unknown", { device_class: "restart" }), null, { ...uni("x", "ap_flur"), entity_category: "config" });
+  add(st("device_tracker.fernseher", "home", { source_type: "router", ip: "192.168.1.51", mac: "aa:bb:cc:00:00:51", host_name: "tv-wohnzimmer", is_wired: false, essid: "Zuhause", signal: -61, ap_mac: "aa:bb:cc:00:00:01", friendly_name: "Fernseher" }), "wohnzimmer", { platform: "unifi" });
+  add(st("device_tracker.drucker", "not_home", { source_type: "router", ip: "192.168.1.60", is_wired: true, friendly_name: "Drucker" }), "hobbyraum", { platform: "unifi" });
+  add(st("device_tracker.handy_gps", "home", { source_type: "gps", friendly_name: "Handy GPS" }), "wohnzimmer");
+}
 window.calls = [];
 window.events = [];
 const areaNames = { wohnzimmer: "Wohnzimmer", kueche: "Küche", flur: "Flur", badezimmer: "Badezimmer", schlafzimmer: "Schlafzimmer", garage: "Garage", waschraum: "Waschraum", hobbyraum: "Hobbyraum", gartenhaus: "Gartenhaus", gaste_bad: "Gäste Bad" };
 const hass = {
-  states, entities, devices: {},
+  states, entities, devices,
   areas: Object.fromEntries(Object.entries(areaNames).map(([area_id, name]) => [area_id, { area_id, name }])),
   floors: { eg: { floor_id: "eg", name: "EG" }, kg: { floor_id: "kg", name: "KG" } },
   themes: { darkMode: dark },

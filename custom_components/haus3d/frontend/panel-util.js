@@ -148,6 +148,7 @@ export const ICONS = {
   lock: ["mdi:lock-open-variant", "mdi:lock"],
   camera: ["mdi:cctv", "mdi:cctv"],
   vacuum: ["mdi:robot-vacuum", "mdi:robot-vacuum"],
+  network: ["mdi:lan-connect", "mdi:lan-disconnect"],
 };
 export const CONTACT_ICONS = {
   window: ["mdi:window-open-variant", "mdi:window-closed-variant"],
@@ -200,6 +201,7 @@ export function iconFor(kind, stateObj) {
   }
   const active = isActive(kind, stateObj);
   if (kind === "contact") return (CONTACT_ICONS[stateObj.attributes.device_class] ?? CONTACT_ICONS.opening)[active ? 0 : 1];
+  if (kind === "network" && stateObj.attributes?.is_wired === false) return active ? "mdi:wifi" : "mdi:wifi-off";
   if (kind === "cover" && stateObj.attributes.device_class === "garage") return CONTACT_ICONS.garage_door[active ? 0 : 1];
   return (ICONS[kind] ?? ["mdi:help-circle-outline"])[active ? 0 : 1];
 }
@@ -210,6 +212,7 @@ export function isActive(kind, stateObj) {
   if (kind === "climate") return !["off", "unavailable", "unknown"].includes(stateObj.state);
   if (kind === "lock") return stateObj.state !== "locked"; // offen = auffällig
   if (kind === "vacuum") return ["cleaning", "returning"].includes(stateObj.state);
+  if (kind === "network") return ["home", "connected", "on"].includes(stateObj.state);
   if (kind === "camera") return ["recording", "streaming"].includes(stateObj.state);
   return stateObj.state === "on";
 }

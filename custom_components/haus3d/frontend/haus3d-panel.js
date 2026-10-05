@@ -28,7 +28,7 @@ import {
   roomActions,
   stepTarget,
   temperatureColor,
-  watchedEntities, cameraCones, conePolygon } from "./devices.js";
+  watchedEntities, cameraCones, conePolygon, areaOf } from "./devices.js";
 import { ROOF_TYPES, compass16, fieldInfo, roofModel, roofSettings, weatherEntity, weatherKind } from "./exterior.js";
 import { exportFile, normalize, parseImport } from "./model.js";
 import { SIM_WEATHER, Simulator } from "./sim.js";
@@ -49,6 +49,7 @@ import { TabletMethods } from "./panel-tablet.js";
 import { MEDIA_STYLE, MediaMethods } from "./panel-media.js";
 import { FX_STYLE, FxMethods } from "./panel-fx.js";
 import { CLIMATE_STYLE, ClimateMethods } from "./panel-climate.js";
+import { NETWORK_STYLE, NetworkMethods } from "./panel-network.js";
 import { ENERGYCFG_STYLE, EnergyCfgMethods } from "./panel-energycfg.js";
 import { energyEntities, energyTotals } from "./energymodel.js";
 import { USER_STYLE, UserMethods } from "./panel-user.js";
@@ -363,7 +364,7 @@ class Haus3DPanel extends HTMLElement {
   _build() {
     this._built = true;
     this.shadowRoot.innerHTML = `
-      <style>${PANEL_STYLE}${MEDIA_STYLE}${FX_STYLE}${CLIMATE_STYLE}${ENERGYCFG_STYLE}${USER_STYLE}${ACCESS_STYLE}${ADMIN_STYLE}${EDITOR_STYLE}</style>
+      <style>${PANEL_STYLE}${MEDIA_STYLE}${FX_STYLE}${CLIMATE_STYLE}${NETWORK_STYLE}${ENERGYCFG_STYLE}${USER_STYLE}${ACCESS_STYLE}${ADMIN_STYLE}${EDITOR_STYLE}</style>
       <div class="wrap">
         <header>
           <button class="icon menu" title="Menü"><ha-icon icon="mdi:menu"></ha-icon></button>
@@ -853,6 +854,7 @@ class Haus3DPanel extends HTMLElement {
     const label = name || st?.attributes?.friendly_name || entityId;
     const safety = this._building?.settings?.safety?.confirm !== false;
     if (entityId.startsWith("camera.")) return this._cameraDialog(entityId);
+    if (entityId.startsWith("device_tracker.") && st?.attributes?.source_type === "router") return this._networkPopup(entityId);
     if (entityId.startsWith("climate.") && source === "tap" && st && !["unavailable", "unknown"].includes(st.state)) return this._climatePopup(entityId);
     const act = entityAction(entityId, st, { source, safety, confirm });
     if (act.dialog || !act.call) return this._moreInfo(entityId);
@@ -873,7 +875,7 @@ class Haus3DPanel extends HTMLElement {
   _placeText(entityId) {
     const b = this._building;
     if (!b) return "";
-    const area = this._hass?.entities?.[entityId]?.area_id;
+    const area = this._hass ? areaOf(this._hass, entityId) : null; // eigener Bereich oder der des Geräts
     for (const f of b.floors ?? []) {
       for (const r of f.rooms ?? []) if (area && r.area_id === area) return `${f.name} · ${r.name}`;
       for (const o of f.openings ?? []) {
@@ -936,7 +938,7 @@ class Haus3DPanel extends HTMLElement {
 
   _updateStates() {
     const hass = this._hass;
-    if (this._popup?._refresh) this._popup._refresh(); // Thermostat-Fenster
+    if (this._popup?._refresh) this._popup._refresh(); // Thermostat- bzw. Netzwerk-Fenster
     if (!hass || !this._building || !this._byArea) return;
     const lit = new Set();
     const lights = new Map(); // Raum → {color, level} (echtes Licht)
@@ -1921,6 +1923,7 @@ class Haus3DPanel extends HTMLElement {
         this._updateStates();
         this._renderWheels();
       } },
+      network: { icon: "mdi:lan", name: "Netzwerk", on: false, run: () => this._networkDialog() },
       goodnight: { icon: "mdi:weather-night", name: "Gute Nacht", on: false, run: () => this._checkSheet("goodnight") },
       walk: { icon: "mdi:walk", name: "Begehen", on: false, run: () => this._startWalk() },
       shadows: layer("shadows", "mdi:box-shadow", "Schatten"),
@@ -2035,7 +2038,7 @@ class Haus3DPanel extends HTMLElement {
 }
 
 // Dialoge und Energie-Verlauf einmischen (panel-dialogs.js, panel-energy.js)
-Object.assign(Haus3DPanel.prototype, DialogMethods, EnergyMethods, TabletMethods, MediaMethods, FxMethods, UserMethods, AccessMethods, AdminMethods, ClimateMethods, EnergyCfgMethods);
+Object.assign(Haus3DPanel.prototype, DialogMethods, EnergyMethods, TabletMethods, MediaMethods, FxMethods, UserMethods, AccessMethods, AdminMethods, ClimateMethods, EnergyCfgMethods, NetworkMethods);
 
 // Nach einem Update ohne Neuladen ist das Element der alten Version noch registriert: ein zweites
 // define würfe einen Fehler und das Panel ließe sich gar nicht laden

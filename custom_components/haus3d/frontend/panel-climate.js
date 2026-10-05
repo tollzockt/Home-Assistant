@@ -81,7 +81,10 @@ export const ClimateMethods = {
 export const CLIMATE_STYLE = `
 .popup.climpop { left: 50%; top: auto; bottom: 24px; right: auto; transform: translateX(-50%); width: min(340px, calc(100% - 32px)); padding: 0; }
 .climpop .head { display: flex; align-items: center; gap: 8px; padding: 10px 6px 4px 14px; font-weight: 600; }
-.climpop .head span { flex: 1; }
+.climpop .head span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.climpop .head .x { width: auto; flex: none; padding: 8px; }
+.climpop .cmodes button, .climpop .more { width: auto; }
+.climpop .cstep button { width: auto; justify-content: center; }
 .climpop .cbody { padding: 4px 14px 14px; display: grid; gap: 10px; }
 .climpop .now { color: var(--secondary-text-color); }
 .climpop .now .heat { color: #e65100; font-weight: 600; }

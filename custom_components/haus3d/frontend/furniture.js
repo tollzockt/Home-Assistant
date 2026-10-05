@@ -703,6 +703,11 @@ export function buildDevice(kind, stateObj, M) {
     box(g, M.white, 0.1, 0.08, 0.16);
     cyl(g, M.dark, 0.03, 0.03, 0, 0.04, 0.09, 12).rotation.x = Math.PI / 2;
     bulbs.push(box(g, M.bulb, 0.015, 0.015, 0.01, 0.035, 0.065, 0.08));
+  } else if (kind === "network") {
+    // Netzwerkgerät: flaches Kästchen mit Antenne, LED vorn
+    box(g, M.white, 0.16, 0.04, 0.11);
+    box(g, M.dark, 0.012, 0.09, 0.012, -0.06, 0.04, -0.04);
+    bulbs.push(box(g, M.bulb, 0.03, 0.012, 0.01, 0.04, 0.012, 0.056));
   } else if (kind === "vacuum") {
     // Saugroboter: flache Scheibe
     cyl(g, M.dark, 0.17, 0.08, 0, 0, 0, 24);

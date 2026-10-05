@@ -878,7 +878,7 @@ export class FloorEditor {
     }
     for (const ic of icons) {
       const sel = this.sel?.kind === "device" && this.sel.id === ic.entity_id;
-      const letter = { light: "L", switch: "S", fan: "V", cover: "R", climate: "K", camera: "C", vacuum: "B" }[ic.kind] ?? "F";
+      const letter = { light: "L", switch: "S", fan: "V", cover: "R", climate: "K", camera: "C", vacuum: "B", network: "N" }[ic.kind] ?? "F";
       parts.push(
         `<g data-kind="device" data-id="${esc(ic.entity_id)}" transform="translate(${r3(ic.x)} ${r3(ic.z)})">` +
           `<circle r="${px(11)}" fill="${ic.manual ? "#ffc107" : "transparent"}" stroke="${sel ? "#03a9f4" : "#ff9800"}" stroke-width="${px(sel ? 3.5 : 2)}"/>` +
