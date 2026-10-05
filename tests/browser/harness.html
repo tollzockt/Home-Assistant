@@ -34,6 +34,11 @@ for (const o of eg?.openings ?? []) {
   if (o.id === "sz_fenster") Object.assign(o, { type: "door", sill: 0, height: 2.1, style: "sliding", contact: "binary_sensor.schiebetuer" });
 }
 // ?roof=gable|hip|shed|flat, ?garden (Balkon, Bäume, Geländer), ?weather=rainy|snowy|…
+if (params.has("media")) {
+  data.settings = { ...(data.settings ?? {}), doorbell: { trigger: "event.klingel", camera: "camera.haustuer" }, quick: [{ entity: "automation.licht_abends" }] };
+  const eg0 = data.floors.find((f) => f.id === "eg");
+  eg0.placements = [...(eg0.placements ?? []), { entity_id: "camera.haustuer", x: 6, z: 9, y: 2.2, rotation: 270, range: 5 }];
+}
 if (params.get("roof")) data.settings = { ...(data.settings ?? {}), roof: { type: params.get("roof"), pitch: 30 } };
 // ?lhaus: Anbau an der Nordseite (L-förmiger Grundriss für das Dach)
 // ?stairs: Treppe im Hobbyraum (KG) hinauf in den Flur (EG)
@@ -135,6 +140,15 @@ if (params.has("moisture")) add(st("binary_sensor.waschraum_wasser", "on", { dev
 // ?lock: Haustürschloss (abgeschlossen) im Flur, ?siren: Sirene im Flur
 if (params.has("lock")) add(st("lock.haustuer", params.get("lock") || "locked", { friendly_name: "Haustür" }), "flur");
 if (params.has("siren")) add(st("siren.alarm", "off", { friendly_name: "Sirene" }), "flur");
+// ?media: Kamera (mit Blickrichtung), Medienplayer, Saugroboter, Klingel, Automation an der Kurzwahl
+if (params.has("media")) {
+  const svg = "data:image/svg+xml," + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="320" height="180"><rect width="320" height="180" fill="#355"/><text x="20" y="100" fill="#fff" font-size="28">Haustür</text></svg>');
+  add(st("camera.haustuer", "idle", { friendly_name: "Kamera Haustür", entity_picture: svg }), "flur");
+  add(st("media_player.wohnzimmer", "playing", { friendly_name: "Lautsprecher", media_title: "Testlied", media_artist: "Band", volume_level: 0.3, supported_features: 1 | 4 | 8 | 16 | 32 | 16384 }), "wohnzimmer");
+  add(st("vacuum.robbi", "docked", { friendly_name: "Robbi", battery_level: 87, supported_features: 4 | 16 | 512 | 8192 }), "flur");
+  add(st("event.klingel", "2026-01-01T10:00:00.000Z", { friendly_name: "Klingel", device_class: "doorbell" }), "flur");
+  add(st("automation.licht_abends", "on", { friendly_name: "Licht abends", id: "1700", current: 1, last_triggered: new Date(Date.now() - 600000).toISOString() }), null);
+}
 // ?sun=Azimut,Höhe: Sonnenstand; ?light=rgb: blaue Wohnzimmerlampe
 if (params.has("sun")) {
   const [az, el] = (params.get("sun") || "180,45").split(",").map(Number);

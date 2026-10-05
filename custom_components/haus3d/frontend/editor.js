@@ -2,7 +2,7 @@
 // verknüpfen, Möbel und Geräte platzieren, Gartenflächen. Arbeitet auf einer Kopie des Gebäudes;
 // Speichern übergibt sie an onSave.
 
-import { buildingIcons, entitiesByArea, iconKind } from "./devices.js";
+import { buildingIcons, cameraCones, conePolygon, entitiesByArea, iconKind } from "./devices.js";
 import {
   alignToFloor,
   allIds,
@@ -863,9 +863,10 @@ export class FloorEditor {
     // Geräte: platzierte (gefüllt) und automatisch verteilte (hohl)
     const byArea = entitiesByArea(this.hass);
     const icons = buildingIcons(this.b, this.hass, byArea).get(f.id) ?? [];
+    for (const c of cameraCones(new Map([[f.id, icons]]))) parts.push(`<polygon points="${conePolygon(c).map(P).join(" ")}" fill="#29b6f6" fill-opacity=".18" stroke="#29b6f6" stroke-width="${px(1)}" pointer-events="none" data-cone/>`);
     for (const ic of icons) {
       const sel = this.sel?.kind === "device" && this.sel.id === ic.entity_id;
-      const letter = ic.kind === "light" ? "L" : ic.kind === "switch" ? "S" : ic.kind === "fan" ? "V" : ic.kind === "cover" ? "R" : ic.kind === "climate" ? "K" : "F";
+      const letter = { light: "L", switch: "S", fan: "V", cover: "R", climate: "K", camera: "C", vacuum: "B" }[ic.kind] ?? "F";
       parts.push(
         `<g data-kind="device" data-id="${esc(ic.entity_id)}" transform="translate(${r3(ic.x)} ${r3(ic.z)})">` +
           `<circle r="${px(11)}" fill="${ic.manual ? "#ffc107" : "transparent"}" stroke="${sel ? "#03a9f4" : "#ff9800"}" stroke-width="${px(sel ? 3.5 : 2)}"/>` +
@@ -1948,12 +1949,13 @@ export class FloorEditor {
       const pl = f.placements.find((x) => x.entity_id === sel.id);
       el.innerHTML = `<h3>${esc(st?.attributes.friendly_name ?? sel.id)}</h3><p class="muted">${esc(sel.id)}</p>
         ${pl ? `<div class="row3">${num("x", "x", pl.x)}${num("z", "z", pl.z)}${num("y", "Höhe", pl.y ?? "")}</div><p class="muted">Höhe leer = Standard (Lampen unter der Decke).</p>` : `<p class="muted">Automatisch im Raum verteilt. Ziehen legt die Position fest.</p>`}
+        ${pl && sel.id.startsWith("camera.") ? `<div class="row2">${num("rotation", "Blickrichtung (°)", pl.rotation ?? "", 5)}${num("range", "Reichweite (m)", pl.range ?? "", 0.5)}</div><p class="muted">0° = rechts, 90° = nach oben im Plan. Leer = kein Sichtkegel.</p>` : ""}
         ${pl ? pad() : ""}
         <div class="btns">${pl ? `<button data-act="del">Automatisch platzieren</button>` : ""}</div>`;
       bindPad();
       bindNums((fl, k, v) => {
         const x = fl.placements.find((y) => y.entity_id === sel.id);
-        x[k] = k === "y" ? v : v ?? x[k];
+        x[k] = k === "y" || k === "rotation" || k === "range" ? v : v ?? x[k];
       });
       bindDelete();
       return;

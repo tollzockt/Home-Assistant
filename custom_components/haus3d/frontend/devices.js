@@ -3,7 +3,7 @@
 import { labelPoint, pointInPolygon } from "./walls.js";
 
 export const CONTACT_CLASSES = ["window", "door", "opening", "garage_door"];
-const ICON_DOMAINS = ["light", "switch", "fan", "cover", "climate", "lock"];
+const ICON_DOMAINS = ["light", "switch", "fan", "cover", "climate", "lock", "camera", "vacuum"];
 const TOGGLE_DOMAINS = ["light", "switch", "fan", "cover"];
 // Rollläden vor Fenstern/Glastüren bzw. Tore vor Garagenöffnungen (wie bei NeonPlan)
 const BLIND_CLASSES = [undefined, null, "shutter", "blind", "awning", "shade", "curtain", "window"];
@@ -94,7 +94,7 @@ export function manualPositions(building) {
     }
   }
   for (const floor of building.floors ?? []) {
-    for (const p of floor.placements ?? []) map.set(p.entity_id, { floorId: floor.id, x: p.x, z: p.z, y: p.y ?? null });
+    for (const p of floor.placements ?? []) map.set(p.entity_id, { floorId: floor.id, x: p.x, z: p.z, y: p.y ?? null, rotation: p.rotation ?? null, range: p.range ?? null });
   }
   return map;
 }
@@ -127,7 +127,7 @@ export function buildingIcons(building, hass, byArea = entitiesByArea(hass)) {
     const room = placesOf(floor).find((r) => pointInPolygon([p.x, p.z], r.points));
     // ausgeblendet (im Raum an dieser Stelle oder global): auch fest platziert nicht zeigen
     if (hiddenSet(room, building).has(entityId)) continue;
-    icons.push({ entity_id: entityId, kind, x: p.x, z: p.z, y: p.y, room: room?.id ?? null, manual: true });
+    icons.push({ entity_id: entityId, kind, x: p.x, z: p.z, y: p.y, room: room?.id ?? null, manual: true, rotation: p.rotation ?? null, range: p.range ?? null });
   }
   return result;
 }
@@ -624,4 +624,26 @@ export function roomPower(room, hass, byArea, exclude = new Set()) {
     sum = (sum ?? 0) + w;
   }
   return sum;
+}
+
+/** Sichtkegel der Kameras mit Blickrichtung (fest platziert): [{entity_id, floorId, x, z, rotation, range, fov}]. */
+export function cameraCones(icons) {
+  const out = [];
+  for (const [floorId, list] of icons) {
+    for (const ic of list) {
+      if (ic.kind !== "camera" || ic.rotation == null || !Number.isFinite(Number(ic.rotation))) continue;
+      out.push({ entity_id: ic.entity_id, floorId, x: ic.x, z: ic.z, rotation: Number(ic.rotation), range: Math.max(1, Math.min(30, Number(ic.range) || 6)), fov: 90 });
+    }
+  }
+  return out;
+}
+
+/** Kegel als Polygon im Plan (Winkel wie im Editor: 0 = rechts, 90 = nach oben). */
+export function conePolygon(c, steps = 8) {
+  const pts = [[c.x, c.z]];
+  for (let i = 0; i <= steps; i++) {
+    const a = ((c.rotation - c.fov / 2 + (c.fov * i) / steps) * Math.PI) / 180;
+    pts.push([c.x + Math.cos(a) * c.range, c.z - Math.sin(a) * c.range]);
+  }
+  return pts;
 }

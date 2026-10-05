@@ -30,7 +30,7 @@ export const TabletMethods = {
       return `${side}:${x}px; bottom:${y}px; --o:${opacity}`;
     };
     const layout = wheelPositions(n, st.offset);
-    const bubble = (it, attr, angle, opacity) => `<button class="bub${opacity > 0 ? " vis" : ""}${it.on ? " on" : ""}${it.plus ? " plus" : ""}" ${attr} title="${esc(it.name)}" style="${style(angle, opacity)}"><ha-icon icon="${esc(it.icon)}"></ha-icon><span class="lab ${labelPlace(angle)}">${esc(it.name)}</span></button>`;
+    const bubble = (it, attr, angle, opacity) => `<button class="bub${opacity > 0 ? " vis" : ""}${it.on ? " on" : ""}${it.plus ? " plus" : ""}${it.running ? " run" : ""}${it.off ? " off" : ""}" ${attr} title="${esc(it.name)}${it.sub ? ` – ${esc(it.sub)}` : ""}" style="${style(angle, opacity)}"><ha-icon icon="${esc(it.icon)}"></ha-icon><span class="lab ${labelPlace(angle)}">${esc(it.name)}</span>${it.sub ? `<small class="sub">${esc(it.sub)}</small>` : ""}</button>`;
     box.classList.toggle("open", st.open);
     box.classList.toggle("turnable", n > WHEEL_VISIBLE);
     box.innerHTML = `<button class="fab" title="${title}${n > WHEEL_VISIBLE ? ` – ${n} Einträge, mit dem Finger drehen` : ""}"><ha-icon icon="${st.open ? "mdi:close" : icon}"></ha-icon></button>` +
@@ -64,7 +64,8 @@ export const TabletMethods = {
         if (it.entity) box._longTimer = setTimeout(() => {
           long = true;
           navigator.vibrate?.(15);
-          this._moreInfo(it.entity);
+          if (side === "left") this._routineSheet(it.entity);
+          else this._moreInfo(it.entity);
         }, 550);
       });
       b.addEventListener("pointermove", (ev) => {

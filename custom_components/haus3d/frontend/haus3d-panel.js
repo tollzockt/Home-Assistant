@@ -28,8 +28,7 @@ import {
   roomActions,
   stepTarget,
   temperatureColor,
-  watchedEntities,
-} from "./devices.js";
+  watchedEntities, cameraCones, conePolygon } from "./devices.js";
 import { ROOF_TYPES, compass16, fieldInfo, roofModel, roofSettings, weatherEntity, weatherKind } from "./exterior.js";
 import { exportFile, normalize, parseImport } from "./model.js";
 import { SIM_WEATHER, Simulator } from "./sim.js";
@@ -47,6 +46,7 @@ import { EDITOR_STYLE, FloorEditor } from "./editor.js";
 import { PANEL_STYLE } from "./panel-style.js";
 import { EnergyMethods } from "./panel-energy.js";
 import { TabletMethods } from "./panel-tablet.js";
+import { MEDIA_STYLE, MediaMethods } from "./panel-media.js";
 import { VIEW_PRESETS, normalizeViews, poseInBox } from "./camera.js";
 
 import { LONG_PRESS_MS, esc, plural, ENERGY_CORE, energyRows, LAYERS, DEFAULT_SETTINGS, loadSettings, fmt, ICONS, CONTACT_ICONS, DOMAIN_ICONS, SENSOR_ICONS, fmtPower, setText, iconFor, isActive } from "./panel-util.js";
@@ -106,6 +106,7 @@ class Haus3DPanel extends HTMLElement {
       return;
     }
     this._applyWeather();
+    this._checkDoorbell(prev);
     const changed = this._watchedChanged();
     if (changed === "membership") this._refreshEntities();
     else if (changed) this._queueUpdate();
@@ -349,7 +350,7 @@ class Haus3DPanel extends HTMLElement {
   _build() {
     this._built = true;
     this.shadowRoot.innerHTML = `
-      <style>${PANEL_STYLE}${EDITOR_STYLE}</style>
+      <style>${PANEL_STYLE}${MEDIA_STYLE}${EDITOR_STYLE}</style>
       <div class="wrap">
         <header>
           <button class="icon menu" title="Menü"><ha-icon icon="mdi:menu"></ha-icon></button>
@@ -660,6 +661,7 @@ class Haus3DPanel extends HTMLElement {
       }
     }
     this._scene.setDevices(devices3d);
+    this._scene.setCameraCones(cameraCones(allIcons).map((c) => ({ ...c, poly: conePolygon(c) })));
     for (const floor of this._building.floors) {
       const elev = floor.elevation ?? 0;
       const icons = allIcons.get(floor.id) ?? [];
@@ -837,6 +839,7 @@ class Haus3DPanel extends HTMLElement {
     const st = this._hass?.states[entityId];
     const label = name || st?.attributes?.friendly_name || entityId;
     const safety = this._building?.settings?.safety?.confirm !== false;
+    if (entityId.startsWith("camera.")) return this._cameraDialog(entityId);
     const act = entityAction(entityId, st, { source, safety, confirm });
     if (act.dialog || !act.call) return this._moreInfo(entityId);
     if (act.confirm) {
@@ -1606,7 +1609,7 @@ class Haus3DPanel extends HTMLElement {
     const hass = this._hass;
     const admin = !!hass.user?.is_admin;
     p.el.innerHTML = `<div class="rp-head"><ha-icon class="grip" icon="mdi:drag"></ha-icon><b></b>${admin ? `<button class="icon cfg" title="Geräte anpassen"><ha-icon icon="mdi:tune-variant"></ha-icon></button>` : ""}<button class="icon close" title="Schließen"><ha-icon icon="mdi:close"></ha-icon></button></div>
-      <div class="rp-sub"></div><div class="rp-clim" hidden><span class="cv"></span><span class="vent" hidden></span></div><div class="rp-actions"></div><div class="rp-list"></div>`;
+      <div class="rp-sub"></div><div class="rp-clim" hidden><span class="cv"></span><span class="vent" hidden></span></div><div class="rp-actions"></div><div class="rp-media" hidden></div><div class="rp-list"></div>`;
     p.el.querySelector("b").textContent = room.name;
     p.el.querySelector(".close").addEventListener("click", () => this._selectRoom({ floorId: p.floorId, roomId: p.roomId }, { toggle: true }));
     p.el.querySelector(".cfg")?.addEventListener("click", () => this._customizeRoom(p, room));
@@ -1670,6 +1673,7 @@ class Haus3DPanel extends HTMLElement {
         p.rows.set(id, { row, icon: row.querySelector("ha-icon"), dot: row.firstElementChild, name: row.querySelector(".rp-name"), state: row.querySelector(".rp-state") });
       }
     }
+    this._buildMedia(p, ids);
   }
 
   /** Raumfenster aktualisieren: nur Texte und Klassen; neu aufbauen nur, wenn sich die Geräte ändern. */
@@ -1737,6 +1741,7 @@ class Haus3DPanel extends HTMLElement {
       r.name.textContent = st.attributes.friendly_name ?? id;
       r.state.textContent = hass.formatEntityState ? hass.formatEntityState(st) : st.state;
     }
+    this._updateMedia(p);
   }
 
   /** Raumfenster am Kopf ziehen (Maus und Finger); bleibt im sichtbaren Bereich. */
@@ -1906,7 +1911,7 @@ class Haus3DPanel extends HTMLElement {
     const domain = q.entity.split(".")[0];
     const icon = q.icon || st?.attributes?.icon || { automation: "mdi:robot", script: "mdi:script-text-play", scene: "mdi:palette", button: "mdi:gesture-tap-button", input_button: "mdi:gesture-tap-button", light: "mdi:lightbulb", switch: "mdi:toggle-switch", cover: "mdi:window-shutter", lock: "mdi:lock", fan: "mdi:fan", input_boolean: "mdi:toggle-switch-outline" }[domain] || "mdi:flash";
     const name = q.name || st?.attributes?.friendly_name || q.entity;
-    return { icon, name, entity: q.entity, on: ["on", "open", "unlocked", "playing"].includes(st?.state) && domain !== "automation", run: () => this._runAction(q.entity, { source: "wheel", name, confirm: !!q.confirm, quiet: false }) };
+    return this._routineBadge({ icon, name, entity: q.entity, on: ["on", "open", "unlocked", "playing"].includes(st?.state) && domain !== "automation", run: () => this._runAction(q.entity, { source: "wheel", name, confirm: !!q.confirm, quiet: false }) });
   }
 
   /** Einträge der Kurzwahl (unten links): Automationen, Skripte, Szenen … aus settings.quick. */
@@ -1997,7 +2002,7 @@ class Haus3DPanel extends HTMLElement {
 }
 
 // Dialoge und Energie-Verlauf einmischen (panel-dialogs.js, panel-energy.js)
-Object.assign(Haus3DPanel.prototype, DialogMethods, EnergyMethods, TabletMethods);
+Object.assign(Haus3DPanel.prototype, DialogMethods, EnergyMethods, TabletMethods, MediaMethods);
 
 // Nach einem Update ohne Neuladen ist das Element der alten Version noch registriert: ein zweites
 // define würfe einen Fehler und das Panel ließe sich gar nicht laden

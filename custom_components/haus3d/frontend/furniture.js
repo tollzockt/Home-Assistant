@@ -698,6 +698,15 @@ export function buildDevice(kind, stateObj, M) {
   } else if (kind === "climate") {
     cyl(g, M.white, 0.05, 0.07, 0, 0, 0, 20).rotation.x = Math.PI / 2;
     bulbs.push(box(g, M.bulb, 0.03, 0.03, 0.01, 0, 0.02, 0.04));
+  } else if (kind === "camera") {
+    // Kamera: Gehäuse mit Objektiv nach vorn (+z)
+    box(g, M.white, 0.1, 0.08, 0.16);
+    cyl(g, M.dark, 0.03, 0.03, 0, 0.04, 0.09, 12).rotation.x = Math.PI / 2;
+    bulbs.push(box(g, M.bulb, 0.015, 0.015, 0.01, 0.035, 0.065, 0.08));
+  } else if (kind === "vacuum") {
+    // Saugroboter: flache Scheibe
+    cyl(g, M.dark, 0.17, 0.08, 0, 0, 0, 24);
+    bulbs.push(cyl(g, M.bulb, 0.03, 0.01, 0, 0.085, 0.06, 12));
   } else {
     // Fenster-/Türkontakt
     box(g, M.white, 0.03, 0.09, 0.025);

@@ -526,7 +526,37 @@ export class HouseScene {
     this.applyLayers();
   }
 
+  /** Sichtkegel der Kameras als halbdurchsichtige Fläche knapp über dem Boden (Ebene „Geräte“). */
+  setCameraCones(list) {
+    if (!this.conesGroup) {
+      this.conesGroup = new THREE.Group();
+      this.conesGroup.userData.layer = "devices";
+      this.root.add(this.conesGroup);
+    }
+    for (const child of [...this.conesGroup.children]) this._dispose(child);
+    this.conesGroup.clear();
+    const mat = (this._coneMat ??= new THREE.MeshBasicMaterial({ color: 0x29b6f6, transparent: true, opacity: 0.22, depthWrite: false, side: THREE.DoubleSide }));
+    for (const c of list) {
+      const entry = this.floors.get(c.floorId);
+      if (!entry) continue;
+      const pts = c.poly;
+      const pos = [];
+      for (let i = 1; i < pts.length - 1; i++) pos.push(pts[0][0], 0, pts[0][1], pts[i][0], 0, pts[i][1], pts[i + 1][0], 0, pts[i + 1][1]);
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
+      const mesh = new THREE.Mesh(geo, mat);
+      mesh.position.y = (entry.floor.elevation ?? 0) + 0.03;
+      mesh.renderOrder = 2;
+      mesh.userData.floorId = c.floorId;
+      mesh.userData.cone = c.entity_id;
+      this.conesGroup.add(mesh);
+    }
+    this._syncDeviceVisibility();
+    this._dirty = true;
+  }
+
   _syncDeviceVisibility() {
+    for (const m of this.conesGroup?.children ?? []) m.visible = this.isFloorVisible(m.userData.floorId);
     for (const g of this.devicesGroup.children) g.visible = this.isFloorVisible(g.userData.floorId);
   }
 

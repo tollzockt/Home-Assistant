@@ -124,6 +124,8 @@ export const ICONS = {
   cover: ["mdi:window-shutter-open", "mdi:window-shutter"],
   climate: ["mdi:thermostat", "mdi:thermostat"],
   lock: ["mdi:lock-open-variant", "mdi:lock"],
+  camera: ["mdi:cctv", "mdi:cctv"],
+  vacuum: ["mdi:robot-vacuum", "mdi:robot-vacuum"],
 };
 export const CONTACT_ICONS = {
   window: ["mdi:window-open-variant", "mdi:window-closed-variant"],
@@ -185,6 +187,8 @@ export function isActive(kind, stateObj) {
   if (kind === "other") return ["on", "open", "playing", "unlocked", "cleaning", "home", "heat", "cool"].includes(stateObj.state);
   if (kind === "climate") return !["off", "unavailable", "unknown"].includes(stateObj.state);
   if (kind === "lock") return stateObj.state !== "locked"; // offen = auffällig
+  if (kind === "vacuum") return ["cleaning", "returning"].includes(stateObj.state);
+  if (kind === "camera") return ["recording", "streaming"].includes(stateObj.state);
   return stateObj.state === "on";
 }
 
