@@ -864,6 +864,15 @@ export class FloorEditor {
     const byArea = entitiesByArea(this.hass);
     const icons = buildingIcons(this.b, this.hass, byArea).get(f.id) ?? [];
     for (const c of cameraCones(new Map([[f.id, icons]]))) parts.push(`<polygon points="${conePolygon(c).map(P).join(" ")}" fill="#29b6f6" fill-opacity=".18" stroke="#29b6f6" stroke-width="${px(1)}" pointer-events="none" data-cone/>`);
+    // Kamera gewählt: Drehgriff in Blickrichtung (frei drehen, 1°-Schritte)
+    for (const ic of icons) {
+      if (ic.kind !== "camera" || !ic.manual || !(this.sel?.kind === "device" && this.sel.id === ic.entity_id)) continue;
+      const a = ((Number(ic.rotation) || 0) * Math.PI) / 180;
+      const d = Math.max(1.2, 60 / s);
+      const hx = ic.x + Math.cos(a) * d;
+      const hz = ic.z - Math.sin(a) * d;
+      parts.push(`<line x1="${r3(ic.x)}" y1="${r3(ic.z)}" x2="${r3(hx)}" y2="${r3(hz)}" stroke="#ff9800" stroke-width="${px(2)}" pointer-events="none"/><circle data-kind="camrot" data-id="${esc(ic.entity_id)}" cx="${r3(hx)}" cy="${r3(hz)}" r="${px(this.coarse ? 15 : 9)}" fill="#ff9800" stroke="#fff" stroke-width="${px(2)}"/><text x="${r3(hx)}" y="${r3(hz - px(16))}" text-anchor="middle" font-size="${px(12)}" fill="#ff9800" font-weight="600">${Math.round(Number(ic.rotation) || 0)}°</text>`);
+    }
     for (const ic of icons) {
       const sel = this.sel?.kind === "device" && this.sel.id === ic.entity_id;
       const letter = { light: "L", switch: "S", fan: "V", cover: "R", climate: "K", camera: "C", vacuum: "B" }[ic.kind] ?? "F";
@@ -1170,6 +1179,7 @@ export class FloorEditor {
       const len = Math.hypot(b[0] - a[0], b[1] - a[1]) || 1;
       return { mode: "edge", id: room.id, i, start: p, n: [-(b[1] - a[1]) / len, (b[0] - a[0]) / len], applied: 0, first: true };
     }
+    if (kind === "camrot") return { mode: "camrot", id, first: true };
     if (kind === "device") {
       this.sel = { kind: "device", id };
       this.renderProps();
@@ -1352,6 +1362,16 @@ export class FloorEditor {
         this._placeDevice(drag.id, p, !drag.first);
         drag.first = false;
         break;
+      case "camrot": {
+        const pl = f.placements.find((x) => x.entity_id === drag.id);
+        if (!pl) break;
+        const deg = Math.round((((Math.atan2(-(p[1] - pl.z), p[0] - pl.x) * 180) / Math.PI) % 360 + 360) % 360);
+        this._dragChange(drag, (fl) => {
+          fl.placements.find((x) => x.entity_id === drag.id).rotation = deg;
+        });
+        this.renderProps();
+        break;
+      }
       case "roofitem":
       case "roofhandle":
       case "roofpart":
@@ -1949,13 +1969,13 @@ export class FloorEditor {
       const pl = f.placements.find((x) => x.entity_id === sel.id);
       el.innerHTML = `<h3>${esc(st?.attributes.friendly_name ?? sel.id)}</h3><p class="muted">${esc(sel.id)}</p>
         ${pl ? `<div class="row3">${num("x", "x", pl.x)}${num("z", "z", pl.z)}${num("y", "Höhe", pl.y ?? "")}</div><p class="muted">Höhe leer = Standard (Lampen unter der Decke).</p>` : `<p class="muted">Automatisch im Raum verteilt. Ziehen legt die Position fest.</p>`}
-        ${pl && sel.id.startsWith("camera.") ? `<div class="row2">${num("rotation", "Blickrichtung (°)", pl.rotation ?? "", 5)}${num("range", "Reichweite (m)", pl.range ?? "", 0.5)}</div><p class="muted">0° = rechts, 90° = nach oben im Plan. Leer = kein Sichtkegel.</p>` : ""}
+        ${pl && sel.id.startsWith("camera.") ? `<div class="row2">${num("rotation", "Blickrichtung (°)", pl.rotation ?? "", 1)}${num("fov", "Sichtfeld (°)", pl.fov ?? "", 5)}</div><div class="row2">${num("tilt", "Neigung nach unten (°)", pl.tilt ?? "", 1)}${num("range", "Reichweite (m)", pl.range ?? "", 0.5)}</div><p class="muted">Am orangen Griff im Plan drehen (1°-Schritte). 0° = rechts, 90° = oben. Neigung leer = flacher Kegel; mit Neigung und Höhe zeigt der Kegel genau den sichtbaren Boden. Weitwinkel ≈ 110°, normal ≈ 90°.</p>` : ""}
         ${pl ? pad() : ""}
         <div class="btns">${pl ? `<button data-act="del">Automatisch platzieren</button>` : ""}</div>`;
       bindPad();
       bindNums((fl, k, v) => {
         const x = fl.placements.find((y) => y.entity_id === sel.id);
-        x[k] = k === "y" || k === "rotation" || k === "range" ? v : v ?? x[k];
+        x[k] = k === "y" || k === "rotation" || k === "range" || k === "fov" || k === "tilt" ? v : v ?? x[k];
       });
       bindDelete();
       return;

@@ -1,6 +1,7 @@
 // Zuordnung von Home-Assistant-Entitäten zu Räumen und Öffnungen (ohne Three.js, mit node testbar).
 
 import { labelPoint, pointInPolygon } from "./walls.js";
+import { energyEntities, energyTotals, legacyValues } from "./energymodel.js";
 
 export const CONTACT_CLASSES = ["window", "door", "opening", "garage_door"];
 const ICON_DOMAINS = ["light", "switch", "fan", "cover", "climate", "lock", "camera", "vacuum"];
@@ -94,7 +95,7 @@ export function manualPositions(building) {
     }
   }
   for (const floor of building.floors ?? []) {
-    for (const p of floor.placements ?? []) map.set(p.entity_id, { floorId: floor.id, x: p.x, z: p.z, y: p.y ?? null, rotation: p.rotation ?? null, range: p.range ?? null });
+    for (const p of floor.placements ?? []) map.set(p.entity_id, { floorId: floor.id, x: p.x, z: p.z, y: p.y ?? null, rotation: p.rotation ?? null, range: p.range ?? null, fov: p.fov ?? null, tilt: p.tilt ?? null });
   }
   return map;
 }
@@ -127,7 +128,7 @@ export function buildingIcons(building, hass, byArea = entitiesByArea(hass)) {
     const room = placesOf(floor).find((r) => pointInPolygon([p.x, p.z], r.points));
     // ausgeblendet (im Raum an dieser Stelle oder global): auch fest platziert nicht zeigen
     if (hiddenSet(room, building).has(entityId)) continue;
-    icons.push({ entity_id: entityId, kind, x: p.x, z: p.z, y: p.y, room: room?.id ?? null, manual: true, rotation: p.rotation ?? null, range: p.range ?? null });
+    icons.push({ entity_id: entityId, kind, x: p.x, z: p.z, y: p.y, room: room?.id ?? null, manual: true, rotation: p.rotation ?? null, range: p.range ?? null, fov: p.fov ?? null, tilt: p.tilt ?? null });
   }
   return result;
 }
@@ -306,20 +307,9 @@ export function energyKWh(stateObj) {
   return v * (ENERGY_UNITS[stateObj.attributes?.unit_of_measurement ?? "kWh"] ?? 1);
 }
 
-/** Werte des Balkonkraftwerks aus settings.energy. */
+/** Energie-Werte (summiert über alle Quellen, Vorzeichen korrigiert) – siehe energymodel.js. */
 export function energyValues(settings, hass) {
-  const e = settings?.energy ?? {};
-  const st = (key) => (e[key] ? hass.states?.[e[key]] : undefined);
-  return {
-    solar: powerW(st("solar")),
-    einspeisung: powerW(st("einspeisung")),
-    akku_ladestand: num(st("akku_ladestand")),
-    akku_leistung: powerW(st("akku_leistung")),
-    ertrag_heute: energyKWh(st("ertrag_heute")),
-    haus_pv: powerW(st("haus_pv")),
-    netz: powerW(st("netz")),
-    verbrauch: powerW(st("verbrauch")),
-  };
+  return legacyValues(energyTotals(settings?.energy, hass));
 }
 
 /** Farbe der Temperaturansicht: 18 °C blau bis 26 °C rot (als [r, g, b] 0..1). */
@@ -383,8 +373,7 @@ export function watchedEntities(building, hass, byArea, { links = null, extra = 
   for (const id of manualPositions(building).keys()) ids.add(id);
   const s = building.settings ?? {};
   // Energie: feste Werte und Zusatzzeilen (Text oder {entity})
-  for (const [key, id] of Object.entries(s.energy ?? {})) if (key !== "extra") put(id);
-  for (const e of Array.isArray(s.energy?.extra) ? s.energy.extra : []) put(typeof e === "string" ? e : e?.entity);
+  for (const id of energyEntities(s.energy)) put(id);
   // Karten, Kurzwahl, eigene Einträge im Funktionsrad
   for (const c of Array.isArray(s.cards) ? s.cards : []) for (const e of Array.isArray(c?.entities) ? c.entities : []) put(typeof e === "string" ? e : e?.entity);
   for (const q of Array.isArray(s.quick) ? s.quick : []) put(q?.entity);
@@ -632,18 +621,37 @@ export function cameraCones(icons) {
   for (const [floorId, list] of icons) {
     for (const ic of list) {
       if (ic.kind !== "camera" || ic.rotation == null || !Number.isFinite(Number(ic.rotation))) continue;
-      out.push({ entity_id: ic.entity_id, floorId, x: ic.x, z: ic.z, rotation: Number(ic.rotation), range: Math.max(1, Math.min(30, Number(ic.range) || 6)), fov: 90 });
+      const tilt = ic.tilt == null || ic.tilt === "" || !Number.isFinite(Number(ic.tilt)) ? null : Math.max(0, Math.min(89, Number(ic.tilt)));
+      out.push({ entity_id: ic.entity_id, floorId, x: ic.x, z: ic.z, y: Number.isFinite(Number(ic.y)) && ic.y !== null ? Number(ic.y) : 2.2, rotation: Number(ic.rotation), range: Math.max(1, Math.min(30, Number(ic.range) || 6)), fov: Math.max(10, Math.min(180, Number(ic.fov) || 90)), tilt });
     }
   }
   return out;
 }
 
-/** Kegel als Polygon im Plan (Winkel wie im Editor: 0 = rechts, 90 = nach oben). */
+/** Nah- und Fernabstand des sichtbaren Bodens (Höhe y, Neigung tilt nach unten, Bildhöhe ≈ 0,6 × Sichtfeld). */
+export function coneReach(c) {
+  if (c.tilt == null) return { near: 0, far: c.range };
+  const rad = Math.PI / 180;
+  const half = (c.fov * 0.6) / 2;
+  const h = Math.max(0.3, c.y ?? 2.2);
+  const lo = c.tilt + half; // unterer Bildrand
+  const hi = c.tilt - half; // oberer Bildrand
+  const near = lo >= 89 ? 0 : h / Math.tan(lo * rad);
+  const far = hi <= 1 ? c.range : Math.min(c.range, h / Math.tan(hi * rad));
+  return { near: Math.min(near, far - 0.1), far };
+}
+
+/** Sichtbereich als Polygon im Plan (Winkel wie im Editor: 0 = rechts, 90 = nach oben). */
 export function conePolygon(c, steps = 8) {
-  const pts = [[c.x, c.z]];
-  for (let i = 0; i <= steps; i++) {
-    const a = ((c.rotation - c.fov / 2 + (c.fov * i) / steps) * Math.PI) / 180;
-    pts.push([c.x + Math.cos(a) * c.range, c.z - Math.sin(a) * c.range]);
-  }
-  return pts;
+  const { near, far } = coneReach(c);
+  const arc = (r) => {
+    const pts = [];
+    for (let i = 0; i <= steps; i++) {
+      const a = ((c.rotation - c.fov / 2 + (c.fov * i) / steps) * Math.PI) / 180;
+      pts.push([c.x + Math.cos(a) * r, c.z - Math.sin(a) * r]);
+    }
+    return pts;
+  };
+  if (near <= 0.05) return [[c.x, c.z], ...arc(far)];
+  return [...arc(far), ...arc(near).reverse()];
 }

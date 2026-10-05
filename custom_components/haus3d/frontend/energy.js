@@ -202,4 +202,4 @@ export function fieldPower(fields, totalW, sun = null) {
 }
 
 /** Auswahl „Eingeklappt zeigen“. */
-export const SHORT_CHOICES = [["", "erster Wert"], ["akku", "Akku"], ["solar", "Solar"], ["netz", "Netz"], ["verbrauch", "Verbrauch"], ["ueberschuss", "Überschuss"]];
+export const SHORT_CHOICES = [["", "erster Wert"], ["verbrauch", "Hausverbrauch"], ["netz", "Netz (Bezug/Einspeisung)"], ["solar", "Erzeugung"], ["akku", "Speicher"], ["ueberschuss", "Überschuss"]];

@@ -60,7 +60,7 @@ test("Wetter, Tageszeit, Solar und Beispielgeräte", () => {
   sim.weather = "snowy";
   sim.daytime = "night";
   sim.solar = 500;
-  const building = { settings: { energy: { solar: "sensor.solar", einspeisung: "sensor.feed" } }, floors: [{ id: "eg", rooms: [{ id: "bad", name: "Bad", area_id: null }, { id: "flur", name: "Flur", area_id: "flur" }] }] };
+  const building = { settings: { energy: { sources: [{ id: "bkw_1", type: "bkw", power: "sensor.solar" }], netz_einspeisung: "sensor.feed" } }, floors: [{ id: "eg", rooms: [{ id: "bad", name: "Bad", area_id: null }, { id: "flur", name: "Flur", area_id: "flur" }] }] };
   assert.equal(sim.makeDemo(building, real), 1);
   const h = sim.wrap(real, { building });
   assert.equal(h.states["weather.simulation"].state, "snowy");

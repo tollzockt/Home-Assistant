@@ -550,16 +550,31 @@ export class HouseScene {
       const entry = this.floors.get(c.floorId);
       if (!entry) continue;
       const pts = c.poly;
+      const contour = pts.map(([x, z]) => new THREE.Vector2(x, z));
+      const tris = THREE.ShapeUtils.triangulateShape(contour, []);
       const pos = [];
-      for (let i = 1; i < pts.length - 1; i++) pos.push(pts[0][0], 0, pts[0][1], pts[i][0], 0, pts[i][1], pts[i + 1][0], 0, pts[i + 1][1]);
+      for (const t of tris) for (const k of t) pos.push(pts[k][0], 0, pts[k][1]);
       const geo = new THREE.BufferGeometry();
       geo.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
       const mesh = new THREE.Mesh(geo, mat);
-      mesh.position.y = (entry.floor.elevation ?? 0) + 0.03;
+      const elev = entry.floor.elevation ?? 0;
+      mesh.position.y = elev + 0.03;
       mesh.renderOrder = 2;
       mesh.userData.floorId = c.floorId;
       mesh.userData.cone = c.entity_id;
+      mesh.userData.noShadow = true;
       this.conesGroup.add(mesh);
+      // Kanten von der Kamera zu den Ecken des Sichtbereichs
+      const apex = [c.x, elev + (c.y ?? 2.2), c.z];
+      const corners = c.tilt == null ? [pts[1], pts[Math.floor(pts.length / 2)], pts.at(-1)] : [pts[0], pts[Math.floor(pts.length / 2) - 1], pts[Math.floor(pts.length / 2)], pts.at(-1)];
+      const lp = [];
+      for (const q of corners) lp.push(...apex, q[0], elev + 0.03, q[1]);
+      const lgeo = new THREE.BufferGeometry();
+      lgeo.setAttribute("position", new THREE.Float32BufferAttribute(lp, 3));
+      const lines = new THREE.LineSegments(lgeo, (this._coneLineMat ??= new THREE.LineBasicMaterial({ color: 0x29b6f6, transparent: true, opacity: 0.6 })));
+      lines.userData.floorId = c.floorId;
+      lines.userData.cone = c.entity_id;
+      this.conesGroup.add(lines);
     }
     this._syncDeviceVisibility();
     this._dirty = true;
@@ -621,14 +636,42 @@ export class HouseScene {
       for (const f of this.pvFields?.values() ?? []) targets.push(f.mesh);
       targets.push(...this.roofMeshes);
     }
-    for (const hit of this.raycaster.intersectObjects(targets.filter(visible), false)) {
+    const hits = this.raycaster.intersectObjects(targets.filter(visible), false);
+    for (const hit of hits) {
       if (hit.object.userData.pvField) return { pvField: hit.object.userData.pvField };
       if (hit.object.userData.roof) return null;
       if (furniture && hit.object.userData.furniture) return { furniture: hit.object.userData.furniture };
       if (hit.object.userData.entity) return { entity_id: hit.object.userData.entity };
-      if (hit.object.userData.room) return { ...hit.object.userData.room };
+      if (hit.object.userData.room) break;
     }
-    return null;
+    // knapp daneben: nächstes Gerät (3D-Gerät, Lampe, Heizkörper …) im Umkreis von fingerPx
+    if (!furniture) {
+      const near = this.nearestEntity(clientX, clientY, targets.filter(visible));
+      if (near) return { entity_id: near };
+    }
+    const room = hits.find((h) => h.object.userData.room);
+    return room ? { ...room.object.userData.room } : null;
+  }
+
+  /** Gerät mit Entität, dessen Mitte auf dem Bildschirm am nächsten am Zeiger liegt (oder null). */
+  nearestEntity(clientX, clientY, targets, maxPx = this.fingerPx ?? 30) {
+    const rect = this.renderer.domElement.getBoundingClientRect();
+    const seen = new Map();
+    const box = new THREE.Box3();
+    const c = new THREE.Vector3();
+    for (const o of targets) {
+      const id = o.userData.entity;
+      if (!id || o.userData.room) continue;
+      box.setFromObject(o);
+      if (box.isEmpty()) continue;
+      box.getCenter(c).project(this.camera);
+      if (c.z > 1) continue; // hinter der Kamera
+      const d = Math.hypot(((c.x + 1) / 2) * rect.width + rect.left - clientX, ((1 - c.y) / 2) * rect.height + rect.top - clientY);
+      if (d <= maxPx && (!seen.has(id) || d < seen.get(id))) seen.set(id, d);
+    }
+    let best = null;
+    for (const [id, d] of seen) if (!best || d < best[1]) best = [id, d];
+    return best?.[0] ?? null;
   }
 
   /** Raum hervorheben (oder null); mit focus fährt die Kamera hin. */

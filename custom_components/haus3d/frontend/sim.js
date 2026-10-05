@@ -1,6 +1,7 @@
 // Simulationsmodus: legt eine Schicht über das echte hass-Objekt. Zustände werden nur hier geändert,
 // Dienstaufrufe gehen nie an Home Assistant, Grundriss-Speichern bleibt lokal. Ohne DOM, mit node testbar.
 import { sunPosition } from "./sun.js";
+import { normalizeEnergy } from "./energymodel.js";
 
 const now = () => new Date().toISOString();
 
@@ -123,14 +124,17 @@ export class Simulator {
     }
     // Solarleistung
     if (this.solar !== null) {
-      const e = building?.settings?.energy ?? {};
+      const e = normalizeEnergy(building?.settings?.energy);
       const put = (id, v, unit = "W") => {
         if (id) states[id] = { ...(real.states[id] ?? { entity_id: id, attributes: {} }), state: String(v), attributes: { ...(real.states[id]?.attributes ?? {}), unit_of_measurement: unit } };
       };
-      put(e.solar, Math.round(this.solar));
-      put(e.einspeisung, Math.round(this.solar * 0.92));
-      // Netz: Einspeisung als negativer Bezug (bzw. umgekehrt, wenn das Vorzeichen gedreht ist)
-      put(e.netz, Math.round(this.solar * 0.92) * (e.netz_invert ? 1 : -1));
+      // Solarleistung auf die Erzeuger verteilen, Überschuss geht ins Netz
+      const gens = e.sources.filter((s) => s.type !== "speicher" && s.power);
+      for (const s of gens) put(s.power, Math.round(this.solar / gens.length));
+      const feed = Math.round(this.solar * 0.92);
+      put(e.netz, feed * (e.netz_invert ? 1 : -1));
+      put(e.netz_einspeisung, feed);
+      put(e.netz_bezug, 0);
     }
     const entities = Object.keys(this.demo.entities).length ? { ...real.entities, ...this.demo.entities } : real.entities;
     const sim = this;

@@ -99,9 +99,10 @@ test("Rollladen-Behang und Einheiten", () => {
   assert.equal(powerW(st("sensor.p", "0.45", { unit_of_measurement: "kW" })), 450);
   assert.equal(powerW(st("sensor.p", "unknown")), null);
   const e = energyValues({ energy: { einspeisung: "sensor.e", ertrag_heute: "sensor.y" } }, { states: { "sensor.e": st("sensor.e", "380", { unit_of_measurement: "W" }), "sensor.y": st("sensor.y", "1500", { unit_of_measurement: "Wh" }) } });
+  // altes Format: Balkonkraftwerk wird zur Quelle, Erzeugung = 380 W
   assert.equal(e.einspeisung, 380);
   assert.equal(e.ertrag_heute, 1.5);
-  assert.equal(e.solar, null);
+  assert.equal(e.solar, 380);
 });
 
 test("Temperaturfarben: 18 °C blau, 26 °C rot, außerhalb begrenzt", () => {

@@ -57,3 +57,16 @@ test("Abläufe: läuft, zuletzt, Link zum Ablauf", () => {
   assert.equal(routineInfo(S("automation.x", "off", {}), now).off, true);
   assert.equal(routineInfo(S("light.x", "on"), now), null);
 });
+
+test("Kamera-Sichtbereich: mit Neigung nur der sichtbare Boden", async () => {
+  const { cameraCones, conePolygon, coneReach } = await import("../../custom_components/haus3d/frontend/devices.js");
+  const icons = new Map([["eg", [{ entity_id: "camera.a", kind: "camera", manual: true, x: 0, z: 0, y: 2.5, rotation: 0, range: 10, fov: 90, tilt: 35 }, { entity_id: "camera.b", kind: "camera", manual: true, x: 0, z: 0, rotation: null }]]]);
+  const cones = cameraCones(icons);
+  assert.equal(cones.length, 1);
+  const r = coneReach(cones[0]);
+  assert.ok(r.near > 1 && r.near < 3 && r.far > r.near && r.far <= 10, JSON.stringify(r));
+  const poly = conePolygon(cones[0]);
+  assert.equal(poly.length, 18); // Fern- und Nahbogen
+  const flat = conePolygon({ ...cones[0], tilt: null });
+  assert.deepEqual(flat[0], [0, 0]);
+});

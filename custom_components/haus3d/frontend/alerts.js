@@ -4,6 +4,7 @@
 
 import { CONTACT_CLASSES, domainOf, isOpen, placesOf, roomClimate, roomHeating } from "./devices.js";
 import { openState } from "./status.js";
+import { normalizeEnergy } from "./energymodel.js";
 import { computeWalls } from "./walls.js";
 
 /** Standard-Einstellungen (settings.alerts); Minuten/Prozent 0 = Regel aus. */
@@ -142,7 +143,7 @@ export function evaluateAlerts({ building, hass, byArea, links, places, exterior
 
   // Akku leer
   if (c.akku_min > 0 && energy.akku_ladestand != null && energy.akku_ladestand < c.akku_min) {
-    const id = building.settings?.energy?.akku_ladestand;
+    const id = normalizeEnergy(building.settings?.energy).sources.find((s) => s.type === "speicher" && s.soc)?.soc;
     push("akku_low", "info", "mdi:battery-alert", `Akku ${Math.round(energy.akku_ladestand)} %`, id ? [id] : ["akku"], places.get(id) ?? {});
   }
 

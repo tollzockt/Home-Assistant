@@ -34,6 +34,7 @@ import {
 } from "./devices.js";
 import { ROOF_TYPES, roofSettings, weatherEntity, weatherKind } from "./exterior.js";
 import { exportFile, normalize, parseImport } from "./model.js";
+import { energyRowSpecs } from "./energymodel.js";
 import { SIM_WEATHER, Simulator } from "./sim.js";
 import { FUNCTION_KEYS, LEGACY_FUNCTION_KEYS, MAX_CARDS, WHEEL_VISIBLE, labelPlace, nextStyle, migrateView, nextView, normalizeCards, normalizeFunctions, rotateWheel, wheelLayout, wheelPlusAngle } from "./hud.js";
 import { entityAction } from "./actions.js";
@@ -72,8 +73,8 @@ export const ENERGY_GROUPS = [
  * von settings.energy_card.rows, mit hidden und eigenem Namen (custom). id: Schlüssel bzw. x:Entität.
  */
 export function energyRowList(energy, hass, card = null) {
-  const rows = ENERGY_CORE.filter(([key]) => energy[key] && hass.states[energy[key]]).map(([key, icon, name]) => ({ id: key, key, icon, base: name, entity: energy[key] }));
-  for (const x of energy.extra ?? []) {
+  const rows = energyRowSpecs(energy, hass);
+  for (const x of energy?.extra ?? []) {
     const id = typeof x === "string" ? x : x?.entity;
     const st = id && hass.states[id];
     if (!st) continue;

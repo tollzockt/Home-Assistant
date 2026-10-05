@@ -36,14 +36,14 @@ test("Freigabe: Bereiche, Ablauf nach 10 min, Token am Befehl", () => {
 });
 
 test("Energie-Karte: Reihenfolge, Ausblenden, eigene Namen, Zusatzwerte", () => {
-  const hass = { states: { "sensor.pv": { attributes: {} }, "sensor.ein": { attributes: {} }, "sensor.akku": { attributes: {} }, "sensor.wp": { attributes: { friendly_name: "Wärmepumpe", device_class: "power" } } } };
-  const energy = { solar: "sensor.pv", einspeisung: "sensor.ein", akku_ladestand: "sensor.akku", extra: [{ entity: "sensor.wp" }] };
-  assert.deepEqual(energyRows(energy, hass).map((r) => r.id), ["solar", "einspeisung", "akku_ladestand", "x:sensor.wp"]);
-  const card = { rows: [{ key: "akku_ladestand", name: "Batterie" }, { key: "x:sensor.wp" }, { key: "solar", hidden: true }] };
+  const hass = { states: { "sensor.pv": { attributes: {} }, "sensor.bkw": { attributes: {} }, "sensor.netz": { attributes: {} }, "sensor.akku": { attributes: {} }, "sensor.wp": { attributes: { friendly_name: "Wärmepumpe", device_class: "power" } } } };
+  const energy = { netz: "sensor.netz", sources: [{ id: "pv_1", type: "pv", name: "Dach", power: "sensor.pv" }, { id: "bkw_1", type: "bkw", name: "Balkon", power: "sensor.bkw" }, { id: "s", type: "speicher", soc: "sensor.akku" }], extra: [{ entity: "sensor.wp" }] };
+  assert.deepEqual(energyRows(energy, hass).map((r) => r.id), ["verbrauch", "bezug", "einspeisung", "erzeugung", "akku_ladestand", "src:pv_1", "src:bkw_1", "x:sensor.wp"]);
+  const card = { rows: [{ key: "akku_ladestand", name: "Batterie" }, { key: "x:sensor.wp" }, { key: "bezug", hidden: true }] };
   const list = energyRowList(energy, hass, card);
-  assert.deepEqual(list.map((r) => [r.id, r.hidden]), [["akku_ladestand", false], ["x:sensor.wp", false], ["solar", true], ["einspeisung", false]]);
+  assert.deepEqual(list.slice(0, 3).map((r) => [r.id, r.hidden]), [["akku_ladestand", false], ["x:sensor.wp", false], ["bezug", true]]);
   const rows = energyRows(energy, hass, card);
-  assert.deepEqual(rows.map((r) => r.name), ["Batterie", "Wärmepumpe", "Einspeisung"]);
+  assert.deepEqual(rows.slice(0, 3).map((r) => r.name), ["Batterie", "Wärmepumpe", "Hausverbrauch"]);
   assert.equal(rows[0].key, "akku_ladestand"); // Balken hängt am Schlüssel
   assert.equal(rows[1].key, null);
 });

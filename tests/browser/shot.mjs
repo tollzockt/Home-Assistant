@@ -105,7 +105,11 @@ await set.locator("haus3d-panel .floorbar button[data-floor]", { hasText: "EG" }
 await set.waitForTimeout(1200);
 await set.screenshot({ path: `${out}/desktop-3d.png` });
 const box = await set.locator("haus3d-panel canvas").boundingBox();
-await set.mouse.click(box.x + box.width * 0.5, box.y + box.height * 0.55);
+// Raum gedrückt halten öffnet das Raumfenster (kurzer Tipp fährt nur hin)
+await set.mouse.move(box.x + box.width * 0.5, box.y + box.height * 0.55);
+await set.mouse.down();
+await set.waitForTimeout(800);
+await set.mouse.up();
 await set.waitForTimeout(1200);
 await set.screenshot({ path: `${out}/raum-gewaehlt.png` });
 const roomPanel = await set.evaluate(() => window.panel.shadowRoot.querySelector(".roompanel")?.innerText ?? null);

@@ -3,6 +3,7 @@
 import { daySamples, houseFlowItems, resolveSeason, shadingSummary } from "./fx.js";
 import { gridState } from "./energy.js";
 import { roomPower } from "./devices.js";
+import { energyEntities } from "./energymodel.js";
 import { esc, fmt } from "./panel-util.js";
 import { sunFromHass } from "./sun.js";
 
@@ -21,7 +22,7 @@ export const FxMethods = {
     if (this._settings.layers.flow === false || this._building.settings?.house_flow === false) return this._scene.setHouseFlow([]);
     const hass = this._hass;
     const cfg = this._building.settings?.energy ?? {};
-    const exclude = new Set(Object.values(cfg).filter((v) => typeof v === "string"));
+    const exclude = new Set(energyEntities(cfg));
     const watts = new Map();
     for (const f of this._building.floors) {
       for (const r of f.rooms ?? []) {
@@ -30,7 +31,7 @@ export const FxMethods = {
         if (w != null) watts.set(r.id, w);
       }
     }
-    this._scene.setHouseFlow(houseFlowItems(watts, gridState(energy?.netz, !!cfg.netz_invert)));
+    this._scene.setHouseFlow(houseFlowItems(watts, gridState(energy?.netz)));
   },
 
   /** Verschattung der PV-Felder heute (oder am Tag day): Verlust je Feld, Verlauf, Zeitraffer. */

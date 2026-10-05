@@ -3,21 +3,29 @@
 // Dialog „Tagesverlauf“ mit Wischen, Gestern/Heute und Summen.
 
 import { formatPower } from "./energy.js";
+import { normalizeEnergy } from "./energymodel.js";
 import { dayStart, downsample, integrateKWh, normalizeHistory, normalizeStats, sparkPath, valueAt, valueRange } from "./history.js";
 import { esc, fmt } from "./panel-util.js";
 
 const TTL = 5 * 60000;
 const HOUR = 3600000;
-// Reihen im Diagramm: Schlüssel in settings.energy, Name, Farbe, Einheit
-const SERIES = [
-  ["solar", "Balkonkraftwerk", "#fbc02d", "W"],
-  ["haus_pv", "PV Dach", "#ff9800", "W"],
-  ["einspeisung", "Einspeisung", "#43a047", "W"],
-  ["verbrauch", "Verbrauch", "#8e24aa", "W"],
-  ["netz", "Netz", "#e53935", "W"],
-  ["akku_leistung", "Akku", "#1e88e5", "W"],
-  ["akku_ladestand", "Akku %", "#00acc1", "%"],
-];
+// Reihen im Diagramm aus dem Energie-Modell: je Quelle, Haus, Netz
+const COLORS = { pv: ["#ff9800", "#ffb300", "#f57c00"], bkw: ["#fbc02d", "#c0ca33", "#fdd835"], speicher: ["#1e88e5", "#3949ab", "#039be5"] };
+export function chartSeries(cfg) {
+  const e = normalizeEnergy(cfg);
+  const out = [];
+  const n = { pv: 0, bkw: 0, speicher: 0 };
+  for (const s of e.sources) {
+    const color = COLORS[s.type][n[s.type]++ % 3];
+    if (s.power) out.push({ key: s.type === "speicher" ? "akku_leistung" : `src:${s.id}`, gen: s.type !== "speicher", name: s.name, color, unit: "W", id: s.power, invert: s.type === "speicher" && s.invert });
+    if (s.soc) out.push({ key: "akku_ladestand", name: `${s.name} %`, color: "#00acc1", unit: "%", id: s.soc });
+  }
+  if (e.haus) out.push({ key: "verbrauch", name: "Hausverbrauch", color: "#8e24aa", unit: "W", id: e.haus });
+  if (e.netz) out.push({ key: "netz", name: "Netz", color: "#e53935", unit: "W", id: e.netz, invert: e.netz_invert });
+  if (e.netz_bezug) out.push({ key: "bezug", name: "Netzbezug", color: "#e53935", unit: "W", id: e.netz_bezug });
+  if (e.netz_einspeisung) out.push({ key: "einspeisung", name: "Einspeisung", color: "#43a047", unit: "W", id: e.netz_einspeisung });
+  return out;
+}
 
 export const EnergyMethods = {
   /** Zeitreihen holen: erst Statistik (5 min, Mittelwert), sonst Verlauf; 5 min zwischengespeichert. */
@@ -87,7 +95,7 @@ export const EnergyMethods = {
     const start = dayStart(Date.now(), tz, dayOffset);
     const end = Math.min(Date.now(), dayStart(start + 30 * HOUR, tz));
     const dayEnd = dayStart(start + 30 * HOUR, tz);
-    const series = SERIES.filter(([k]) => typeof cfg[k] === "string" && cfg[k].includes(".")).map(([key, name, color, unit]) => ({ key, name, color, unit, id: cfg[key] }));
+    const series = chartSeries(cfg);
     const el = document.createElement("div");
     el.className = "dialog-backdrop";
     el.innerHTML = `<div class="dialog chart" role="dialog" aria-label="Tagesverlauf">
@@ -120,10 +128,13 @@ export const EnergyMethods = {
     // Summen: Ertrag/Einspeisung/Verbrauch aus der Leistung; Netz getrennt nach Bezug/Einspeisung
     const sums = [];
     const kwh = (k) => integrateKWh(shown.find((s) => s.key === k)?.pts ?? []);
-    for (const [k, label] of [["solar", "Balkonkraftwerk"], ["haus_pv", "PV Dach"], ["einspeisung", "Einspeisung"], ["verbrauch", "Verbrauch"]]) if (shown.some((s) => s.key === k)) sums.push(`${label} ${fmt(kwh(k), 1)} kWh`);
+    const gens = shown.filter((s) => s.gen);
+    for (const s of gens) sums.push(`${s.name} ${fmt(integrateKWh(s.pts), 1)} kWh`);
+    if (gens.length > 1) sums.push(`Erzeugung gesamt ${fmt(gens.reduce((a, s) => a + integrateKWh(s.pts), 0), 1)} kWh`);
+    for (const [k, label] of [["verbrauch", "Hausverbrauch"], ["bezug", "Netzbezug"], ["einspeisung", "Einspeisung"]]) if (shown.some((s) => s.key === k)) sums.push(`${label} ${fmt(kwh(k), 1)} kWh`);
     const grid = shown.find((s) => s.key === "netz");
     if (grid) {
-      const sign = cfg.netz_invert ? -1 : 1;
+      const sign = grid.invert ? -1 : 1;
       sums.push(`Bezug ${fmt(integrateKWh(grid.pts.map((p) => ({ t: p.t, v: Math.max(0, sign * p.v) }))), 1)} kWh`);
       sums.push(`Netz-Einspeisung ${fmt(integrateKWh(grid.pts.map((p) => ({ t: p.t, v: Math.max(0, -sign * p.v) }))), 1)} kWh`);
     }

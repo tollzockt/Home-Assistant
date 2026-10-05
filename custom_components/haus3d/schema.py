@@ -160,6 +160,11 @@ ENERGY_SCHEMA = vol.Schema(
         vol.Optional("pv_zaehler"): _soft(_ENTITY, None),
         vol.Optional("bezug_zaehler"): _soft(_ENTITY, None),
         vol.Optional("einspeise_zaehler"): _soft(_ENTITY, None),
+        # 0.17: Basis (Haus, Netz getrennt) und Quellen (PV, Balkonkraftwerk, AC-Speicher)
+        vol.Optional("haus"): _soft(_ENTITY, None),
+        vol.Optional("netz_bezug"): _soft(_ENTITY, None),
+        vol.Optional("netz_einspeisung"): _soft(_ENTITY, None),
+        vol.Optional("sources"): _soft(vol.All([dict], vol.Length(max=20)), list),
     },
     extra=vol.ALLOW_EXTRA,
 )
