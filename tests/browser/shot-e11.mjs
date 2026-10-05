@@ -36,7 +36,7 @@ await pg.mouse.move(box.x + box.width * 0.52, box.y + box.height / 2);
 await pg.mouse.up();
 const read = await pg.evaluate(() => window.panel.shadowRoot.querySelector(".chartbox .readout").textContent);
 t.results.wischen = read;
-t.check(/^\d\d:\d\d · /.test(read) && /Akku %/.test(read), `Wischen: ${read}`);
+t.check(/^\d\d:\d\d · /.test(read) && /Speicher %/.test(read), `Wischen: ${read}`);
 await t.shot(pg, "verlauf.png");
 // Heute: Knopf gewählt, Diagramm oder (kurz nach Mitternacht) Hinweis
 await pg.locator('haus3d-panel .dialog.chart [data-day="0"]').click();
