@@ -24,8 +24,11 @@ const diff = Math.max(...eg1.position.map((v, i) => Math.abs(v - eg2.position[i]
 t.results.etage = { eg1, eg2, diff };
 t.check(diff < 0.02, `Ansicht der Etage nicht wiederhergestellt: ${diff}`);
 // Doppeltipp auf EG: einpassen und vergessen
-await pg.locator("haus3d-panel .floorbar button[data-floor='eg']").click();
-await pg.locator("haus3d-panel .floorbar button[data-floor='eg']").click();
+// zwei Tipps direkt hintereinander (unabhängig von der Rechnerlast)
+await pg.locator("haus3d-panel .floorbar button[data-floor='eg']").evaluate((b) => {
+  b.click();
+  b.click();
+});
 await pg.waitForTimeout(300);
 const eg3 = await view();
 const reset = await pg.evaluate(() => !JSON.parse(localStorage.getItem("haus3d.views") ?? "{}").eg);
