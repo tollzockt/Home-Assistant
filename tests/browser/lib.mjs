@@ -85,7 +85,16 @@ export async function unlock(pg, scope = "edit", { pin = "0000", cat = null, arg
   await pg.evaluate(([s, c, a]) => {
     window.__unlocking = s === "admin" ? window.panel._openAdmin(c, a) : window.panel._startEdit();
   }, [scope, cat, arg]);
-  await pg.waitForSelector("haus3d-panel .pinpad", { timeout: 15000 });
+  // schon freigeschaltet (z. B. Admin-Modus läuft noch): kein PIN-Feld
+  await pg.waitForFunction((s) => {
+    const p = window.panel;
+    return !!p.shadowRoot.querySelector(".pinpad") || (s === "admin" ? p._adminOpen : p._editMode);
+  }, scope, { timeout: 15000 });
+  if (!(await pg.evaluate(() => !!window.panel.shadowRoot.querySelector(".pinpad")))) {
+    await pg.evaluate(() => window.__unlocking);
+    await pg.waitForTimeout(150);
+    return;
+  }
   await pg.keyboard.type(pin, { delay: 60 });
   await pg.waitForFunction(() => !window.panel.shadowRoot.querySelector(".pinpad"), null, { timeout: 8000 });
   await pg.evaluate(() => window.__unlocking);
