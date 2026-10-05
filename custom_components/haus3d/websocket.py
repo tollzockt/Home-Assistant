@@ -8,8 +8,9 @@ import voluptuous as vol
 
 from homeassistant.components import websocket_api
 from homeassistant.core import HomeAssistant, callback
+from homeassistant.helpers.dispatcher import async_dispatcher_connect
 
-from .const import DOMAIN
+from .const import BACKGROUND_MAX_CHARS, DOMAIN, SIGNAL_COMMAND
 from .schema import validate_building
 from .storage import Haus3DData, RevisionConflict
 
@@ -17,7 +18,7 @@ from .storage import Haus3DData, RevisionConflict
 @callback
 def async_register_commands(hass: HomeAssistant) -> None:
     """Registriert die Befehle (nur einmal pro HA-Lauf, siehe __init__.py)."""
-    for command in (ws_get, ws_save, ws_history_list, ws_history_snapshot, ws_history_restore):
+    for command in (ws_get, ws_save, ws_history_list, ws_history_snapshot, ws_history_restore, ws_background_get, ws_background_set, ws_subscribe):
         websocket_api.async_register_command(hass, command)
 
 
@@ -104,3 +105,46 @@ async def ws_history_restore(
         connection.send_error(msg["id"], "invalid_format", str(err))
         return
     connection.send_result(msg["id"], {"revision": revision, "building": data.building})
+
+
+@websocket_api.websocket_command({vol.Required("type"): "haus3d/background/get", vol.Required("floor_id"): str})
+@websocket_api.async_response
+async def ws_background_get(hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict[str, Any]) -> None:
+    """Liefert das Bauplan-Foto bzw. Luftbild einer Etage (Daten-URL) oder None."""
+    if (data := _data(hass, connection, msg)) is None:
+        return
+    connection.send_result(msg["id"], {"image": await data.async_get_background(msg["floor_id"])})
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): "haus3d/background/set",
+        vol.Required("floor_id"): str,
+        vol.Required("image"): vol.Any(None, vol.All(str, vol.Match(r"^data:image/(jpeg|png|webp);base64,"))),
+    }
+)
+@websocket_api.require_admin
+@websocket_api.async_response
+async def ws_background_set(hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict[str, Any]) -> None:
+    """Speichert (oder entfernt) das Bild einer Etage."""
+    if (data := _data(hass, connection, msg)) is None:
+        return
+    image = msg["image"]
+    if image and len(image) > BACKGROUND_MAX_CHARS:
+        connection.send_error(msg["id"], "too_large", "Bild ist zu groß (höchstens etwa 2 MB)")
+        return
+    await data.async_set_background(msg["floor_id"], image)
+    connection.send_result(msg["id"], {"ok": True})
+
+
+@websocket_api.websocket_command({vol.Required("type"): "haus3d/subscribe"})
+@callback
+def ws_subscribe(hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict[str, Any]) -> None:
+    """Offene Panels hören auf Befehle der Dienste (Etage zeigen, Hinweis, Raum hervorheben …)."""
+
+    @callback
+    def forward(command: dict[str, Any]) -> None:
+        connection.send_message(websocket_api.event_message(msg["id"], command))
+
+    connection.subscriptions[msg["id"]] = async_dispatcher_connect(hass, SIGNAL_COMMAND, forward)
+    connection.send_result(msg["id"])

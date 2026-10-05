@@ -26,13 +26,13 @@ export const TouchMethods = {
   },
 
   _initTouch() {
-    this.mods = { free: false, solo: false };
+    this.mods = { free: false, solo: false, multi: false };
     this.coarse = !!window.matchMedia?.("(pointer: coarse)").matches;
     const main = this.root.querySelector(".ed-main");
     const el = document.createElement("div");
     el.className = "ed-touch";
-    el.innerHTML = `<div class="ed-mods"><button data-mod="free" title="Ohne Einrasten (wie Umschalt)">Frei</button><button data-mod="solo" title="Nur dieses Teil, Magnet aus (wie Alt)">Einzeln</button></div>
-      <div class="ed-draftbar" hidden><button data-d="done" class="primary">Fertig</button><button data-d="back">Punkt zurück</button><button data-d="cancel">Abbrechen</button></div>`;
+    el.innerHTML = `<div class="ed-mods"><button data-mod="free" title="Ohne Einrasten (wie Umschalt)">Frei</button><button data-mod="solo" title="Nur dieses Teil, Magnet aus (wie Alt)">Einzeln</button><button data-mod="multi" title="Mehrere Teile wählen (wie Umschalt-Klick); auf leerer Fläche ziehen = Rahmen">Mehrfach</button></div>
+      <div class="ed-draftbar" hidden><span class="ed-len"><input data-dlen inputmode="decimal" placeholder="Länge m" title="Länge in Metern, Enter setzt den Punkt"><input data-ddeg inputmode="decimal" placeholder="Winkel°" title="Winkel in Grad: 0 = rechts, 90 = nach oben; leer = Richtung zum Zeiger"><button data-d="len">Setzen</button></span><button data-d="done" class="primary">Fertig</button><button data-d="back">Punkt zurück</button><button data-d="cancel">Abbrechen</button></div>`;
     main.appendChild(el);
     this._touchEl = el;
     el.addEventListener("pointerdown", (ev) => ev.stopPropagation());
@@ -40,7 +40,14 @@ export const TouchMethods = {
       const k = b.dataset.mod;
       this.mods[k] = !this.mods[k];
       this._updateTouch();
+      if (k === "multi") return this._toast(this.mods.multi ? "Mehrfach an: Teile antippen oder auf leerer Fläche einen Rahmen aufziehen." : "Mehrfach aus.");
       this._toast(k === "free" ? (this.mods.free ? "Frei an: nächster Zug ohne Einrasten." : "Frei aus.") : this.mods.solo ? "Einzeln an: Nachbarräume bleiben stehen, Magnet aus." : "Einzeln aus.");
+    }));
+    el.querySelectorAll(".ed-len input").forEach((inp) => inp.addEventListener("keydown", (ev) => {
+      if (ev.key === "Enter") {
+        ev.preventDefault();
+        this._draftLen();
+      } else if (ev.key === "Escape") inp.blur();
     }));
     el.querySelectorAll("[data-d]").forEach((b) => b.addEventListener("click", () => this._draftAction(b.dataset.d)));
     this._checkDraft();
@@ -58,12 +65,14 @@ export const TouchMethods = {
     if (active) {
       bar.querySelector('[data-d="done"]').disabled = d.line ? d.line.length < 2 : !d.wall && (d.points?.length ?? 0) < 3;
       bar.querySelector('[data-d="back"]').textContent = d.wall ? "Kette beenden" : "Punkt zurück";
+      this._updateDraftLen(bar);
     }
   },
 
   _draftAction(kind) {
     const d = this.draft;
     if (!d) return;
+    if (kind === "len") return this._draftLen();
     if (kind === "done") {
       if (d.line) return this._finishLine();
       if (d.points?.length >= 3) return this._finishPolygon();

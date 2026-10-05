@@ -156,6 +156,11 @@ const hass = {
     window.calls.push(msg);
     if (msg.type === "haus3d/building/get") return { building: data, revision: 1 };
     if (msg.type === "haus3d/building/save") return { building: msg.building, revision: (msg.revision ?? 1) + 1 };
+    if (msg.type === "haus3d/background/get") return { image: (window.bgImages ??= {})[msg.floor_id] ?? null };
+    if (msg.type === "haus3d/background/set") {
+      (window.bgImages ??= {})[msg.floor_id] = msg.image;
+      return { ok: true };
+    }
     // Statistik: 5-min-Mittelwerte (Sonnenbogen für PV, Ladestand steigt), ?nohistory = leer
     if (msg.type === "recorder/statistics_during_period") {
       if (params.has("nohistory")) return {};

@@ -9,5 +9,83 @@
     "abort": {
       "single_instance_allowed": "Haus 3D ist bereits eingerichtet."
     }
+  },
+  "services": {
+    "show": {
+      "name": "Zeigen",
+      "description": "Offene Haus-3D-Panels zeigen eine Etage, einen Blickwinkel oder einen Raum.",
+      "fields": {
+        "floor": {
+          "name": "Etage",
+          "description": "Etagen-ID, z. B. eg; all = alle."
+        },
+        "view": {
+          "name": "Blickwinkel",
+          "description": "iso, oben, sued, nord, ost, west oder Name einer gemerkten Ansicht."
+        },
+        "room": {
+          "name": "Raum",
+          "description": "Raum-ID: Raumfenster öffnen."
+        },
+        "target": {
+          "name": "Ziel",
+          "description": "Name des Wandtablets (Einstellungen → Wandtablet); leer = alle."
+        }
+      }
+    },
+    "notify": {
+      "name": "Hinweis",
+      "description": "Hinweis am Modell anzeigen (weckt das Wandtablet).",
+      "fields": {
+        "message": {
+          "name": "Text",
+          "description": "Was angezeigt wird."
+        },
+        "level": {
+          "name": "Stufe",
+          "description": "info, warn, critical"
+        },
+        "room": {
+          "name": "Raum",
+          "description": "Raum-ID: Zeigen fliegt dorthin."
+        },
+        "icon": {
+          "name": "Symbol",
+          "description": "mdi:…"
+        },
+        "target": {
+          "name": "Ziel",
+          "description": "Name des Wandtablets (Einstellungen → Wandtablet); leer = alle."
+        }
+      }
+    },
+    "highlight": {
+      "name": "Raum hervorheben",
+      "description": "Raum blinkt für ein paar Sekunden.",
+      "fields": {
+        "room": {
+          "name": "Raum",
+          "description": "Raum-ID."
+        },
+        "seconds": {
+          "name": "Sekunden",
+          "description": "Wie lange."
+        },
+        "target": {
+          "name": "Ziel",
+          "description": "Name des Wandtablets (Einstellungen → Wandtablet); leer = alle."
+        }
+      }
+    },
+    "reload": {
+      "name": "Neu laden",
+      "description": "Offene Panels laden den Grundriss neu.",
+      "fields": {
+        "target": {
+          "name": "Ziel",
+          "description": "Name des Wandtablets (Einstellungen → Wandtablet); leer = alle."
+        }
+      }
+    }
   }
 }

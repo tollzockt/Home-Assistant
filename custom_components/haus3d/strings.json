@@ -9,5 +9,83 @@
     "abort": {
       "single_instance_allowed": "Haus 3D is already set up."
     }
+  },
+  "services": {
+    "show": {
+      "name": "Show",
+      "description": "Open Haus 3D panels show a floor, view or room.",
+      "fields": {
+        "floor": {
+          "name": "Floor",
+          "description": "Floor id, e.g. eg; all = all floors."
+        },
+        "view": {
+          "name": "View",
+          "description": "iso, oben, sued, nord, ost, west or a saved view name."
+        },
+        "room": {
+          "name": "Room",
+          "description": "Room id: open the room panel."
+        },
+        "target": {
+          "name": "Target",
+          "description": "Wall tablet name (Settings → wall tablet); empty = all."
+        }
+      }
+    },
+    "notify": {
+      "name": "Notify",
+      "description": "Show a notice on the model (wakes the wall tablet).",
+      "fields": {
+        "message": {
+          "name": "Message",
+          "description": "Text to show."
+        },
+        "level": {
+          "name": "Level",
+          "description": "info, warn, critical"
+        },
+        "room": {
+          "name": "Room",
+          "description": "Room id the notice points to."
+        },
+        "icon": {
+          "name": "Icon",
+          "description": "mdi:…"
+        },
+        "target": {
+          "name": "Target",
+          "description": "Wall tablet name (Settings → wall tablet); empty = all."
+        }
+      }
+    },
+    "highlight": {
+      "name": "Highlight room",
+      "description": "Room blinks for a few seconds.",
+      "fields": {
+        "room": {
+          "name": "Room",
+          "description": "Room id."
+        },
+        "seconds": {
+          "name": "Seconds",
+          "description": "How long."
+        },
+        "target": {
+          "name": "Target",
+          "description": "Wall tablet name (Settings → wall tablet); empty = all."
+        }
+      }
+    },
+    "reload": {
+      "name": "Reload",
+      "description": "Open panels reload the floor plan.",
+      "fields": {
+        "target": {
+          "name": "Target",
+          "description": "Wall tablet name (Settings → wall tablet); empty = all."
+        }
+      }
+    }
   }
 }

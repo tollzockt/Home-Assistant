@@ -21,6 +21,7 @@ from .const import (
     VERSION,
 )
 from .storage import Haus3DData
+from .services import async_register_services, async_remove_services
 from .websocket import async_register_commands
 
 _LOGGER = logging.getLogger(__name__)
@@ -51,6 +52,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     if not hass.data.get(_WS_REGISTERED):
         async_register_commands(hass)
         hass.data[_WS_REGISTERED] = True
+    async_register_services(hass)
 
     # Versionierter Pfad: auch die per relativem import geladenen Module (scene.js, walls.js …)
     # bekommen nach einem Update eine neue URL, der Browser kann alte und neue nicht mischen.
@@ -80,6 +82,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Entfernt das Panel; Daten bleiben in .storage erhalten."""
     _async_remove_panel(hass)
+    async_remove_services(hass)
     hass.data.pop(DOMAIN, None)
     return True
 

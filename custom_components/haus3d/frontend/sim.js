@@ -160,7 +160,7 @@ export class Simulator {
           return { building: structuredClone(sim.building), revision: sim.revision };
         }
         // nur lesende Abfragen gehen an Home Assistant
-        if (["energy/get_prefs", "recorder/statistics_during_period", "history/history_during_period"].includes(msg.type)) return real.callWS(msg);
+        if (["energy/get_prefs", "recorder/statistics_during_period", "history/history_during_period", "haus3d/background/get"].includes(msg.type)) return real.callWS(msg);
         if (String(msg.type).startsWith("haus3d/history")) throw new Error("In der Simulation gibt es keinen Verlauf.");
         throw new Error(`Simulation: ${msg.type} ist gesperrt.`);
       },

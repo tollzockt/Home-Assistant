@@ -1,0 +1,62 @@
+show:
+  fields:
+    floor:
+      example: eg
+      selector:
+        text:
+    view:
+      example: oben
+      selector:
+        text:
+    room:
+      example: wohnzimmer
+      selector:
+        text:
+    target:
+      example: flur-tablet
+      selector:
+        text:
+notify:
+  fields:
+    message:
+      required: true
+      example: Waschmaschine fertig
+      selector:
+        text:
+    level:
+      default: warn
+      selector:
+        select:
+          options:
+            - info
+            - warn
+            - critical
+    room:
+      selector:
+        text:
+    icon:
+      selector:
+        icon:
+    target:
+      selector:
+        text:
+highlight:
+  fields:
+    room:
+      required: true
+      selector:
+        text:
+    seconds:
+      default: 10
+      selector:
+        number:
+          min: 1
+          max: 600
+    target:
+      selector:
+        text:
+reload:
+  fields:
+    target:
+      selector:
+        text:

@@ -18,6 +18,7 @@ from homeassistant.util import dt as dt_util
 from .const import (
     HISTORY_LIMIT,
     SEED_FILE,
+    STORAGE_KEY_BACKGROUNDS,
     STORAGE_KEY_BUILDING,
     STORAGE_KEY_HISTORY,
     STORAGE_KEY_INVALID,
@@ -45,6 +46,8 @@ class Haus3DData:
         self._next_history_id = 1
         # Änderungen nacheinander: Revisionsprüfung und Schreiben dürfen sich nicht überholen
         self._lock = asyncio.Lock()
+        self._bg_store: Store[dict[str, Any]] = Store(hass, STORAGE_VERSION, STORAGE_KEY_BACKGROUNDS)
+        self._backgrounds: dict[str, str] | None = None
 
     async def async_load(self) -> None:
         """Lädt den gespeicherten Stand; beim ersten Start den mitgelieferten Startstand."""
@@ -120,6 +123,25 @@ class Haus3DData:
             self.revision += 1
             await self._async_save_building()
             return self.revision
+
+    async def _async_backgrounds(self) -> dict[str, str]:
+        if self._backgrounds is None:
+            stored = await self._bg_store.async_load()
+            self._backgrounds = dict((stored or {}).get("images", {}))
+        return self._backgrounds
+
+    async def async_get_background(self, floor_id: str) -> str | None:
+        """Bild (Daten-URL) einer Etage oder None."""
+        return (await self._async_backgrounds()).get(floor_id)
+
+    async def async_set_background(self, floor_id: str, image: str | None) -> None:
+        """Bild einer Etage setzen (None entfernt es)."""
+        images = await self._async_backgrounds()
+        if image:
+            images[floor_id] = image
+        else:
+            images.pop(floor_id, None)
+        await self._bg_store.async_save({"images": images})
 
     def history_summary(self) -> list[dict[str, Any]]:
         """Verlauf ohne die Gebäudedaten, neueste zuerst."""
