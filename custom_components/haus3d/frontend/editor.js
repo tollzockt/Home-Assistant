@@ -39,6 +39,7 @@ import { GRID_CHOICES, TOUCH_STYLE, TouchMethods } from "./editor-touch.js";
 import { MEASURE_STYLE, MeasureMethods } from "./editor-measure.js";
 import { LineMethods } from "./editor-lines.js";
 import { PIPE_HINT, PipeMethods } from "./editor-pipes.js";
+import { NODE_HINT, NODE_STYLE, NodeMethods } from "./editor-nodes.js";
 import { PLAN_HINTS, PLAN_STYLE, PlanMethods } from "./editor-plan.js";
 import { furnitureThumb, renderThumbs } from "./thumbs.js";
 import { closeGaps, computeWalls, labelPoint, pieceFootprint, signedArea } from "./walls.js";
@@ -88,6 +89,7 @@ const TOOLS = [
   ["outdoor", "mdi:tree-outline", "Garten"],
   ["line", "mdi:vector-polyline", "Linie"],
   ["pipe", "mdi:pipe", "Leitung"],
+  ["node", "mdi:fuse", "Verteiler"],
   ["measure", "mdi:tape-measure", "Messen"],
 ];
 const HINTS = {
@@ -103,13 +105,14 @@ const HINTS = {
   outdoor: "Punkte der Gartenfläche antippen, ersten Punkt erneut antippen zum Abschließen.",
   line: "Weg, Hecke, Zaun oder Mauer: Punkte antippen (0/45/90°, „Frei“ ohne Einrasten), „Fertig“ beendet.",
   pipe: PIPE_HINT,
+  node: NODE_HINT,
   measure: "Zwei Punkte antippen – rastet an Ecken und Wänden ein. Bis zu drei Messungen bleiben stehen (werden nicht gespeichert).",
 };
 
 const r3 = (v) => Math.round(v * 1000) / 1000;
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
 
-export const EDITOR_STYLE = `
+export const EDITOR_STYLE = NODE_STYLE + `
 .ed { position: absolute; inset: 0; display: flex; flex-direction: column; background: var(--primary-background-color, #fafafa); z-index: 8; }
 .ed-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; padding: 6px 8px; border-bottom: 1px solid var(--divider-color, rgba(127,127,127,.25)); background: var(--card-background-color, #fff); --mdc-icon-size: 20px; }
 .ed-bar .sep { width: 1px; height: 28px; background: var(--divider-color, rgba(127,127,127,.3)); margin: 0 4px; }
@@ -917,6 +920,7 @@ export class FloorEditor {
     }
     parts.push(this._openingParts(px, P));
     parts.push(this._pipeParts(px, P));
+    parts.push(this._nodeParts(px));
     parts.push(this._lineDraftParts(px, P));
     parts.push(this._dimParts(px));
     parts.push(this._planParts(px, P));
@@ -1061,6 +1065,10 @@ export class FloorEditor {
     }
     if (tool === "pipe") {
       this._pipeTap(ev, p);
+      return null;
+    }
+    if (tool === "node") {
+      this._nodeTap(ev, p);
       return null;
     }
     if (tool === "poly" || tool === "outdoor") {
@@ -1217,12 +1225,8 @@ export class FloorEditor {
       this.render();
       return { mode: "room", id, start: p, moved: false, first: true };
     }
-    if (kind === "pipe") {
-      this.sel = { kind: "pipe", id };
-      this.renderProps();
-      this.render();
-      return null;
-    }
+    const pd = this._pipeStartDrag(ev, p, kind, t);
+    if (pd !== undefined) return pd;
     if (kind === "outdoor") {
       this.sel = { kind: "outdoor", id };
       this.renderProps();
@@ -1246,6 +1250,7 @@ export class FloorEditor {
 
   _moveDrag(drag, ev, p) {
     if (this._planMove(drag, p)) return;
+    if (this._pipeMoveDrag(drag, ev, p)) return;
     const f = this.floor;
     switch (drag.mode) {
       case "pan":
@@ -1498,6 +1503,7 @@ export class FloorEditor {
     else if (sel.kind === "furniture") this.change((fl) => ({ ...fl, furniture: fl.furniture.filter((m) => m.id !== sel.id) }));
     else if (sel.kind === "outdoor") this.change((fl) => ({ ...fl, outdoor: fl.outdoor.filter((o) => o.id !== sel.id) }));
     else if (sel.kind === "wall") this.change((fl) => removeWall(fl, sel.id));
+    else if (sel.kind === "pnode") this.change((fl) => ({ ...fl, nodes: (fl.nodes ?? []).filter((x) => x.id !== sel.id) }));
     else if (sel.kind === "pipe") this.change((fl) => ({ ...fl, pipes: (fl.pipes ?? []).filter((x) => x.id !== sel.id) }));
     else if (sel.kind === "device") this.change((fl) => ({ ...fl, placements: fl.placements.filter((x) => x.entity_id !== sel.id) }));
     this.sel = null;
@@ -1568,6 +1574,11 @@ export class FloorEditor {
 
     if (this.tool === "line") return this._lineToolProps(el);
     if (this.tool === "pipe") return this._pipeToolProps(el);
+    if (this.tool === "node") return this._nodeToolProps(el);
+    if (sel?.kind === "pnode") {
+      const n = (f.nodes ?? []).find((x) => x.id === sel.id);
+      return n ? this._nodeProps(el, n) : this._clearSel();
+    }
     if (sel?.kind === "pipe") {
       const l = (f.pipes ?? []).find((x) => x.id === sel.id);
       return l ? this._pipeProps(el, l) : this._clearSel();
@@ -2079,4 +2090,4 @@ export class FloorEditor {
 }
 
 // Tablet: Schalter, Zeichen-Leiste, Langdruck, Entwurf sichern (editor-touch.js)
-Object.assign(FloorEditor.prototype, TouchMethods, MeasureMethods, LineMethods, PlanMethods, PipeMethods);
+Object.assign(FloorEditor.prototype, TouchMethods, MeasureMethods, LineMethods, PlanMethods, PipeMethods, NodeMethods);

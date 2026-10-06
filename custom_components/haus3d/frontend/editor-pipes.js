@@ -10,7 +10,8 @@ const de = (v, d = 2) => v.toLocaleString("de-DE", { minimumFractionDigits: d, m
 const esc = (t) => String(t ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
 const WALL_GAP = 0.06; // Abstand Rohrmitte zur Wandoberfläche
 
-export const PIPE_HINT = "Leitung: Punkte antippen – rastet an Wänden und Ecken ein (0/45/90°). Höhe rechts wählen (Boden, Steckdose, Decke …), ein Wechsel geht an der Wand senkrecht. „Fertig“ beendet.";
+export const PIPE_HINT = "Leitung: Punkte antippen – rastet an Wänden und Ecken ein, an bestehenden Leitungen und Verteilern als Abzweig (Ring). Höhe rechts wählen, ein Wechsel geht an der Wand senkrecht. „Fertig“ beendet. Gewählte Leitung: Punkte ziehen, Strecke antippen fügt einen Punkt ein.";
+const JUNCTION_PX = 14; // Fangradius für Abzweige (Bildschirm)
 
 export const PipeMethods = {
   _pipeOpts() {
@@ -29,7 +30,11 @@ export const PipeMethods = {
    * Punkt an der nächsten Wandoberfläche (knapp davor, im Raum), in Ecken an beiden Wänden;
    * sonst 0/45/90° zum letzten Punkt bzw. Raster.
    */
-  _pipeSnap(ev, p, last) {
+  _pipeSnap(ev, p, last, { exclude = null, type = this._pipeOpts().type, skipNode = null } = {}) {
+    // Abzweig: an Verteiler oder bestehender Leitung desselben Mediums einrasten (Vorrang vor der Wand)
+    const j = this._pipeJunction(p, { exclude, type, skipNode });
+    this._snapJunction = !!j;
+    if (j) return j;
     const tol = Math.max(0.25, this._snapTol() * 1.5);
     const hits = [];
     for (const f of this._pipeFaces()) {
@@ -61,6 +66,34 @@ export const PipeMethods = {
     return last ? this._wallSnap(last, p, this._free(ev)) : this._snap(p);
   },
 
+  /** Punkt auf einer Leitung bzw. an einem Verteiler in Fangweite (oder null). */
+  _pipeJunction(p, { exclude = null, type = null, skipNode = null } = {}) {
+    if (this._free?.()) return null;
+    const tol = Math.max(0.12, JUNCTION_PX / (this.scale || 40));
+    let best = null;
+    for (const n of this.floor.nodes ?? []) {
+      if (n.id === skipNode) continue;
+      const d = Math.hypot(p[0] - n.x, p[1] - n.z);
+      if (d < tol && (!best || d < best.d)) best = { d, q: [n.x, n.z] };
+    }
+    if (best) return best.q;
+    for (const l of this.floor.pipes ?? []) {
+      if (l.id === exclude || (type && l.type !== type)) continue;
+      for (let i = 0; i < l.points.length - 1; i++) {
+        const a = l.points[i];
+        const b = l.points[i + 1];
+        const dx = b[0] - a[0];
+        const dz = b[1] - a[1];
+        const l2 = dx * dx + dz * dz || 1e-9;
+        const t = Math.max(0, Math.min(1, ((p[0] - a[0]) * dx + (p[1] - a[1]) * dz) / l2));
+        const q = [a[0] + dx * t, a[1] + dz * t];
+        const d = Math.hypot(p[0] - q[0], p[1] - q[1]);
+        if (d < tol && (!best || d < best.d)) best = { d, q: [r3(q[0]), r3(q[1])] };
+      }
+    }
+    return best?.q ?? null;
+  },
+
   _pipeTap(ev, p) {
     const o = this._pipeOpts();
     const d = this.draft;
@@ -89,7 +122,12 @@ export const PipeMethods = {
       });
       if (sel) {
         const s = l.points[0];
-        parts.push(`<circle cx="${r3(s[0])}" cy="${r3(s[1])}" r="${px(6)}" fill="${c}" pointer-events="none"/><text x="${r3(s[0])}" y="${r3(s[1] - px(10))}" text-anchor="middle" font-size="${px(11)}" fill="${c}" font-weight="600">Anfang</text>`);
+        parts.push(`<text x="${r3(s[0])}" y="${r3(s[1] - px(12))}" text-anchor="middle" font-size="${px(11)}" fill="${c}" font-weight="600" pointer-events="none">Anfang</text>`);
+        // Punkte als Griffe (ziehen = verschieben, antippen = Höhe dieses Punkts)
+        l.points.forEach((q, i) => {
+          const on = this.pipePt?.id === l.id && this.pipePt.i === i;
+          parts.push(`<circle data-kind="pipept" data-id="${esc(l.id)}" data-i="${i}" cx="${r3(q[0])}" cy="${r3(q[1])}" r="${px(this.coarse ? 11 : 7)}" fill="${on ? c : "#fff"}" stroke="${c}" stroke-width="${px(2.5)}" style="cursor:move"/>`);
+        });
       }
     }
     const d = this.draft;
@@ -98,6 +136,7 @@ export const PipeMethods = {
       const c = pipeColor(this._pipeOpts().type);
       parts.push(`<polyline points="${pts.map(P).join(" ")}" fill="none" stroke="${c}" stroke-width="${px(4)}" stroke-dasharray="${px(8)} ${px(4)}" stroke-linecap="round"/>`);
       for (const q of d.line) parts.push(`<circle cx="${r3(q[0])}" cy="${r3(q[1])}" r="${px(4)}" fill="${c}"/>`);
+      if (d.hover && this._snapJunction) parts.push(`<circle cx="${r3(d.hover[0])}" cy="${r3(d.hover[1])}" r="${px(9)}" fill="none" stroke="${c}" stroke-width="${px(2.5)}" pointer-events="none"/><text x="${r3(d.hover[0])}" y="${r3(d.hover[1] - px(13))}" text-anchor="middle" font-size="${px(11)}" fill="${c}" font-weight="600" pointer-events="none">Abzweig</text>`);
     }
     return parts.join("");
   },
@@ -139,42 +178,152 @@ export const PipeMethods = {
     }));
   },
 
-  /** Eigenschaften einer gewählten Leitung. */
+  /** Eigenschaften einer gewählten Leitung: Art, Name, Ende (Raum/Gerät/Sensor), Punkte und Höhen. */
   _pipeProps(el, l) {
     const hass = this.hass;
     const rooms = this.b.floors.flatMap((f) => f.rooms.map((r) => [r.id, `${r.name} (${f.name})`]));
-    const ents = Object.keys(hass.states)
-      .filter((e) => (l.type === "strom" ? /^sensor\./.test(e) && ["power", undefined].includes(hass.states[e].attributes?.device_class) : /^(sensor|binary_sensor|switch|valve|input_boolean)\./.test(e)))
-      .sort();
-    const len = l.points.reduce((s, q, i) => (i ? s + Math.hypot(q[0] - l.points[i - 1][0], q[1] - l.points[i - 1][1]) : 0), 0);
+    const list = (re) => Object.keys(hass.states).filter((e) => re.test(e)).sort();
+    const sensorRe = l.type === "strom" ? /^sensor\./ : l.type === "netzwerk" ? /^sensor\./ : /^(sensor|binary_sensor|switch|valve|input_boolean)\./;
+    const devRe = l.type === "netzwerk" ? /^device_tracker\./ : l.type === "strom" ? /^(switch|light|fan|climate|media_player|vacuum|water_heater|sensor)\./ : /^(valve|switch)\./;
+    const dl = (id, ids) => `<datalist id="${id}">${ids.map((e) => `<option value="${esc(e)}">${esc(hass.states[e].attributes.friendly_name ?? "")}</option>`).join("")}</datalist>`;
+    const len = l.points.reduce((s2, q, i) => (i ? s2 + Math.hypot(q[0] - l.points[i - 1][0], q[1] - l.points[i - 1][1]) : 0), 0);
+    const hs = l.points.map((_, i) => Number(l.heights?.[i] ?? l.height ?? 0.03));
+    const pt = this.pipePt?.id === l.id && this.pipePt.i < l.points.length ? this.pipePt.i : null;
+    const hSeg = (attr, cur) => `<div class="seg wide" ${attr}>${PIPE_HEIGHTS.map(([h, n]) => `<button data-h="${h}" class="${cur != null && Math.abs(cur - h) < 1e-6 ? "sel" : ""}">${n}</button>`).join("")}</div>`;
+    const sensorLabel = l.type === "strom" ? "Leistungs-Sensor (W) dieser Leitung" : l.type === "netzwerk" ? "Datenrate-Sensor (z. B. UniFi rx/tx)" : "Durchfluss-Sensor oder Ventil";
     el.innerHTML = `<h3>Leitung</h3>
       <div class="seg wide" data-ptype>${PIPE_TYPES.map(([k, n]) => `<button data-k="${k}" class="${l.type === k ? "sel" : ""}">${n}</button>`).join("")}</div>
-      <label>Name</label><input data-pf="name" value="${esc(l.name ?? "")}" placeholder="z. B. Küche Steckdosen">
-      <label>${l.type === "strom" ? "Leistungs-Sensor (W) – fließt, wenn Leistung da ist" : "Durchfluss-Sensor oder Ventil – fließt, wenn > 0 bzw. an"}</label>
-      <input data-pf="entity" list="dl_pipe" value="${esc(l.entity ?? "")}" placeholder="– keiner –"><datalist id="dl_pipe">${ents.map((e) => `<option value="${esc(e)}">${esc(hass.states[e].attributes.friendly_name ?? "")}</option>`).join("")}</datalist>
-      ${l.type === "strom" ? `<label>Zielraum (ohne Sensor: Verbrauch dieses Raums)</label><select data-pf="room"><option value="">– keiner –</option>${rooms.map(([id, n]) => `<option value="${esc(id)}"${l.room === id ? " selected" : ""}>${esc(n)}</option>`).join("")}</select>` : ""}
-      <p class="muted">${l.points.length} Punkte · ${de(len)} m. Gezeichnet vom Anfang (Punkt mit „Anfang“) zum Ende.</p>
+      <label>Name</label><input data-pf="name" value="${esc(l.name ?? "")}" placeholder="z. B. Büro Steckdosen">
+      <h4>Endet an</h4>
+      ${l.type === "strom" ? `<label>Raum (Verbrauch des Raums)</label><select data-pf="room"><option value="">– keiner –</option>${rooms.map(([id, n]) => `<option value="${esc(id)}"${l.room === id ? " selected" : ""}>${esc(n)}</option>`).join("")}</select>` : ""}
+      <label>${l.type === "netzwerk" ? "Netzwerkgerät" : "Gerät"}</label><input data-pf="device" list="dl_pdev" value="${esc(l.device ?? "")}" placeholder="– keins –">${dl("dl_pdev", list(devRe))}
+      <label>${sensorLabel}</label><input data-pf="entity" list="dl_pipe" value="${esc(l.entity ?? "")}" placeholder="– keiner –">${dl("dl_pipe", list(sensorRe))}
+      <p class="muted">Ohne Ende fließt durch diese Leitung, was an ihr hängt (Abzweige, weitere Leitungen).</p>
+      <h4>Punkte</h4>
+      ${pt != null ? `<div class="ptbox"><b>Punkt ${pt + 1} von ${l.points.length}</b> · Höhe ${de(hs[pt])} m
+        ${hSeg("data-pth", hs[pt])}
+        <div class="row2"><div><label>eigene Höhe (m)</label><input type="number" step="0.05" min="0" max="5" data-pthn value="${hs[pt]}"></div><div><label>&nbsp;</label><button data-act="ptdel" class="danger"${l.points.length <= 2 ? " disabled" : ""}>Punkt löschen</button></div></div></div>` : `<p class="muted">Punkt antippen, um seine Höhe zu ändern; ziehen verschiebt ihn. Strecke antippen fügt einen Punkt ein.</p>`}
+      <label>Alle Punkte auf Höhe</label>${hSeg("data-allh", hs.every((h) => Math.abs(h - hs[0]) < 1e-6) ? hs[0] : null)}
+      <p class="muted">${l.points.length} Punkte · ${de(len)} m. Gezeichnet vom Anfang zum Ende.</p>
       <div class="btns"><button data-act="pipeflip">Richtung umdrehen</button><button data-act="pipedel" class="danger">Löschen</button></div>`;
     const upd = (fn) => {
       this.change((fl) => {
-        fn(fl.pipes.find((x) => x.id === l.id));
+        const x = fl.pipes.find((y) => y.id === l.id);
+        x.heights = x.points.map((_, i) => Number(x.heights?.[i] ?? x.height ?? 0.03));
+        fn(x);
       });
       this.renderProps();
       this.render();
     };
     el.querySelectorAll("[data-ptype] [data-k]").forEach((b) => b.addEventListener("click", () => upd((x) => (x.type = b.dataset.k))));
     el.querySelectorAll("[data-pf]").forEach((i) => i.addEventListener("change", () => upd((x) => (x[i.dataset.pf] = i.value.trim() || null))));
+    el.querySelectorAll("[data-pth] [data-h]").forEach((b) => b.addEventListener("click", () => upd((x) => (x.heights[pt] = Number(b.dataset.h)))));
+    el.querySelector("[data-pthn]")?.addEventListener("change", (ev) => {
+      const v = Number(ev.target.value);
+      if (Number.isFinite(v) && v >= 0) upd((x) => (x.heights[pt] = r3(v)));
+    });
+    el.querySelector("[data-act=ptdel]")?.addEventListener("click", () => {
+      this.pipePt = null;
+      upd((x) => {
+        x.points.splice(pt, 1);
+        x.heights.splice(pt, 1);
+      });
+    });
+    el.querySelectorAll("[data-allh] [data-h]").forEach((b) => b.addEventListener("click", () => upd((x) => {
+      x.heights = x.points.map(() => Number(b.dataset.h));
+      x.height = Number(b.dataset.h);
+    })));
     el.querySelector("[data-act=pipeflip]").addEventListener("click", () => upd((x) => {
       x.points.reverse();
-      if (Array.isArray(x.heights)) x.heights.reverse();
+      x.heights.reverse();
+      this.pipePt = null;
     }));
     el.querySelector("[data-act=pipedel]").addEventListener("click", () => {
       this.change((fl) => {
         fl.pipes = fl.pipes.filter((x) => x.id !== l.id);
       });
       this.sel = null;
+      this.pipePt = null;
       this.renderProps();
       this.render();
     });
+  },
+
+  /** Ziehen/Antippen von Leitungen, Punkten und Verteilern; undefined = nicht zuständig. */
+  _pipeStartDrag(ev, p, kind, t) {
+    const id = t?.dataset.id;
+    if (kind === "pipept") {
+      this.sel = { kind: "pipe", id };
+      this.pipePt = { id, i: Number(t.dataset.i) };
+      this.renderProps();
+      this.render();
+      return { mode: "pipept", id, i: Number(t.dataset.i), first: true };
+    }
+    if (kind === "pipe") {
+      const l = (this.floor.pipes ?? []).find((x) => x.id === id);
+      if (l && this.sel?.kind === "pipe" && this.sel.id === id) {
+        // gewählte Leitung erneut angetippt: Punkt auf der nächsten Strecke einfügen
+        let best = null;
+        for (let i = 0; i < l.points.length - 1; i++) {
+          const a = l.points[i];
+          const b = l.points[i + 1];
+          const dx = b[0] - a[0];
+          const dz = b[1] - a[1];
+          const tt = Math.max(0, Math.min(1, ((p[0] - a[0]) * dx + (p[1] - a[1]) * dz) / (dx * dx + dz * dz || 1e-9)));
+          const q = [a[0] + dx * tt, a[1] + dz * tt];
+          const d = Math.hypot(q[0] - p[0], q[1] - p[1]);
+          if (tt > 0.02 && tt < 0.98 && (!best || d < best.d)) best = { d, i, q };
+        }
+        if (best) {
+          this.change((fl) => {
+            const x = fl.pipes.find((y) => y.id === id);
+            x.heights = x.points.map((_, k) => Number(x.heights?.[k] ?? x.height ?? 0.03));
+            x.points.splice(best.i + 1, 0, [r3(best.q[0]), r3(best.q[1])]);
+            x.heights.splice(best.i + 1, 0, x.heights[best.i + 1]);
+          });
+          this.pipePt = { id, i: best.i + 1 };
+          this.renderProps();
+          this.render();
+          return { mode: "pipept", id, i: best.i + 1, first: false };
+        }
+      }
+      this.sel = { kind: "pipe", id };
+      this.pipePt = null;
+      this.renderProps();
+      this.render();
+      return null;
+    }
+    if (kind === "pnode") {
+      this.sel = { kind: "pnode", id };
+      this.renderProps();
+      this.render();
+      return { mode: "pnode", id, first: true };
+    }
+    return undefined;
+  },
+
+  /** Ziehen eines Leitungspunkts bzw. Verteilers; true = erledigt. */
+  _pipeMoveDrag(drag, ev, p) {
+    if (drag.mode === "pipept") {
+      const l = (this.floor.pipes ?? []).find((x) => x.id === drag.id);
+      if (!l) return true;
+      const q = this._pipeSnap(ev, p, null, { exclude: drag.id, type: l.type });
+      this._dragChange(drag, (fl) => {
+        fl.pipes.find((x) => x.id === drag.id).points[drag.i] = [r3(q[0]), r3(q[1])];
+      });
+      this.render();
+      return true;
+    }
+    if (drag.mode === "pnode") {
+      const q = this._pipeSnap(ev, p, null, { type: "__none__", skipNode: drag.id });
+      this._dragChange(drag, (fl) => {
+        const n = fl.nodes.find((x) => x.id === drag.id);
+        n.x = r3(q[0]);
+        n.z = r3(q[1]);
+      });
+      this.render();
+      return true;
+    }
+    return false;
   },
 };
