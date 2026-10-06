@@ -141,7 +141,7 @@ await pg.locator('haus3d-panel .pinset[data-scope="edit"] .p2').fill("4711");
 await pg.locator('haus3d-panel .pinset[data-scope="edit"] .set').click();
 await pg.waitForTimeout(400);
 const pins = await E(() => window.pins);
-t.check(warn === 2 && pins.edit === "4711", `PIN ändern: ${JSON.stringify({ warn, pins })}`);
+t.check(warn === 3 && pins.edit === "4711", `PIN ändern: ${JSON.stringify({ warn, pins })}`);
 await t.shot(pg, "admin-pin.png");
 await pg.locator("haus3d-panel .dialog .close").click();
 // Admin bleibt aktiv (oben „Admin · Beenden“), bis man es beendet
