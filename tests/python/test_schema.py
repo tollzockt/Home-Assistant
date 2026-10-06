@@ -105,3 +105,19 @@ def test_pipes_validated() -> None:
     except Exception:  # noqa: BLE001
         return
     raise AssertionError("unbekannter Leitungstyp angenommen")
+
+
+def test_pipe_nodes_validated() -> None:
+    raw = _building()
+    raw["floors"] = [{"id": "eg", "name": "EG", "elevation": 0, "height": 2.5, "rooms": [],
+                      "pipes": [{"id": "lan", "type": "netzwerk", "points": [[0, 0], [1, 0]], "device": "device_tracker.tv"}],
+                      "nodes": [{"id": "hv", "kind": "hv", "x": 0, "z": 0}, {"id": "d", "kind": "durch", "x": 1, "z": 1, "link": "d2"}]}]
+    floor = validate_building(raw)["floors"][0]
+    assert floor["pipes"][0]["device"] == "device_tracker.tv"
+    assert floor["nodes"][1]["link"] == "d2" and floor["nodes"][0]["entity"] is None
+    raw["floors"][0]["nodes"] = [{"id": "x", "kind": "kraftwerk", "x": 0, "z": 0}]
+    try:
+        validate_building(raw)
+    except Exception:  # noqa: BLE001
+        return
+    raise AssertionError("unbekannte Verteiler-Art angenommen")

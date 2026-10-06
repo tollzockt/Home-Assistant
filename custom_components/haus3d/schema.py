@@ -125,11 +125,27 @@ OUTDOOR_SCHEMA = vol.Schema(
 PIPE_SCHEMA = vol.Schema(
     {
         vol.Required("id"): _ID,
-        vol.Required("type"): vol.In(["strom", "wasser_kalt", "wasser_warm"]),
+        vol.Required("type"): vol.In(["strom", "wasser_kalt", "wasser_warm", "netzwerk"]),
         vol.Required("points"): vol.All([_POINT], vol.Length(min=2, max=MAX_POINTS)),
         vol.Optional("heights", default=None): vol.Any(None, vol.All([vol.Coerce(float)], vol.Length(max=MAX_POINTS))),
         vol.Optional("entity", default=None): vol.Any(None, vol.All(str, vol.Length(max=255))),
         vol.Optional("room", default=None): vol.Any(None, _ID),
+        vol.Optional("device", default=None): vol.Any(None, vol.All(str, vol.Length(max=255))),
+    },
+    extra=vol.ALLOW_EXTRA,
+)
+
+# Verteiler im Leitungsnetz (Hauptverteilung, Unterverteilung, Router, Hausanschluss, Durchführung …)
+NODE_SCHEMA = vol.Schema(
+    {
+        vol.Required("id"): _ID,
+        vol.Required("kind"): vol.In(["hv", "uv", "einspeisung", "router", "switch", "wasser_in", "warm_in", "durch"]),
+        vol.Required("x"): _COORD,
+        vol.Required("z"): _COORD,
+        vol.Optional("y", default=None): vol.Any(None, vol.All(vol.Coerce(float), vol.Range(min=0, max=20))),
+        vol.Optional("name", default=None): vol.Any(None, vol.All(str, vol.Length(max=80))),
+        vol.Optional("entity", default=None): vol.Any(None, vol.All(str, vol.Length(max=255))),
+        vol.Optional("link", default=None): vol.Any(None, _ID),
     },
     extra=vol.ALLOW_EXTRA,
 )
@@ -148,6 +164,7 @@ FLOOR_SCHEMA = vol.Schema(
         vol.Optional("background", default=None): vol.Any(None, dict),
         vol.Optional("outdoor", default=list): vol.All([OUTDOOR_SCHEMA], vol.Length(max=MAX_ITEMS)),
         vol.Optional("pipes", default=list): vol.All([PIPE_SCHEMA], vol.Length(max=MAX_ITEMS)),
+        vol.Optional("nodes", default=list): vol.All([NODE_SCHEMA], vol.Length(max=MAX_ITEMS)),
     },
     extra=vol.ALLOW_EXTRA,
 )

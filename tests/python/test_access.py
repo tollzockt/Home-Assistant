@@ -139,7 +139,8 @@ async def test_dev_instance(hass: HomeAssistant, setup_integration, hass_ws_clie
     ws = await hass_ws_client(hass)
     await ws.send_json({"id": 1, "type": "haus3d/dev/set", "code": "4242"})
     assert (await ws.receive_json())["error"]["code"] == "locked"
-    token = await acc.async_verify("admin", "0000", "a", now=1.0)
+    acc._tries.clear()
+    token = await acc.async_verify("admin", "0000", "a")  # echte Zeit: Token darf nicht als abgelaufen gelten
     acc._tries.clear()
     await ws.send_json({"id": 2, "type": "haus3d/dev/set", "code": "1111", "token": token})
     assert (await ws.receive_json())["result"] == {"ok": False}

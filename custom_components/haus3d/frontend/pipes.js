@@ -5,6 +5,7 @@ export const PIPE_TYPES = [
   ["strom", "Strom", "#fbc02d", "mdi:flash"],
   ["wasser_kalt", "Wasser kalt", "#1e88e5", "mdi:water"],
   ["wasser_warm", "Wasser warm", "#e53935", "mdi:water-thermometer"],
+  ["netzwerk", "Netzwerk", "#00acc1", "mdi:lan"],
 ];
 
 /** Höhen-Vorgaben beim Zeichnen (m über dem Boden der Etage). */
