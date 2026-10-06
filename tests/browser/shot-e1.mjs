@@ -15,15 +15,16 @@ await pg.evaluate(() => window.panel._selectRoom({ floorId: "eg", roomId: "flur"
 await pg.waitForTimeout(300);
 await row("lock.haustuer").tap();
 await pg.waitForTimeout(300);
-const asked = await pg.locator("haus3d-panel .confirm").count();
-t.check(asked === 1 && (await services()).length === 0, `Schloss: Nachfrage erwartet, keine Aktion (Dialog ${asked}, Aufrufe ${(await services()).length})`);
+// Schloss: seit 0.18 fragt die Tür-PIN (statt Ja/Nein), vorher passiert nichts
+const asked = await pg.locator("haus3d-panel .pinpad").count();
+t.check(asked === 1 && (await services()).length === 0, `Schloss: Tür-PIN erwartet, keine Aktion (PIN-Feld ${asked}, Aufrufe ${(await services()).length})`);
 await t.shot(pg, "bestaetigung.png");
-t.results.frage = await pg.locator("haus3d-panel .confirm .ct").textContent();
-await pg.waitForTimeout(300);
-await pg.locator("haus3d-panel .confirm .yes").tap();
+t.results.frage = await pg.locator("haus3d-panel .pinpad .ptitle").textContent();
+for (const k of "0000") await pg.locator(`haus3d-panel .pinpad [data-k="${k}"]`).tap();
+await pg.waitForFunction(() => !window.panel.shadowRoot.querySelector(".pinpad"), null, { timeout: 5000 });
 await pg.waitForTimeout(300);
 const afterYes = (await services()).at(-1);
-t.check(afterYes?.domain === "lock" && afterYes.service === "unlock", `Aufschließen nicht ausgeführt: ${JSON.stringify(afterYes)}`);
+t.check(afterYes?.domain === "lock" && afterYes.service === "unlock" && afterYes.viaPin, `Aufschließen nicht ausgeführt: ${JSON.stringify(afterYes)}`);
 // Garagentor: Abbrechen → nichts
 await pg.evaluate(() => window.panel._selectRoom({ floorId: "kg", roomId: "garage" }));
 await pg.waitForTimeout(300);
