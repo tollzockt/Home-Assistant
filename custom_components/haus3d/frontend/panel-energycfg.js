@@ -4,6 +4,7 @@
 
 import { SURPLUS_DEFAULTS, SHORT_CHOICES, formatPower, suggestEnergy } from "./energy.js";
 import { SOURCE_TYPES, energyTotals, newSource, normalizeEnergy } from "./energymodel.js";
+import { DEVICE_TEMPLATES, applyTemplate, templatesFor } from "./energytemplates.js";
 import { esc, fmt } from "./panel-util.js";
 
 export const EnergyCfgMethods = {
@@ -15,6 +16,7 @@ export const EnergyCfgMethods = {
     e.ueberschuss = { ...SURPLUS_DEFAULTS, ...(raw.ueberschuss ?? {}) };
     let gridMode = e.netz_bezug || e.netz_einspeisung ? "two" : "one";
     let found = null;
+    const tplMsg = new Map(); // Quelle → Hinweis nach Vorlagenwahl
     const lang = hass.locale?.language;
     const opts = `<datalist id="en-all">${Object.keys(hass.states).filter((id) => /^(sensor|input_number|number)\./.test(id)).sort().map((id) => `<option value="${esc(id)}">${esc(hass.states[id].attributes.friendly_name ?? "")}</option>`).join("")}</datalist>`;
     const field = (attr, label, v, hint = "") => `<label class="en-row"><span>${label}</span><input list="en-all" ${attr} value="${esc(v ?? "")}" placeholder="– keine –"></label>${hint ? `<p class="hint sub">${hint}</p>` : ""}`;
@@ -44,6 +46,8 @@ export const EnergyCfgMethods = {
         ${e.sources.length ? "" : `<p class="hint">Noch keine – PV-Anlage, Balkonkraftwerk oder AC-Speicher hinzufügen. Alle Erzeuger werden zusammengerechnet.</p>`}
         ${e.sources.map((s, i) => `<div class="src" data-i="${i}">
           <div class="srchead"><ha-icon icon="${SOURCE_TYPES.find(([t]) => t === s.type)[2]}"></ha-icon><input class="sname" data-sf="name" value="${esc(s.name)}"><small>${SOURCE_TYPES.find(([t]) => t === s.type)[1]}</small><button class="icon" data-srm="${i}" title="Entfernen"><ha-icon icon="mdi:delete-outline"></ha-icon></button></div>
+          <label class="en-row"><span>Gerät</span><select data-tpl><option value="">– anderes / selbst eintragen –</option>${templatesFor(s.type).map((t) => `<option value="${t.id}"${s.template === t.id ? " selected" : ""}>${esc(t.name)}</option>`).join("")}</select></label>
+          ${tplMsg.has(s.id) ? `<p class="hint sub tplmsg">${esc(tplMsg.get(s.id))}</p>` : ""}
           ${field('data-sf="power"', s.type === "speicher" ? "Leistung (+ laden / − entladen)" : "Leistung", s.power)}
           ${s.type === "speicher" ? `${field('data-sf="soc"', "Ladestand (%)", s.soc)}<div class="row3"><div><label class="en-row"><span>Kapazität (kWh)</span><input type="number" data-sn="capacity" min="0" step="0.1" value="${s.capacity ?? ""}"></label></div><div><label class="en-row"><span>Reserve (%)</span><input type="number" data-sn="reserve" min="0" max="100" step="1" value="${s.reserve ?? 10}"></label></div></div><label class="chkrow"><input type="checkbox" data-sinv${s.invert ? " checked" : ""}> Vorzeichen umkehren</label>` : field('data-sf="energy"', "Ertrag heute (kWh)", s.energy)}
         </div>`).join("")}
@@ -79,6 +83,21 @@ export const EnergyCfgMethods = {
         el.querySelectorAll("[data-sn]").forEach((i) => i.addEventListener("change", () => {
           s[i.dataset.sn] = i.value === "" ? null : Number(i.value);
         }));
+        el.querySelector("[data-tpl]").addEventListener("change", (ev) => {
+          const tpl = DEVICE_TEMPLATES.find((t) => t.id === ev.target.value);
+          const i = Number(el.dataset.i);
+          if (!tpl) {
+            e.sources[i] = { ...s, template: null };
+            tplMsg.delete(s.id);
+            return render();
+          }
+          const isDefault = /^(PV-Anlage|Balkonkraftwerk|AC-Speicher)( \d+)?$/.test(s.name ?? "");
+          const res = applyTemplate(s, tpl, hass, isDefault ? s.name : null);
+          e.sources[i] = res.source;
+          tplMsg.set(s.id, res.found ? `${res.found} passende Entität${res.found > 1 ? "en" : ""} vorgeschlagen – bitte prüfen.` : res.platformSeen ? "Integration gefunden, aber keine passenden Sensoren – bitte selbst wählen." : `Keine Entitäten der Integration „${tpl.platforms[0]}“ gefunden – ist sie in Home Assistant eingerichtet?`);
+          render();
+          summary();
+        });
         el.querySelector("[data-sinv]")?.addEventListener("change", (ev) => {
           s.invert = ev.target.checked;
           summary();
@@ -188,6 +207,8 @@ export const ENERGYCFG_STYLE = `
 .src .srchead .sname:focus { border-color: var(--divider-color, rgba(127,127,127,.4)); }
 .src .srchead small { color: var(--secondary-text-color); }
 .hint.sub { margin-top: -4px; }
+.tplmsg { color: var(--primary-color, #03a9f4); }
+.src [data-tpl] { width: 100%; min-height: 34px; padding: 4px 8px; border-radius: 8px; border: 1px solid var(--divider-color, rgba(127,127,127,.35)); background: var(--card-background-color, #fff); color: inherit; font: inherit; }
 .en-sum { display: grid; gap: 2px; font-size: 14px; }
 .en-sum div { display: flex; justify-content: space-between; padding: 3px 0; border-bottom: 1px dashed var(--divider-color, rgba(127,127,127,.25)); }
 .en-sum span { color: var(--secondary-text-color); }
