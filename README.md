@@ -7,6 +7,39 @@ Energiefluss.
 Das Datenformat ist kompatibel mit [NeonPlan 3D](https://github.com/Mastershort/neonplan3d): Exporte von
 dort lassen sich direkt einlesen, und Exporte von Haus 3D kann NeonPlan wieder öffnen.
 
+## Neu in 0.18: Tür-PIN, großer Möbelkatalog, Gerätevorlagen
+
+- **Haustüren nur mit PIN**: Schlösser (lock.…) lassen sich im Panel nur noch mit einer eigenen
+  **Tür-PIN** entriegeln oder öffnen – egal ob über Symbol, Raumfenster, Kurzwahl oder Karte. Home Assistant
+  prüft die PIN und schließt erst dann auf; eine falsche PIN löst nichts aus. **Abschließen** geht ohne PIN.
+  Tür-PIN unter Admin-Einstellungen → PIN & Zugang (Standard 0000 – bitte ändern). Hinweis: Die PIN schützt
+  die Bedienung in Haus 3D; Automationen und die normale HA-Oberfläche bleiben davon unberührt.
+- **Möbelkatalog** um rund 140 Teile erweitert (Maße nach Hersteller- bzw. Händlerangaben):
+  - **IKEA**: KALLAX, BILLY, IVAR, PAX, BRIMNES, MALM, HEMNES, EKTORP, KIVIK, SÖDERHAMN, FRIHETEN, POÄNG,
+    STRANDMON, LACK, BESTÅ, MICKE, ALEX, BEKANT, LINNMON/ADILS, MARKUS, NORDVIKEN, EKEDALEN.
+  - **Lampen**: Bogenlampe, Dreibein, Kugel-Pendel, Kronleuchter, Ring-LED, Mehrfach-Pendel, Glühbirne am
+    Kabel, Schienensystem, Schreibtisch-, Pilzleuchte, Neon-Schild.
+  - **LED**: Deckenvoute, Alu-Profil, Lichtleiste, Eck-Stab, TV-Hintergrund, Hexagon-Panels, Lichtlinien,
+    Bett- und Treppenbeleuchtung. Mit einem Licht verknüpft leuchten sie in dessen Farbe.
+  - **Gaming**: Gaming-PC, Schreibtisch, Stuhl, Monitore (27″, 34″/49″ curved, Doppel), Tastatur & Maus,
+    Lautsprecher, Headset-Ständer, Mikrofonarm, PlayStation 5 (Slim/Pro), Xbox Series X/S, Switch, Steam Deck,
+    Controller, VR-Brille, Sim-Racing-Sitz – RGB-Teile folgen einem verknüpften Licht.
+  - **Wallbox & E-Auto**: go-e, Tesla Wall Connector, Easee, Wallbox Pulsar Plus, KEBA P30, Zaptec Go,
+    Heidelberg, allgemeine Wallbox, E-Auto.
+  - **Wechselrichter & Speicher**: Fronius GEN24, SMA STP SE, Huawei SUN2000/LUNA2000, Kostal PLENTICORE,
+    SolarEdge Home Hub, Victron MultiPlus-II, Growatt, Sungrow, GoodWe, Deye; BYD HVS/HVM, Tesla Powerwall 3,
+    sonnenBatterie, E3/DC, SMA Home Storage, Pylontech, Zendure, EcoFlow, Marstek Venus, Growatt NOAH;
+    Mikrowechselrichter (Hoymiles, Deye, APsystems, EcoFlow PowerStream).
+  - **Solar-Aufständerung**: Flachdach Süd (15°) und Ost-West (10°), Gartenständer (30°), Balkongeländer,
+    Balkon mit Neigung, Fassade, Solar-Carport, Solarterrasse/Pergola.
+  Wandgeräte hängen gleich in passender Höhe, Schreibtischgeräte stehen auf Tischhöhe (änderbar unter
+  „Höhe über Boden“).
+- **Gerätevorlagen in der Energie-Einrichtung**: Bei PV, Balkonkraftwerk oder Speicher das **Gerät** wählen
+  (z. B. Fronius, SMA, Huawei, SolarEdge, Kostal, Victron, Growatt, Sungrow, GoodWe, Deye, Tesla, sonnen,
+  E3/DC, BYD, Zendure, EcoFlow, Marstek, Hoymiles, OpenDTU, APsystems) – Haus 3D sucht passende Sensoren
+  der jeweiligen Integration, setzt das Vorzeichen des Speichers und die Kapazität. Bitte prüfen: Namen
+  der Entitäten unterscheiden sich je nach Anlage und Integrationsversion.
+
 ## Neu in 0.17: Leitungen, Netzwerk, Energie neu
 
 - **Leitungen** (Editor → „Leitung“): Strom, Wasser kalt und Wasser warm am Boden bzw. an der Wand verlegen.

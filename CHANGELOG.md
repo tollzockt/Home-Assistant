@@ -1,5 +1,19 @@
 # Änderungen
 
+## 0.18.0
+
+### Wichtig beim Update
+- Schlösser lassen sich in Haus 3D nur noch mit der **Tür-PIN** entriegeln/öffnen (Standard **0000**,
+  bitte unter Admin → PIN & Zugang ändern). Abschließen bleibt ohne PIN.
+
+### Neu
+- **Tür-PIN**: eigener Befehl `haus3d/lock/unlock` prüft die PIN im Backend (still, gedrosselt, kein
+  Token) und schließt erst dann auf; das PIN-Feld zeigt, welche Tür entriegelt wird.
+- **Möbelkatalog**: IKEA, weitere Lampen, LED, Gaming, Wallbox & E-Auto, Wechselrichter & Speicher,
+  Solar-Aufständerungen (rund 140 Teile mit Maßen nach Herstellerangaben, eigene 3D-Modelle).
+- **Gerätevorlagen** für PV, Balkonkraftwerk und Speicher in der Energie-Einrichtung mit
+  Entitätsvorschlägen aus der passenden Integration.
+
 ## 0.17.0
 
 ### Neu
