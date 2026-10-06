@@ -50,6 +50,7 @@ import { MEDIA_STYLE, MediaMethods } from "./panel-media.js";
 import { FX_STYLE, FxMethods } from "./panel-fx.js";
 import { CLIMATE_STYLE, ClimateMethods } from "./panel-climate.js";
 import { NETWORK_STYLE, NetworkMethods } from "./panel-network.js";
+import { doorGuard } from "./access.js";
 import { ENERGYCFG_STYLE, EnergyCfgMethods } from "./panel-energycfg.js";
 import { energyEntities, energyTotals } from "./energymodel.js";
 import { USER_STYLE, UserMethods } from "./panel-user.js";
@@ -98,7 +99,8 @@ class Haus3DPanel extends HTMLElement {
   set hass(real) {
     this._realHass = real;
     // Simulation: Schicht über dem echten hass, nichts geht an Home Assistant
-    const hass = this._sim ? this._sim.wrap(real, { building: this._building, onChange: () => this._simChanged(), onToast: (t) => this._toast(t) }) : real;
+    // Schlösser entriegeln/öffnen nur mit der Tür-PIN (Simulation schaltet ohnehin nichts Echtes)
+    const hass = this._sim ? this._sim.wrap(real, { building: this._building, onChange: () => this._simChanged(), onToast: (t) => this._toast(t) }) : doorGuard(real, (svc, data) => this._doorUnlock(svc, data));
     const prev = this._hass;
     this._hass = hass;
     if (!this._built) return;
@@ -858,6 +860,7 @@ class Haus3DPanel extends HTMLElement {
     if (entityId.startsWith("climate.") && source === "tap" && st && !["unavailable", "unknown"].includes(st.state)) return this._climatePopup(entityId);
     const act = entityAction(entityId, st, { source, safety, confirm });
     if (act.dialog || !act.call) return this._moreInfo(entityId);
+    if (act.call[0] === "lock" && act.call[1] !== "lock") act.confirm = null; // die Tür-PIN ist die Nachfrage
     if (act.confirm) {
       const where = this._placeText?.(entityId);
       const ok = await this._confirm(`${label} ${act.confirm.question}?`, act.confirm.ok, { danger: act.confirm.danger, sub: where });
@@ -867,7 +870,7 @@ class Haus3DPanel extends HTMLElement {
       await this._hass.callService(act.call[0], act.call[1], { entity_id: entityId, ...act.data });
       if (!quiet || act.confirm) this._toast(`${label}: ${act.verb}`);
     } catch (err) {
-      this._toast(`Fehlgeschlagen: ${err.message ?? err}`);
+      if (!err?.quiet) this._toast(`Fehlgeschlagen: ${err.message ?? err}`);
     }
   }
 

@@ -64,3 +64,15 @@ export function newPinError(a, b) {
 
 /** Einstellungen, die nur mit der Admin-PIN gespeichert werden (wie ADMIN_SETTINGS in access.py). */
 export const ADMIN_KEYS = ["energy", "alerts", "routines", "security", "safety", "doorbell", "weather", "climate", "season", "house_flow", "presence", "north"];
+
+/**
+ * hass mit Tür-Schutz: lock.unlock und lock.open gehen an guard(service, data) (Tür-PIN), alles andere
+ * unverändert an Home Assistant. Leichte Hülle (Object.create), Zustände bleiben die des echten hass.
+ */
+export function doorGuard(real, guard) {
+  if (!real?.callService) return real;
+  const h = Object.create(real);
+  h.callService = (domain, service, data, ...rest) =>
+    domain === "lock" && (service === "unlock" || service === "open") ? guard(service, data ?? {}) : real.callService(domain, service, data, ...rest);
+  return h;
+}

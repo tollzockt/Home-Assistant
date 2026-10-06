@@ -32,7 +32,7 @@ const CATEGORIES = [
   ["display", "mdi:layers-outline", "Anzeige", "weitere Ebenen, Leistungsanzeige"],
   ["kiosk", "mdi:tablet", "Wandtablet", "dieses Gerät"],
   ["data", "mdi:database-outline", "Daten & Verlauf", "Export, Import, Stände"],
-  ["pin", "mdi:key-variant", "PIN & Zugang", "PINs für Bearbeiten und Admin"],
+  ["pin", "mdi:key-variant", "PIN & Zugang", "PINs für Bearbeiten, Admin und Türen"],
 ];
 
 const CARD_ICONS = ["mdi:card-text-outline", "mdi:lightning-bolt-circle", "mdi:solar-power", "mdi:fire", "mdi:radiator", "mdi:water-boiler", "mdi:thermometer", "mdi:washing-machine", "mdi:server", "mdi:pool", "mdi:car-electric", "mdi:battery-charging", "mdi:weather-partly-cloudy", "mdi:home-automation"];
@@ -232,7 +232,8 @@ export const AdminMethods = {
       ${st[`${scope}_default`] ? `<p class="hint warn">Noch die Standard-PIN 0000 – bitte ändern.</p>` : ""}
       <div class="prow"><input type="password" inputmode="numeric" maxlength="8" class="p1" placeholder="neue PIN (4–8 Ziffern)"><input type="password" inputmode="numeric" maxlength="8" class="p2" placeholder="wiederholen"><button class="set primary">Ändern</button></div>
       <p class="pmsg hint"></p></div>`;
-    box.innerHTML = `${part("edit", "PIN für „Bearbeiten“")}${part("admin", "PIN für „Admin-Einstellungen“")}
+    box.innerHTML = `${part("edit", "PIN für „Bearbeiten“")}${part("admin", "PIN für „Admin-Einstellungen“")}${part("door", "PIN für Türen (Schlösser entriegeln/öffnen)")}
+      <p class="hint">Türen: Abschließen geht immer ohne PIN. Entriegeln und Öffnen über Haus 3D (Symbol, Raumfenster, Kurzwahl, Karten) fragen jedes Mal nach der Tür-PIN; Home Assistant schließt erst nach richtiger PIN auf.</p>
       <p class="hint">Jeder, der eine PIN kennt, darf den Bereich nutzen – auch ohne Admin-Konto in Home Assistant. Freigaben enden mit „Beenden“, beim Schließen bzw. nach 10 min ohne Bedienung.</p>`;
     box.querySelectorAll(".pinset").forEach((p) => p.querySelector(".set").addEventListener("click", async () => {
       const a = p.querySelector(".p1").value.trim();

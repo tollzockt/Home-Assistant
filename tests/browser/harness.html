@@ -183,9 +183,9 @@ const hass = {
     window.calls.push(msg);
     if (msg.type === "haus3d/building/get") return { building: data, revision: 1 };
     if (msg.type.startsWith("haus3d/pin/")) {
-      const pins = (window.pins ??= { edit: "0000", admin: "0000" });
+      const pins = (window.pins ??= { edit: "0000", admin: "0000", door: "0000" });
       const tokens = (window.tokens ??= {});
-      if (msg.type === "haus3d/pin/status") return { edit_default: pins.edit === "0000", admin_default: pins.admin === "0000" };
+      if (msg.type === "haus3d/pin/status") return { edit_default: pins.edit === "0000", admin_default: pins.admin === "0000", door_default: (pins.door ?? "0000") === "0000" };
       if (msg.type === "haus3d/pin/verify") {
         if (msg.pin !== pins[msg.scope]) return { ok: false };
         const token = `tok-${msg.scope}-${Math.random().toString(36).slice(2)}`;
@@ -201,6 +201,16 @@ const hass = {
         pins[msg.scope] = msg.pin;
         return { ok: true };
       }
+    }
+    // Tür-PIN: Backend prüft und schließt selbst auf
+    if (msg.type === "haus3d/lock/unlock") {
+      const pin = (window.pins ?? {}).door ?? "0000";
+      if (msg.pin !== pin) return { ok: false };
+      for (const id of [].concat(msg.entity_id)) {
+        window.calls.push({ domain: "lock", service: msg.service ?? "unlock", entity_id: id, viaPin: true });
+        if (states[id]) states[id] = { ...states[id], state: msg.service === "open" ? "open" : "unlocked" };
+      }
+      return { ok: true };
     }
     if (params.has("pinlock") && ["haus3d/building/save", "haus3d/history/snapshot", "haus3d/history/restore", "haus3d/background/set"].includes(msg.type) && !(window.tokens ?? {})[msg.token]) throw { code: "locked", message: "Gesperrt" };
     if (msg.type === "haus3d/building/save") return { building: msg.building, revision: (msg.revision ?? 1) + 1 };

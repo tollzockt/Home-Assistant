@@ -10,7 +10,10 @@ from homeassistant.components import websocket_api
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
 
-from .access import SCOPES, keep_admin_settings, valid_pin
+from homeassistant.auth.permissions.const import POLICY_CONTROL
+from homeassistant.exceptions import HomeAssistantError
+
+from .access import LOGIN_SCOPES, SCOPES, keep_admin_settings, valid_pin
 from .const import BACKGROUND_MAX_CHARS, DOMAIN, SIGNAL_COMMAND
 from .schema import validate_building
 from .storage import Haus3DData, RevisionConflict
@@ -19,7 +22,7 @@ from .storage import Haus3DData, RevisionConflict
 @callback
 def async_register_commands(hass: HomeAssistant) -> None:
     """Registriert die Befehle (nur einmal pro HA-Lauf, siehe __init__.py)."""
-    for command in (ws_get, ws_save, ws_history_list, ws_history_snapshot, ws_history_restore, ws_background_get, ws_background_set, ws_subscribe, ws_pin_status, ws_pin_verify, ws_pin_set, ws_pin_lock):
+    for command in (ws_get, ws_save, ws_history_list, ws_history_snapshot, ws_history_restore, ws_background_get, ws_background_set, ws_subscribe, ws_pin_status, ws_pin_verify, ws_pin_set, ws_pin_lock, ws_lock_unlock):
         websocket_api.async_register_command(hass, command)
 
 
@@ -171,7 +174,7 @@ def ws_pin_status(hass: HomeAssistant, connection: websocket_api.ActiveConnectio
     connection.send_result(msg["id"], {f"{s}_default": data.access.is_default(s) for s in SCOPES})
 
 
-@websocket_api.websocket_command({vol.Required("type"): "haus3d/pin/verify", vol.Required("scope"): vol.In(SCOPES), vol.Required("pin"): str})
+@websocket_api.websocket_command({vol.Required("type"): "haus3d/pin/verify", vol.Required("scope"): vol.In(LOGIN_SCOPES), vol.Required("pin"): str})
 @websocket_api.async_response
 async def ws_pin_verify(hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict[str, Any]) -> None:
     """PIN prüfen: richtig → Token, falsch → ok: false (ohne Hinweis, gedrosselt)."""
@@ -204,4 +207,37 @@ def ws_pin_lock(hass: HomeAssistant, connection: websocket_api.ActiveConnection,
     if (data := _data(hass, connection, msg)) is None:
         return
     data.access.revoke(msg.get("token"))
+    connection.send_result(msg["id"], {"ok": True})
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): "haus3d/lock/unlock",
+        vol.Required("entity_id"): vol.All(vol.Any(str, [str]), vol.Coerce(lambda v: [v] if isinstance(v, str) else v)),
+        vol.Required("pin"): str,
+        vol.Optional("service", default="unlock"): vol.In(("unlock", "open")),
+    }
+)
+@websocket_api.async_response
+async def ws_lock_unlock(hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict[str, Any]) -> None:
+    """Tür entriegeln bzw. öffnen nur mit der Tür-PIN: falsche PIN → ok: false (still, gedrosselt)."""
+    if (data := _data(hass, connection, msg)) is None:
+        return
+    ids = msg["entity_id"]
+    if not ids or any(not isinstance(e, str) or not e.startswith("lock.") for e in ids):
+        connection.send_error(msg["id"], "invalid_entity", "Nur Schlösser (lock.…)")
+        return
+    user = connection.user
+    if user is not None and not user.is_admin and not all(user.permissions.check_entity(e, POLICY_CONTROL) for e in ids):
+        connection.send_error(msg["id"], "unauthorized", "Keine Berechtigung für dieses Schloss")
+        return
+    who = user.id if user else "?"
+    if not await data.access.async_check("door", msg["pin"], who):
+        connection.send_result(msg["id"], {"ok": False})
+        return
+    try:
+        await hass.services.async_call("lock", msg["service"], {"entity_id": ids}, blocking=True, context=connection.context(msg))
+    except HomeAssistantError as err:
+        connection.send_error(msg["id"], "failed", str(err))
+        return
     connection.send_result(msg["id"], {"ok": True})

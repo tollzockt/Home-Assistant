@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { accessScope, canAdmin, canEdit, clearAccess, newPinError, pinKey, setAccess, withToken } from "../../custom_components/haus3d/frontend/access.js";
+import { accessScope, canAdmin, canEdit, clearAccess, doorGuard, newPinError, pinKey, setAccess, withToken } from "../../custom_components/haus3d/frontend/access.js";
 import { energyRowList, energyRows } from "../../custom_components/haus3d/frontend/panel-util.js";
 
 test("PIN-Feld: ab 4 Ziffern prüfen, höchstens 8, löschen", () => {
@@ -46,4 +46,21 @@ test("Energie-Karte: Reihenfolge, Ausblenden, eigene Namen, Zusatzwerte", () => 
   assert.deepEqual(rows.slice(0, 3).map((r) => r.name), ["Batterie", "Wärmepumpe", "Hausverbrauch"]);
   assert.equal(rows[0].key, "akku_ladestand"); // Balken hängt am Schlüssel
   assert.equal(rows[1].key, null);
+});
+
+test("Tür-Schutz: nur lock.unlock/open gehen an die Tür-PIN, Zustände bleiben", async () => {
+  const real = { states: { "lock.haustuer": { state: "locked" } }, calls: [], callService(d, s, data) { this.calls.push(`${d}.${s}`); return Promise.resolve(); } };
+  const guarded = [];
+  const h = doorGuard(real, (svc, data) => {
+    guarded.push(`${svc}:${data.entity_id}`);
+    return Promise.resolve();
+  });
+  assert.equal(h.states, real.states);
+  await h.callService("lock", "unlock", { entity_id: "lock.haustuer" });
+  await h.callService("lock", "open", { entity_id: "lock.haustuer" });
+  await h.callService("lock", "lock", { entity_id: "lock.haustuer" });
+  await h.callService("light", "toggle", { entity_id: "light.flur" });
+  assert.deepEqual(guarded, ["unlock:lock.haustuer", "open:lock.haustuer"]);
+  assert.deepEqual(real.calls, ["lock.lock", "light.toggle"]);
+  assert.equal(doorGuard(null, () => {}), null);
 });

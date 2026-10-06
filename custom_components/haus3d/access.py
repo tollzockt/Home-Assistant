@@ -19,7 +19,9 @@ from .const import DOMAIN
 
 STORAGE_KEY_ACCESS = f"{DOMAIN}.access"
 DEFAULT_PIN = "0000"
-SCOPES = ("edit", "admin")
+# Bearbeiten und Admin liefern ein Token; die Tür-PIN wird bei jedem Entriegeln neu geprüft (kein Token)
+SCOPES = ("edit", "admin", "door")
+LOGIN_SCOPES = ("edit", "admin")
 TOKEN_IDLE_S = 600
 ITERATIONS = 60_000
 # Drosselung: höchstens etwa drei Prüfungen je Sekunde, nach 10 Fehlversuchen 30 s Pause (still)
@@ -77,21 +79,28 @@ class Access:
         digest = await self.hass.async_add_executor_job(_hash, pin, entry["salt"])
         return secrets.compare_digest(digest, entry["hash"])
 
-    async def async_verify(self, scope: str, pin: str, who: str, now: float | None = None) -> str | None:
-        """Token bei richtiger PIN, sonst None (still, gedrosselt je Benutzer)."""
+    async def async_check(self, scope: str, pin: str, who: str, now: float | None = None) -> bool:
+        """PIN richtig? Still und gedrosselt je Benutzer (gilt für alle Bereiche gemeinsam)."""
         now = time.monotonic() if now is None else now
         t = self._tries.setdefault(who, {"fails": 0, "last": -1e9, "until": 0.0})
         if now < t["until"] or now - t["last"] < MIN_GAP_S:
             t["last"] = now
-            return None
+            return False
         t["last"] = now
         if scope not in SCOPES or not valid_pin(pin) or not await self._async_matches(scope, pin):
             t["fails"] += 1
             if t["fails"] >= MAX_FAILS:
                 t["fails"] = 0
                 t["until"] = now + LOCK_S
-            return None
+            return False
         t["fails"] = 0
+        return True
+
+    async def async_verify(self, scope: str, pin: str, who: str, now: float | None = None) -> str | None:
+        """Token bei richtiger PIN (Bearbeiten/Admin), sonst None."""
+        if scope not in LOGIN_SCOPES or not await self.async_check(scope, pin, who, now):
+            return None
+        now = time.monotonic() if now is None else now
         token = secrets.token_urlsafe(24)
         self._tokens[token] = {"scope": scope, "last": now}
         return token

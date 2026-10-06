@@ -2,6 +2,7 @@
 // Bearbeiten und Admin-Einstellungen haben je eine eigene PIN (Standard 0000). Eine falsche PIN löst
 // nichts aus; nur die richtige öffnet. Freigabe gilt bis „Beenden“/Fenster zu, längstens 10 min Ruhe.
 
+import { esc } from "./panel-util.js";
 import { accessScope, canAdmin, canEdit, clearAccess, currentToken, pinKey, setAccess, touchAccess, withToken } from "./access.js";
 
 const CHECK_DELAY = 450; // ms nach der letzten Ziffer, dann still prüfen
@@ -15,8 +16,8 @@ export const AccessMethods = {
    * PIN abfragen (Bereich edit oder admin). Promise<boolean>: true, sobald die richtige PIN eingegeben
    * ist; false bei ✕. Falsche PINs: nichts passiert.
    */
-  _pinPad(scope) {
-    if (scope === "edit" ? canEdit() : canAdmin()) return Promise.resolve(true);
+  _pinPad(scope, { title = null, sub = null, icon = null, verify = null } = {}) {
+    if (!verify && (scope === "edit" ? canEdit() : canAdmin())) return Promise.resolve(true);
     this._pinEl?._finish?.(false);
     return new Promise((resolve) => {
       let pin = "";
@@ -26,7 +27,8 @@ export const AccessMethods = {
       const el = document.createElement("div");
       el.className = "confirm-backdrop pin-backdrop";
       el.innerHTML = `<div class="pinpad" role="dialog" aria-label="PIN">
-        <div class="ptitle"><ha-icon icon="${scope === "admin" ? "mdi:cog" : "mdi:pencil"}"></ha-icon><span>${scope === "admin" ? "Admin-Einstellungen" : "Bearbeiten"}</span><ha-icon icon="mdi:lock"></ha-icon></div>
+        <div class="ptitle"><ha-icon icon="${icon ?? (scope === "admin" ? "mdi:cog" : "mdi:pencil")}"></ha-icon><span>${esc(title ?? (scope === "admin" ? "Admin-Einstellungen" : "Bearbeiten"))}</span><ha-icon icon="mdi:lock"></ha-icon></div>
+        ${sub ? `<div class="psub">${esc(sub)}</div>` : ""}
         <div class="dots"></div>
         <div class="keys">${["1", "2", "3", "4", "5", "6", "7", "8", "9", "back", "0", "close"].map((k) => `<button data-k="${k}"${k === "back" ? ' title="Löschen (lang drücken: alles)"' : k === "close" ? ' title="Abbrechen"' : ""}>${k === "back" ? '<ha-icon icon="mdi:backspace-outline"></ha-icon>' : k === "close" ? '<ha-icon icon="mdi:close"></ha-icon>' : k}</button>`).join("")}</div>
       </div>`;
@@ -50,12 +52,14 @@ export const AccessMethods = {
         const tried = pin;
         let res = null;
         try {
-          res = await this._hass.callWS({ type: "haus3d/pin/verify", scope, pin: tried });
-        } catch {
+          res = verify ? { ok: await verify(tried) } : await this._hass.callWS({ type: "haus3d/pin/verify", scope, pin: tried });
+        } catch (err) {
           res = null;
+          if (verify && err?.code && err.code !== "unknown_command") this._toast(`Fehlgeschlagen: ${err.message ?? err.code}`);
         }
         if (done || my !== seq) return;
-        if (res?.ok && res.token) {
+        if (verify && res?.ok) finish(true);
+        else if (res?.ok && res.token) {
           setAccess(res.token, res.scope ?? scope);
           finish(true);
         } else if (tried.length >= 8 && pin === tried) {
@@ -104,6 +108,26 @@ export const AccessMethods = {
       this.shadowRoot.appendChild(el);
       this._pinEl = el;
     });
+  },
+
+  // ------------------------------------------------------------------ Türen
+
+  /**
+   * Schloss entriegeln/öffnen nur mit der Tür-PIN: das Backend prüft die PIN und schließt selbst auf.
+   * Abbrechen wirft einen stillen Fehler (quiet), damit kein „Fehlgeschlagen“ erscheint.
+   */
+  async _doorUnlock(service, data = {}) {
+    const ids = [].concat(data.entity_id ?? []).filter((e) => typeof e === "string" && e.startsWith("lock."));
+    if (!ids.length) return this._realHass.callService("lock", service, data);
+    const names = ids.map((e) => this._realHass.states?.[e]?.attributes?.friendly_name ?? e).join(", ");
+    const ok = await this._pinPad("door", {
+      title: service === "open" ? "Tür öffnen" : "Tür entriegeln",
+      sub: names,
+      icon: "mdi:door-open",
+      verify: async (pin) => (await this._realHass.callWS({ type: "haus3d/lock/unlock", entity_id: ids, pin, service })).ok === true,
+    });
+    if (!ok) throw Object.assign(new Error("abgebrochen"), { quiet: true });
+    this._toast(`${names}: ${service === "open" ? "wird geöffnet" : "wird entriegelt"}`);
   },
 
   // ------------------------------------------------------------------ Bearbeiten
@@ -216,6 +240,7 @@ export const ACCESS_STYLE = `
 .pinpad { background: var(--card-background-color, #fff); color: var(--primary-text-color); border-radius: 20px; padding: 18px 18px 14px; box-shadow: 0 10px 40px rgba(0,0,0,.4); width: min(320px, calc(100vw - 32px)); }
 .pinpad .ptitle { display: flex; align-items: center; justify-content: center; gap: 8px; font-weight: 600; font-size: 17px; }
 .pinpad .ptitle ha-icon:last-child { color: var(--secondary-text-color); --mdc-icon-size: 18px; }
+.pinpad .psub { text-align: center; color: var(--secondary-text-color); margin: -6px 0 6px; font-size: 14px; }
 .pinpad .dots { display: flex; justify-content: center; gap: 12px; margin: 16px 0 14px; min-height: 16px; }
 .pinpad .dots i { width: 14px; height: 14px; border-radius: 50%; border: 2px solid var(--secondary-text-color); box-sizing: border-box; }
 .pinpad .dots i.on { background: var(--primary-text-color); border-color: var(--primary-text-color); }

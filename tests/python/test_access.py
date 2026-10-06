@@ -39,7 +39,7 @@ async def test_wrong_pin_is_silent_and_throttled(hass: HomeAssistant, setup_inte
 async def test_set_pin_via_ws(hass: HomeAssistant, setup_integration, hass_ws_client, hass_storage) -> None:
     ws = await hass_ws_client(hass)
     await ws.send_json({"id": 1, "type": "haus3d/pin/status"})
-    assert (await ws.receive_json())["result"] == {"edit_default": True, "admin_default": True}
+    assert (await ws.receive_json())["result"] == {"edit_default": True, "admin_default": True, "door_default": True}
     await ws.send_json({"id": 2, "type": "haus3d/pin/verify", "scope": "admin", "pin": "9999"})
     assert (await ws.receive_json())["result"] == {"ok": False}
     hass.data[DOMAIN].access._tries.clear()
@@ -92,3 +92,38 @@ async def test_edit_pin_keeps_admin_settings(hass: HomeAssistant, setup_integrat
 def test_keep_admin_settings_removes_new_keys() -> None:
     out = keep_admin_settings({"settings": {"energy": {"solar": "sensor.x"}, "grid": 0.1}}, {"settings": {}})
     assert out["settings"] == {"grid": 0.1}
+
+
+async def test_door_pin_unlocks_only_with_pin(hass: HomeAssistant, setup_integration, hass_ws_client) -> None:
+    """Tür-PIN: falsche PIN → nichts passiert, richtige → lock.unlock wird ausgeführt; kein Token."""
+    calls = []
+
+    async def fake(call) -> None:
+        calls.append((call.service, call.data["entity_id"]))
+
+    hass.services.async_register("lock", "unlock", fake)
+    hass.services.async_register("lock", "open", fake)
+    hass.states.async_set("lock.haustuer", "locked")
+    acc = hass.data[DOMAIN].access
+    ws = await hass_ws_client(hass)
+    await ws.send_json({"id": 1, "type": "haus3d/lock/unlock", "entity_id": "lock.haustuer", "pin": "1234"})
+    assert (await ws.receive_json())["result"] == {"ok": False}
+    assert calls == []
+    acc._tries.clear()
+    await ws.send_json({"id": 2, "type": "haus3d/lock/unlock", "entity_id": "lock.haustuer", "pin": "0000", "service": "open"})
+    assert (await ws.receive_json())["result"] == {"ok": True}
+    assert calls == [("open", ["lock.haustuer"])]
+    # nur Schlösser
+    acc._tries.clear()
+    await ws.send_json({"id": 3, "type": "haus3d/lock/unlock", "entity_id": "switch.tor", "pin": "0000"})
+    assert (await ws.receive_json())["error"]["code"] == "invalid_entity"
+    # die Tür-PIN schaltet weder Bearbeiten noch Admin frei
+    acc._tries.clear()
+    await ws.send_json({"id": 4, "type": "haus3d/pin/verify", "scope": "door", "pin": "0000"})
+    assert not (await ws.receive_json())["success"]
+    assert await acc.async_verify("door", "0000", "q", now=1.0) is None
+    # eigene Tür-PIN
+    await acc.async_set_pin("door", "2468")
+    acc._tries.clear()
+    assert not await acc.async_check("door", "0000", "q", now=10.0)
+    assert await acc.async_check("door", "2468", "q", now=20.0)
