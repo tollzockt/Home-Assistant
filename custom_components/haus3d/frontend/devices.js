@@ -347,9 +347,11 @@ export function watchedEntities(building, hass, byArea, { links = null, extra = 
   // Leitungen: eigener Sensor, sonst Leistung des Zielraums
   const pipeRooms = new Set();
   for (const floor of building.floors ?? []) {
+    for (const n of floor.nodes ?? []) put(n.entity);
     for (const p of floor.pipes ?? []) {
+      put(p.device);
       if (p.entity) put(p.entity);
-      else if (p.type === "strom" && p.room) pipeRooms.add(p.room);
+      else if (p.type === "strom" && p.room && !p.device) pipeRooms.add(p.room);
     }
   }
   for (const floor of building.floors ?? []) {

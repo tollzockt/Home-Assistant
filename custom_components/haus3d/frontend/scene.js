@@ -441,6 +441,8 @@ export class HouseScene {
     this.flow = null;
     this._houseFlow = null; // hing an root, ist mit weg
     this._pipes = new Map();
+    this._pipeNodes = new Map();
+    this._pipeEdges = new Map();
     this.building = building;
     this.warnings = [];
     this.lampBulbs.clear();
@@ -651,6 +653,9 @@ export class HouseScene {
     if (!furniture) {
       const near = this.nearestEntity(clientX, clientY, targets.filter(visible));
       if (near) return { entity_id: near };
+      // Leitung oder Verteiler (Netz-Details)
+      const pipe = this.pickPipe?.(clientX, clientY);
+      if (pipe) return pipe;
     }
     const room = hits.find((h) => h.object.userData.room);
     return room ? { ...room.object.userData.room } : null;

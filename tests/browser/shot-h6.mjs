@@ -80,7 +80,7 @@ const scene = await E(() => {
   return {
     editor: !!window.panel._editor,
     saved: window.panel._building.floors.find((f) => f.id === "eg").pipes?.length,
-    pipes: [...s._pipes.values()].map((p) => ({ type: p.type, active: p.active, dots: p.dots.filter((d) => d.visible).length, len: Math.round(p.len * 100) / 100 })),
+    pipes: [...s._pipes.values()].map((p) => ({ type: p.type, active: p.active, dots: [...s._pipeEdges.values()].filter((e) => e.pipe === p).reduce((n, e) => n + e.dots.filter((d) => d.visible).length, 0), len: Math.round(p.len * 100) / 100 })),
     ambient: s._pipesActive(),
   };
 });

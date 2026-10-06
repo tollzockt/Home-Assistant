@@ -51,6 +51,7 @@ import { FX_STYLE, FxMethods } from "./panel-fx.js";
 import { CLIMATE_STYLE, ClimateMethods } from "./panel-climate.js";
 import { NETWORK_STYLE, NetworkMethods } from "./panel-network.js";
 import { SUPPORT_STYLE, SupportMethods } from "./panel-support.js";
+import { PIPENET_STYLE, PipeNetMethods } from "./panel-pipes.js";
 import { doorGuard } from "./access.js";
 import { ENERGYCFG_STYLE, EnergyCfgMethods } from "./panel-energycfg.js";
 import { energyEntities, energyTotals } from "./energymodel.js";
@@ -367,7 +368,7 @@ class Haus3DPanel extends HTMLElement {
   _build() {
     this._built = true;
     this.shadowRoot.innerHTML = `
-      <style>${PANEL_STYLE}${MEDIA_STYLE}${FX_STYLE}${CLIMATE_STYLE}${NETWORK_STYLE}${SUPPORT_STYLE}${ENERGYCFG_STYLE}${USER_STYLE}${ACCESS_STYLE}${ADMIN_STYLE}${EDITOR_STYLE}</style>
+      <style>${PANEL_STYLE}${MEDIA_STYLE}${FX_STYLE}${CLIMATE_STYLE}${NETWORK_STYLE}${SUPPORT_STYLE}${PIPENET_STYLE}${ENERGYCFG_STYLE}${USER_STYLE}${ACCESS_STYLE}${ADMIN_STYLE}${EDITOR_STYLE}</style>
       <div class="wrap">
         <header>
           <button class="icon menu" title="Menü"><ha-icon icon="mdi:menu"></ha-icon></button>
@@ -1549,6 +1550,7 @@ class Haus3DPanel extends HTMLElement {
       const hit = this._scene?.pick(ev.clientX, ev.clientY);
       if (hit?.entity_id) this._activate(hit.entity_id);
       else if (hit?.pvField) this._pvCard(hit.pvField);
+      else if (hit?.pipe || hit?.pipeNode) this._pipePopup(hit);
       else if (hit?.roomId) {
         // Tipp: Kamera fährt zum Raum (in „Alle“ erst die Etage); Raumfenster per Gedrückthalten
         if (this._filter === "all") this._setFilter(hit.floorId);
@@ -2043,7 +2045,7 @@ class Haus3DPanel extends HTMLElement {
 }
 
 // Dialoge und Energie-Verlauf einmischen (panel-dialogs.js, panel-energy.js)
-Object.assign(Haus3DPanel.prototype, DialogMethods, EnergyMethods, TabletMethods, MediaMethods, FxMethods, UserMethods, AccessMethods, AdminMethods, ClimateMethods, EnergyCfgMethods, NetworkMethods, SupportMethods);
+Object.assign(Haus3DPanel.prototype, DialogMethods, EnergyMethods, TabletMethods, MediaMethods, FxMethods, UserMethods, AccessMethods, AdminMethods, ClimateMethods, EnergyCfgMethods, NetworkMethods, SupportMethods, PipeNetMethods);
 
 // Nach einem Update ohne Neuladen ist das Element der alten Version noch registriert: ein zweites
 // define würfe einen Fehler und das Panel ließe sich gar nicht laden

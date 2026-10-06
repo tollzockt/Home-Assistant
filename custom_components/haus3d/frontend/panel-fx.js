@@ -1,9 +1,6 @@
 // Jahreszeit, Energiefluss im Haus, PV-Verschattung und Schatten-Zeitraffer (Mixin für Haus3DPanel).
 
 import { daySamples, resolveSeason, shadingSummary } from "./fx.js";
-import { roomPower } from "./devices.js";
-import { pipeFlow } from "./pipes.js";
-import { energyEntities } from "./energymodel.js";
 import { esc, fmt } from "./panel-util.js";
 import { sunFromHass } from "./sun.js";
 
@@ -14,27 +11,6 @@ export const FxMethods = {
   _applySeason() {
     const lat = Number(this._hass?.config?.latitude);
     this._scene?.setSeason(resolveSeason(this._building?.settings?.season ?? "auto", new Date(), Number.isFinite(lat) ? lat : 50));
-  },
-
-  /**
-   * Fluss in den gelegten Leitungen (Strom: Sensor oder Verbrauch des Zielraums, Wasser: Durchfluss/Ventil).
-   * Ersetzt die frühere Luftlinie vom Hausanschluss zu den Räumen.
-   */
-  _updatePipes() {
-    if (!this._scene?.setPipeFlow || !this._building) return;
-    const hass = this._hass;
-    const exclude = new Set(energyEntities(this._building.settings?.energy ?? {}));
-    const rooms = new Map(this._building.floors.flatMap((f) => (f.rooms ?? []).map((r) => [r.id, r])));
-    const map = new Map();
-    for (const f of this._building.floors) {
-      for (const p of f.pipes ?? []) {
-        const room = p.room ? rooms.get(p.room) : null;
-        const w = !p.entity && room ? roomPower(room, hass, this._byArea, exclude) : null;
-        map.set(p.id, pipeFlow(p, hass, w));
-      }
-    }
-    const off = this._building.settings?.house_flow === false;
-    this._scene.setPipeFlow(off ? new Map() : map);
   },
 
   /** Energiefluss im Haus: läuft nur noch in den Leitungen (Luftlinien gibt es nicht mehr). */
