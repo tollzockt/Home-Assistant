@@ -8,6 +8,13 @@ const t = await start(process.argv[2]);
 // --- Simulation nur im Admin-Modus --------------------------------------------------------------
 let pg = await t.page("m1", "?power");
 let E = (fn, arg) => pg.evaluate(fn, arg);
+// ein Raum ohne Geräte (im Harness haben alle Räume schon welche)
+await E(() => {
+  const p = window.panel;
+  const b = structuredClone(p._building);
+  b.floors[0].rooms.push({ id: "abstell", name: "Abstellraum", area_id: null, points: [[20, 20], [22, 20], [22, 22], [20, 22]] });
+  p._setBuilding(b, p._revision, { keepCamera: true });
+});
 await E(() => window.panel._openSettings());
 await pg.waitForTimeout(300);
 t.check(!(await E(() => !!window.panel.shadowRoot.querySelector('.basics [data-act="sim"]'))), "Simulations-Kachel ohne Admin sichtbar");
