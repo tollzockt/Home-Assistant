@@ -158,6 +158,7 @@ if (params.get("light") === "rgb") states["light.wohnzimmer_decke"].attributes =
 if (params.get("weather")) add(st("weather.zuhause", params.get("weather"), { friendly_name: "Zuhause" }), null);
 // ?lan: Netzwerkgeräte wie aus „UniFi Network“ (Access Point im Flur, Client im Wohnzimmer, einer offline)
 const devices = {};
+const tokensAdmin = (t) => (window.tokens ?? {})[t];
 if (params.has("lan")) {
   const uni = (id, dev) => ({ platform: "unifi", device_id: dev });
   devices.ap_flur = { id: "ap_flur", name: "AP Flur", model: "U6 Lite", manufacturer: "Ubiquiti Networks", area_id: "flur" };
@@ -185,7 +186,7 @@ const hass = {
     if (msg.type.startsWith("haus3d/pin/")) {
       const pins = (window.pins ??= { edit: "0000", admin: "0000", door: "0000" });
       const tokens = (window.tokens ??= {});
-      if (msg.type === "haus3d/pin/status") return { edit_default: pins.edit === "0000", admin_default: pins.admin === "0000", door_default: (pins.door ?? "0000") === "0000" };
+      if (msg.type === "haus3d/pin/status") return { edit_default: pins.edit === "0000", admin_default: pins.admin === "0000", door_default: (pins.door ?? "0000") === "0000", dev: !!window.devInstance };
       if (msg.type === "haus3d/pin/verify") {
         if (msg.pin !== pins[msg.scope]) return { ok: false };
         const token = `tok-${msg.scope}-${Math.random().toString(36).slice(2)}`;
@@ -201,6 +202,14 @@ const hass = {
         pins[msg.scope] = msg.pin;
         return { ok: true };
       }
+    }
+    // Entwickler-Instanz (Test-Code 4242; der echte Code steht nur als Hash im Backend)
+    if (msg.type === "haus3d/dev/set" || msg.type === "haus3d/dev/clear") {
+      if (tokensAdmin(msg.token) !== "admin") throw { code: "locked", message: "Gesperrt" };
+      if (msg.type === "haus3d/dev/clear") window.devInstance = false;
+      else if (msg.code === "4242") window.devInstance = true;
+      else return { ok: false };
+      return { ok: true };
     }
     // Tür-PIN: Backend prüft und schließt selbst auf
     if (msg.type === "haus3d/lock/unlock") {

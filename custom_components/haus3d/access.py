@@ -29,6 +29,12 @@ MIN_GAP_S = 0.3
 MAX_FAILS = 10
 LOCK_S = 30.0
 
+# Entwickler-Instanz: nur der Hash des Codes (PBKDF2, eigenes Salz) steht im Code. Er blendet lediglich das
+# Spendenfeld aus und zeigt Entwickler-Infos – nie schaltet er bezahlte Funktionen frei.
+DEV_SALT = "d52e7ccb2878c983c9ef88246e6d04ca"
+DEV_HASH = "2b5c3691c8bd07e54bc4e4c26856490561ee408e065b32de0383a23247077472"
+DEV_ITERATIONS = 200_000
+
 # Einstellungen, die nur mit Admin-PIN geändert werden dürfen; mit der Bearbeiten-PIN bleiben sie,
 # wie sie gespeichert sind (Grundriss, Karten, Kurzwahl, Dach usw. darf „Bearbeiten“ ändern).
 ADMIN_SETTINGS = (
@@ -51,6 +57,10 @@ def valid_pin(pin: Any) -> bool:
     return isinstance(pin, str) and pin.isdigit() and 4 <= len(pin) <= 8
 
 
+def _dev_hash(code: str) -> str:
+    return hashlib.pbkdf2_hmac("sha256", code.encode(), bytes.fromhex(DEV_SALT), DEV_ITERATIONS).hex()
+
+
 def _hash(pin: str, salt: str) -> str:
     return hashlib.pbkdf2_hmac("sha256", pin.encode(), bytes.fromhex(salt), ITERATIONS).hex()
 
@@ -64,10 +74,12 @@ class Access:
         self._pins: dict[str, dict[str, str]] = {}
         self._tokens: dict[str, dict[str, Any]] = {}
         self._tries: dict[str, dict[str, float]] = {}
+        self.dev = False
 
     async def async_load(self) -> None:
         stored = await self._store.async_load() or {}
         self._pins = {s: v for s, v in (stored.get("pins") or {}).items() if s in SCOPES and isinstance(v, dict)}
+        self.dev = stored.get("dev") is True
 
     def is_default(self, scope: str) -> bool:
         return scope not in self._pins
@@ -126,11 +138,38 @@ class Access:
     def revoke(self, token: Any) -> None:
         self._tokens.pop(token, None)
 
+    async def _async_save(self) -> None:
+        await self._store.async_save({"pins": self._pins, "dev": self.dev})
+
+    async def async_set_dev(self, code: Any, who: str, now: float | None = None) -> bool:
+        """Entwickler-Instanz bestätigen (still, gedrosselt wie die PIN)."""
+        now = time.monotonic() if now is None else now
+        t = self._tries.setdefault(who, {"fails": 0, "last": -1e9, "until": 0.0})
+        if now < t["until"] or now - t["last"] < MIN_GAP_S:
+            t["last"] = now
+            return False
+        t["last"] = now
+        ok = isinstance(code, str) and code.isdigit() and 4 <= len(code) <= 12 and secrets.compare_digest(await self.hass.async_add_executor_job(_dev_hash, code), DEV_HASH)
+        if not ok:
+            t["fails"] += 1
+            if t["fails"] >= MAX_FAILS:
+                t["fails"] = 0
+                t["until"] = now + LOCK_S
+            return False
+        t["fails"] = 0
+        self.dev = True
+        await self._async_save()
+        return True
+
+    async def async_clear_dev(self) -> None:
+        self.dev = False
+        await self._async_save()
+
     async def async_set_pin(self, scope: str, pin: str) -> None:
         salt = secrets.token_hex(16)
         digest = await self.hass.async_add_executor_job(_hash, pin, salt)
         self._pins[scope] = {"salt": salt, "hash": digest}
-        await self._store.async_save({"pins": self._pins})
+        await self._async_save()
         # andere Freigaben dieses Bereichs enden
         for tok in [k for k, v in self._tokens.items() if v["scope"] == scope]:
             del self._tokens[tok]

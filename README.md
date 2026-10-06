@@ -7,6 +7,13 @@ Energiefluss.
 Das Datenformat ist kompatibel mit [NeonPlan 3D](https://github.com/Mastershort/neonplan3d): Exporte von
 dort lassen sich direkt einlesen, und Exporte von Haus 3D kann NeonPlan wieder öffnen.
 
+## Unterstützen
+
+Haus 3D ist kostenlos und bleibt es. Wenn es dir gefällt, freue ich mich über eine Spende – über den
+**„Sponsor“-Knopf** oben im Repo oder im Panel unter **Zahnrad → ♥ Haus 3D unterstützen**. Das Panel zeigt
+nach 14 Tagen einmalig einen dezenten Hinweis (nie auf dem Wandtablet). Später gibt es optionale
+Zusatzpakete; alles, was es heute gibt, bleibt frei.
+
 ## Neu in 0.18: Tür-PIN, großer Möbelkatalog, Gerätevorlagen
 
 - **Haustüren nur mit PIN**: Schlösser (lock.…) lassen sich im Panel nur noch mit einer eigenen

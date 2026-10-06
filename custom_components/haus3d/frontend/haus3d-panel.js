@@ -50,6 +50,7 @@ import { MEDIA_STYLE, MediaMethods } from "./panel-media.js";
 import { FX_STYLE, FxMethods } from "./panel-fx.js";
 import { CLIMATE_STYLE, ClimateMethods } from "./panel-climate.js";
 import { NETWORK_STYLE, NetworkMethods } from "./panel-network.js";
+import { SUPPORT_STYLE, SupportMethods } from "./panel-support.js";
 import { doorGuard } from "./access.js";
 import { ENERGYCFG_STYLE, EnergyCfgMethods } from "./panel-energycfg.js";
 import { energyEntities, energyTotals } from "./energymodel.js";
@@ -366,7 +367,7 @@ class Haus3DPanel extends HTMLElement {
   _build() {
     this._built = true;
     this.shadowRoot.innerHTML = `
-      <style>${PANEL_STYLE}${MEDIA_STYLE}${FX_STYLE}${CLIMATE_STYLE}${NETWORK_STYLE}${ENERGYCFG_STYLE}${USER_STYLE}${ACCESS_STYLE}${ADMIN_STYLE}${EDITOR_STYLE}</style>
+      <style>${PANEL_STYLE}${MEDIA_STYLE}${FX_STYLE}${CLIMATE_STYLE}${NETWORK_STYLE}${SUPPORT_STYLE}${ENERGYCFG_STYLE}${USER_STYLE}${ACCESS_STYLE}${ADMIN_STYLE}${EDITOR_STYLE}</style>
       <div class="wrap">
         <header>
           <button class="icon menu" title="Menü"><ha-icon icon="mdi:menu"></ha-icon></button>
@@ -483,6 +484,7 @@ class Haus3DPanel extends HTMLElement {
       this._setBuilding(res.building, res.revision);
       this._subscribeCommands();
       this._loadUserData();
+      setTimeout(() => this._supportHintCheck(), 4000);
       // Simulation war in diesem Browser an: wieder starten (Band oben zeigt es deutlich)
       if (this._settings.sim && !this._sim) {
         if (this.hasAttribute("kiosk")) this._toastAction("Simulation war aktiv.", "Fortsetzen", () => this._setSim(true));
@@ -2041,7 +2043,7 @@ class Haus3DPanel extends HTMLElement {
 }
 
 // Dialoge und Energie-Verlauf einmischen (panel-dialogs.js, panel-energy.js)
-Object.assign(Haus3DPanel.prototype, DialogMethods, EnergyMethods, TabletMethods, MediaMethods, FxMethods, UserMethods, AccessMethods, AdminMethods, ClimateMethods, EnergyCfgMethods, NetworkMethods);
+Object.assign(Haus3DPanel.prototype, DialogMethods, EnergyMethods, TabletMethods, MediaMethods, FxMethods, UserMethods, AccessMethods, AdminMethods, ClimateMethods, EnergyCfgMethods, NetworkMethods, SupportMethods);
 
 // Nach einem Update ohne Neuladen ist das Element der alten Version noch registriert: ein zweites
 // define würfe einen Fehler und das Panel ließe sich gar nicht laden

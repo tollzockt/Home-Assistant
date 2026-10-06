@@ -1,5 +1,15 @@
 # Änderungen
 
+## 0.18.1
+
+### Neu
+- **Unterstützen**: Zeile „♥ Haus 3D unterstützen“ im Zahnrad mit Spendenlinks (GitHub Sponsors; weitere
+  folgen), einmaliger dezenter Hinweis nach 14 Tagen (nie im Wandtablet-Modus), Sponsor-Knopf im Repo.
+  Haus 3D bleibt kostenlos.
+- **Entwickler-Instanz**: kleines Haus-Symbol unten rechts in den Admin-Einstellungen; nach Bestätigung
+  entfällt das Spendenfeld und es gibt die Kategorie „Entwickler“ (Infos, Leistungsanzeige, Simulation).
+  Der Code wird im Backend nur als Hash geprüft und schaltet nichts Kostenpflichtiges frei.
+
 ## 0.18.0
 
 ### Wichtig beim Update

@@ -35,12 +35,16 @@ const CATEGORIES = [
   ["pin", "mdi:key-variant", "PIN & Zugang", "PINs für Bearbeiten, Admin und Türen"],
 ];
 
+const DEV_CATEGORY = ["dev", "mdi:home-heart", "Entwickler", "diese Instanz, Infos"];
+
 const CARD_ICONS = ["mdi:card-text-outline", "mdi:lightning-bolt-circle", "mdi:solar-power", "mdi:fire", "mdi:radiator", "mdi:water-boiler", "mdi:thermometer", "mdi:washing-machine", "mdi:server", "mdi:pool", "mdi:car-electric", "mdi:battery-charging", "mdi:weather-partly-cloudy", "mdi:home-automation"];
 
 export const AdminMethods = {
   // ------------------------------------------------------------------ Zahnrad (schlicht)
 
   _openSettings() {
+    // Entwickler-Status einmal holen, dann ggf. ohne Spendenzeile neu zeichnen
+    if (!this._devLoaded) this._loadDev().then((dev) => dev && this._dialog?.querySelector(".supportrow") && this._openSettings());
     this._closePopup();
     this._closeDialog();
     const st = this._settings;
@@ -64,7 +68,9 @@ export const AdminMethods = {
           <button class="bigtile edit${editing ? " active" : ""}"><ha-icon icon="${editing ? "mdi:check" : "mdi:pencil"}"></ha-icon><span>${editing ? "Beenden" : "Bearbeiten"}</span>${editing ? "" : '<ha-icon class="lk" icon="mdi:lock"></ha-icon>'}</button>
           ${this._adminMode ? `<div class="bigtile admin active"><button class="aopen"><ha-icon icon="mdi:cog"></ha-icon><span>Admin-Einstellungen</span></button><button class="aend">Beenden</button></div>` : `<button class="bigtile admin"><ha-icon icon="mdi:cog"></ha-icon><span>Admin-Einstellungen</span><ha-icon class="lk" icon="mdi:lock"></ha-icon></button>`}
         </div>
+        ${this._supportRow()}
       </div></div>`;
+    el.querySelector(".supportrow")?.addEventListener("click", () => this._supportDialog());
     for (const s of el.querySelectorAll(".seg")) {
       s.addEventListener("click", (ev) => {
         const b = ev.target.closest("button");
@@ -139,14 +145,17 @@ export const AdminMethods = {
     const showGrid = () => {
       head.textContent = "Admin-Einstellungen";
       back.hidden = true;
-      body.innerHTML = `<div class="cats">${CATEGORIES.map(([k, icon, name, sub]) => `<button class="cat" data-cat="${k}"><ha-icon icon="${icon}"></ha-icon><b>${name}</b><small>${sub}</small></button>`).join("")}</div>`;
+      const cats = this._dev ? [...CATEGORIES, DEV_CATEGORY] : CATEGORIES;
+      body.innerHTML = `<div class="cats">${cats.map(([k, icon, name, sub]) => `<button class="cat" data-cat="${k}"><ha-icon icon="${icon}"></ha-icon><b>${name}</b><small>${sub}</small></button>`).join("")}</div>
+        <button class="devbtn${this._dev ? " on" : ""}" title="Entwickler"><ha-icon icon="mdi:home-heart"></ha-icon></button>`;
+      body.querySelector(".devbtn").addEventListener("click", () => (this._dev ? showCat("dev") : this._devConfirm(showGrid)));
       body.querySelectorAll("[data-cat]").forEach((b) => b.addEventListener("click", async () => {
         if (!canAdmin() && !(await this._pinPad("admin"))) return;
         showCat(b.dataset.cat);
       }));
     };
     const showCat = (k, a = null) => {
-      const c = CATEGORIES.find((x) => x[0] === k);
+      const c = [...CATEGORIES, DEV_CATEGORY].find((x) => x[0] === k);
       head.textContent = c[2];
       back.hidden = viaEdit && !canAdmin();
       body.innerHTML = `<div class="catbox"></div>`;
@@ -163,6 +172,7 @@ export const AdminMethods = {
         kiosk: () => this._renderKioskConfig(box),
         data: () => this._renderDataConfig(box),
         pin: () => this._renderPinConfig(box),
+        dev: () => this._renderDevConfig(box, showGrid),
       })[k]();
     };
     this._adminShow = showCat;

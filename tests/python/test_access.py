@@ -39,7 +39,7 @@ async def test_wrong_pin_is_silent_and_throttled(hass: HomeAssistant, setup_inte
 async def test_set_pin_via_ws(hass: HomeAssistant, setup_integration, hass_ws_client, hass_storage) -> None:
     ws = await hass_ws_client(hass)
     await ws.send_json({"id": 1, "type": "haus3d/pin/status"})
-    assert (await ws.receive_json())["result"] == {"edit_default": True, "admin_default": True, "door_default": True}
+    assert (await ws.receive_json())["result"] == {"edit_default": True, "admin_default": True, "door_default": True, "dev": False}
     await ws.send_json({"id": 2, "type": "haus3d/pin/verify", "scope": "admin", "pin": "9999"})
     assert (await ws.receive_json())["result"] == {"ok": False}
     hass.data[DOMAIN].access._tries.clear()
@@ -127,3 +127,35 @@ async def test_door_pin_unlocks_only_with_pin(hass: HomeAssistant, setup_integra
     acc._tries.clear()
     assert not await acc.async_check("door", "0000", "q", now=10.0)
     assert await acc.async_check("door", "2468", "q", now=20.0)
+
+
+async def test_dev_instance(hass: HomeAssistant, setup_integration, hass_ws_client, hass_storage, monkeypatch) -> None:
+    """Entwickler-Instanz: nur mit Admin-Freigabe und richtigem Code; übersteht den Neustart; aufhebbar."""
+    import custom_components.haus3d.access as access_mod
+
+    # Test-Code statt des echten (der echte steht nirgends im Klartext)
+    monkeypatch.setattr(access_mod, "DEV_HASH", access_mod._dev_hash("4242"))
+    acc = hass.data[DOMAIN].access
+    ws = await hass_ws_client(hass)
+    await ws.send_json({"id": 1, "type": "haus3d/dev/set", "code": "4242"})
+    assert (await ws.receive_json())["error"]["code"] == "locked"
+    token = await acc.async_verify("admin", "0000", "a", now=1.0)
+    acc._tries.clear()
+    await ws.send_json({"id": 2, "type": "haus3d/dev/set", "code": "1111", "token": token})
+    assert (await ws.receive_json())["result"] == {"ok": False}
+    acc._tries.clear()
+    await ws.send_json({"id": 3, "type": "haus3d/dev/set", "code": "4242", "token": token})
+    assert (await ws.receive_json())["result"] == {"ok": True}
+    await ws.send_json({"id": 4, "type": "haus3d/pin/status"})
+    assert (await ws.receive_json())["result"]["dev"] is True
+    await hass.async_block_till_done()
+    assert hass_storage["haus3d.access"]["data"]["dev"] is True
+    await ws.send_json({"id": 5, "type": "haus3d/dev/clear", "token": token})
+    assert (await ws.receive_json())["success"]
+    assert acc.dev is False
+
+
+def test_dev_code_only_as_hash() -> None:
+    import custom_components.haus3d.access as access_mod
+
+    assert len(access_mod.DEV_HASH) == 64 and len(access_mod.DEV_SALT) == 32

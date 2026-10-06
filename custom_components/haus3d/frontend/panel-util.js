@@ -137,6 +137,14 @@ export function loadSettings(raw, legacyStyle) {
   if (out.style === "standard") out.style = "day";
   return out;
 }
+/** Spenden (leere URL = nicht anzeigen): [Schlüssel, Name, URL, Symbol]. */
+export const SUPPORT_LINKS = [
+  ["github", "GitHub Sponsors", "https://github.com/sponsors/tollzockt", "mdi:github"],
+  ["kofi", "Ko-fi", "", "mdi:coffee"],
+  ["patreon", "Patreon", "", "mdi:patreon"],
+  ["paypal", "PayPal", "", "mdi:hand-heart"],
+];
+
 export const fmt = (v, digits = 1) => (v == null ? "–" : v.toLocaleString("de-DE", { maximumFractionDigits: digits, minimumFractionDigits: 0 }));
 
 export const ICONS = {

@@ -22,7 +22,7 @@ from .storage import Haus3DData, RevisionConflict
 @callback
 def async_register_commands(hass: HomeAssistant) -> None:
     """Registriert die Befehle (nur einmal pro HA-Lauf, siehe __init__.py)."""
-    for command in (ws_get, ws_save, ws_history_list, ws_history_snapshot, ws_history_restore, ws_background_get, ws_background_set, ws_subscribe, ws_pin_status, ws_pin_verify, ws_pin_set, ws_pin_lock, ws_lock_unlock):
+    for command in (ws_get, ws_save, ws_history_list, ws_history_snapshot, ws_history_restore, ws_background_get, ws_background_set, ws_subscribe, ws_pin_status, ws_pin_verify, ws_pin_set, ws_pin_lock, ws_lock_unlock, ws_dev_set, ws_dev_clear):
         websocket_api.async_register_command(hass, command)
 
 
@@ -171,7 +171,7 @@ def ws_pin_status(hass: HomeAssistant, connection: websocket_api.ActiveConnectio
     """Gilt noch die Standard-PIN 0000?"""
     if (data := _data(hass, connection, msg)) is None:
         return
-    connection.send_result(msg["id"], {f"{s}_default": data.access.is_default(s) for s in SCOPES})
+    connection.send_result(msg["id"], {**{f"{s}_default": data.access.is_default(s) for s in SCOPES}, "dev": data.access.dev})
 
 
 @websocket_api.websocket_command({vol.Required("type"): "haus3d/pin/verify", vol.Required("scope"): vol.In(LOGIN_SCOPES), vol.Required("pin"): str})
@@ -240,4 +240,24 @@ async def ws_lock_unlock(hass: HomeAssistant, connection: websocket_api.ActiveCo
     except HomeAssistantError as err:
         connection.send_error(msg["id"], "failed", str(err))
         return
+    connection.send_result(msg["id"], {"ok": True})
+
+
+@websocket_api.websocket_command({vol.Required("type"): "haus3d/dev/set", vol.Required("code"): str, vol.Optional("token"): str})
+@websocket_api.async_response
+async def ws_dev_set(hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict[str, Any]) -> None:
+    """Entwickler-Instanz bestätigen (braucht die Admin-Freigabe; falscher Code → ok: false, still)."""
+    if (data := _data(hass, connection, msg)) is None or not _allowed(data, connection, msg, "admin"):
+        return
+    who = connection.user.id if connection.user else "?"
+    connection.send_result(msg["id"], {"ok": await data.access.async_set_dev(msg["code"], who)})
+
+
+@websocket_api.websocket_command({vol.Required("type"): "haus3d/dev/clear", vol.Optional("token"): str})
+@websocket_api.async_response
+async def ws_dev_clear(hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict[str, Any]) -> None:
+    """Entwickler-Instanz aufheben."""
+    if (data := _data(hass, connection, msg)) is None or not _allowed(data, connection, msg, "admin"):
+        return
+    await data.access.async_clear_dev()
     connection.send_result(msg["id"], {"ok": True})
