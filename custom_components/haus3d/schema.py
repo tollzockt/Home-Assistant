@@ -99,6 +99,8 @@ OPENING_SCHEMA = vol.Schema(
         vol.Optional("cover", default=None): _ENTITY,
         vol.Optional("contact", default=None): _ENTITY,
         vol.Optional("tilt", default=None): _soft(_ENTITY, None),
+        # 0.20: eigene Rahmenfarbe (#rrggbb)
+        vol.Optional("frame_color"): _soft(vol.Any(None, vol.Match(r"^#[0-9a-fA-F]{6}$")), None),
     },
     extra=vol.ALLOW_EXTRA,
 )
@@ -165,6 +167,9 @@ FLOOR_SCHEMA = vol.Schema(
         vol.Optional("outdoor", default=list): vol.All([OUTDOOR_SCHEMA], vol.Length(max=MAX_ITEMS)),
         vol.Optional("pipes", default=list): vol.All([PIPE_SCHEMA], vol.Length(max=MAX_ITEMS)),
         vol.Optional("nodes", default=list): vol.All([NODE_SCHEMA], vol.Length(max=MAX_ITEMS)),
+        # 0.20: Dachgeschoss (Räume unter den Dachschrägen) mit Kniestock in m
+        vol.Optional("attic"): _soft(vol.Boolean(), False),
+        vol.Optional("knee"): _soft(vol.All(vol.Coerce(float), vol.Range(min=0, max=3)), 1.0),
     },
     extra=vol.ALLOW_EXTRA,
 )
@@ -208,6 +213,8 @@ SETTINGS_SCHEMA = vol.Schema(
         vol.Optional("roof"): ROOF_SCHEMA,
         vol.Optional("weather"): vol.Any(None, str),
         vol.Optional("north"): _soft(_north, 0),
+        # Name oben links (leer = „Haus 3D“)
+        vol.Optional("title"): _soft(vol.Any(None, vol.All(str, vol.Length(max=60))), None),
     },
     extra=vol.ALLOW_EXTRA,
 )

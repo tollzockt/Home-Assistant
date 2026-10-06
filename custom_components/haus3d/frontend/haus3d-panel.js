@@ -60,7 +60,7 @@ import { ACCESS_STYLE, AccessMethods } from "./panel-access.js";
 import { ADMIN_STYLE, AdminMethods } from "./panel-admin.js";
 import { VIEW_PRESETS, normalizeViews, poseInBox } from "./camera.js";
 
-import { LONG_PRESS_MS, esc, plural, ENERGY_CORE, energyRows, LAYERS, DEFAULT_SETTINGS, loadSettings, fmt, ICONS, CONTACT_ICONS, DOMAIN_ICONS, SENSOR_ICONS, fmtPower, setText, iconFor, isActive } from "./panel-util.js";
+import { LONG_PRESS_MS, esc, plural, ENERGY_CORE, energyRows, LAYERS, DEFAULT_SETTINGS, loadSettings, fmt, ICONS, CONTACT_ICONS, DOMAIN_ICONS, SENSOR_ICONS, fmtPower, setText, iconFor, isActive, touchScroll } from "./panel-util.js";
 import { DialogMethods } from "./panel-dialogs.js";
 
 /** Uhrzeit der Simulation („echt“ oder HH:MM). */
@@ -238,6 +238,11 @@ class Haus3DPanel extends HTMLElement {
 
   /** Simulation an/aus. Beim Start wird der Grundriss kopiert; beim Beenden der echte neu geladen. */
   async _setSim(on) {
+    // nur im Admin-Modus (Beispielgeräte, Wetter und Energie verändern die Ansicht für alle am Gerät)
+    if (on && !this._sim && !this._adminMode) {
+      this._toast("Simulation nur im Admin-Modus – erst Admin-Einstellungen mit PIN öffnen.");
+      return;
+    }
     this._settings.sim = !!on;
     this._saveSettings();
     if (on && !this._sim) {
@@ -413,6 +418,7 @@ class Haus3DPanel extends HTMLElement {
       msg: $(".msg"),
       file: $("input[type=file]"),
     };
+    $(".title").addEventListener("click", () => this._editMode && this._editTitle());
     $(".menu").addEventListener("click", () => this.dispatchEvent(new Event("hass-toggle-menu", { bubbles: true, composed: true })));
     $(".fit").addEventListener("click", () => this._scene?.fitCamera());
     $(".edit").addEventListener("click", () => this._openEditor());
@@ -486,10 +492,10 @@ class Haus3DPanel extends HTMLElement {
       this._subscribeCommands();
       this._loadUserData();
       setTimeout(() => this._supportHintCheck(), 4000);
-      // Simulation war in diesem Browser an: wieder starten (Band oben zeigt es deutlich)
-      if (this._settings.sim && !this._sim) {
-        if (this.hasAttribute("kiosk")) this._toastAction("Simulation war aktiv.", "Fortsetzen", () => this._setSim(true));
-        else this._setSim(true);
+      // Simulation startet nie von selbst (nur im Admin-Modus); ein alter Merker wird gelöscht
+      if (this._settings.sim) {
+        this._settings.sim = false;
+        this._saveSettings();
       }
     } catch (err) {
       this._showMessage(`Grundriss konnte nicht geladen werden: ${err.message ?? err.code ?? err}`);
@@ -575,6 +581,7 @@ class Haus3DPanel extends HTMLElement {
 
   _renderToolbar() {
     if (!this._els) return;
+    this._renderTitle();
     const floors = [...(this._building?.floors ?? [])].sort((a, b) => a.elevation - b.elevation);
     const options = [{ id: "all", name: "Alle" }, ...floors.map((f) => ({ id: f.id, name: f.name }))];
     if (this._building && !options.some((o) => o.id === this._filter)) this._filter = "all";
@@ -1621,6 +1628,7 @@ class Haus3DPanel extends HTMLElement {
       if (!p.el) {
         p.el = document.createElement("div");
         p.el.className = "roompanel";
+        touchScroll(p.el);
         // oben links, unter einem Hinweis-Banner (sonst liegt der Banner über dem Kopf)
         const top = this._alertBar?.isConnected ? this._alertBar.offsetTop + this._alertBar.offsetHeight + 8 : 12;
         p.x = p.x ?? 12 + idx * 28;

@@ -7,6 +7,19 @@ Energiefluss.
 Das Datenformat ist kompatibel mit [NeonPlan 3D](https://github.com/Mastershort/neonplan3d): Exporte von
 dort lassen sich direkt einlesen, und Exporte von Haus 3D kann NeonPlan wieder öffnen.
 
+## Neu in 0.20: Dachgeschoss, eigener Name, Rahmenfarbe
+
+- **Dachgeschoss als Etage**: Editor → Etagen-Auswahl → „+ Dachgeschoss“ (oder Haken „Dachgeschoss“ in den
+  Etagen-Eigenschaften). Räume, Möbel und Leitungen wie auf jeder Etage. Mit Dach in den Einstellungen sitzt
+  das Dach auf dem **Kniestock** des Dachgeschosses, die Dachflächen ergeben sich aus dessen Räumen, Innenwände
+  enden unter der Schräge. „Dach“ (Kamin, Dachfenster, PV-Felder) gibt es in der Auswahl nur mit Dach.
+- **Name oben links**: im Bearbeiten-Modus antippen, eintippen, Enter (leer = „Haus 3D“).
+- **Rahmenfarbe** für Fenster und Türen (Editor → Fenster/Tür wählen → Rahmenfarbe).
+- **Simulation nur im Admin-Modus**, passend zum aktuellen Stand (Leitungsfluss, Speicher an PV/BKW,
+  Haus/Netz-Bilanz); endet mit dem Admin-Modus.
+- **Energiefluss aus** im Rad blendet die Leitungen ganz aus.
+- Tablet: „Geräte anpassen“ scrollt mit dem Finger.
+
 ## Neu in 0.19: Leitungsnetz mit Verteilern und Abzweigen
 
 - **Verteiler** (Editor → „Verteiler“): Hauptverteilung, Unterverteilungen (optional mit eigenem Zähler),
@@ -223,12 +236,14 @@ offen hat.
 - **Einstellungen** (Zahnrad): Stil **Auto** (Tag/Nacht nach `sun.sun`), **Tag**, **Nacht** oder
   **Cyberpunk**, Geräte als Symbole oder 3D-Objekte, Ebenen (Wände, Möbel, Geräte, Garten …) ein/aus.
 - **Tablet-tauglich**: größere Schaltflächen bei Touch-Bedienung.
-- **Simulationsmodus** (Zahnrad → Simulation starten, gilt nur für diesen Browser): zum gefahrlosen
+- **Simulationsmodus** (nur im Admin-Modus: Zahnrad → Simulation, gilt nur für diesen Browser und endet mit
+  dem Admin-Modus): zum gefahrlosen
   Ausprobieren. Schalten ändert nur simulierte Zustände, es geht **kein Dienstaufruf** an Home
   Assistant. Langes Drücken öffnet statt „Weitere Infos“ einen Simulationsdialog (an/aus, Fenster
   offen/zu, Rollladen-Position, Solltemperatur, Messwerte). Ein oranges Band oben zeigt den Modus und
   stellt Wetter (Sonne bis Gewitter, Schnee, Hagel), Tag/Nacht und Solarleistung ein. „Beispielgeräte“
-  gibt Räumen ohne eigene Geräte ein Licht, einen Temperatursensor und einen Fensterkontakt. Änderungen
+  gibt Räumen ohne eigene Geräte ein Licht, einen Temperatursensor, einen Fensterkontakt und eine Leistung
+  (folgt dem Licht, Leitungen zeigen Fluss). Der Solar-Regler rechnet Haus, Netz und Speicher passend. Änderungen
   am Grundriss bleiben in der Simulation lokal; beim Beenden wird der echte Stand neu geladen.
 - **Import/Export, Verlauf** (nur für Admins, Menü ⋮): JSON exportieren/importieren, Stand sichern, einen
   der letzten 20 Stände wiederherstellen. Vor jedem Speichern wird der alte Stand automatisch gesichert.
@@ -239,7 +254,9 @@ offen hat.
 Über den Stift in der Kopfzeile öffnet sich der Editor für die gewählte Etage. Oben rechts wählt man die
 Ansicht **2D**, **2D + 3D** (nebeneinander, auf schmalen Geräten untereinander) oder **3D**.
 
-- **Dach-Ebene** (Etagenauswahl → „Dach“): das Hausdach von oben mit Flächen, First und Nordpfeil.
+- **Dachgeschoss** (Etagenauswahl → „+ Dachgeschoss“): normale Etage für Zimmer unter dem Dach; mit Dach
+  setzt dieses auf dem Kniestock an (Etagen-Eigenschaften).
+- **Dach-Ebene** (Etagenauswahl → „Dach“, nur wenn in den Einstellungen ein Dach an ist): das Hausdach von oben mit Flächen, First und Nordpfeil.
   Werkzeuge **Kamin**, **Dachfenster** und **PV-Feld**: aufs Dach tippen, dann ziehen oder mit den
   Pfeilen schieben. PV-Felder (Spalten × Reihen, hochkant oder quer) richten sich nach der Dachfläche
   unter ihrer Mitte, Reihe 1 liegt an der Traufe; Module, die über First, Kehle oder Rand hinausragen,
@@ -350,7 +367,7 @@ man am einfachsten über **⋮ → Importieren** ein (NeonPlan-Export oder rohe 
 Das Format entspricht NeonPlan 3D (`version: 1`):
 
 ```text
-floors[]          id, name, elevation, height, ha_floor
+floors[]          id, name, elevation, height, ha_floor, attic (Dachgeschoss), knee (Kniestock, m)
   rooms[]         id, name, area_id, points [[x, z], …] in Metern, floor_material,
                   floor_color, wall_color, exterior_color ("#rrggbb", optional),
                   floor_texture, wall_texture, exterior_texture (Textur, "none" = glatt),
@@ -358,7 +375,8 @@ floors[]          id, name, elevation, height, ha_floor
                   roof {type, pitch, overhang, color, direction, flip, texture},
                   solar_panels (eigenes Dach je Raum)
   openings[]      id, room_id, edge, offset, width, type (window|door|garage), sill, height,
-                  hinge, swing, style (passage|glass|front_glass|…), contact, cover
+                  hinge, swing, style (passage|glass|front_glass|…), contact, cover,
+                  frame_color ("#rrggbb")
   outdoor[]       id, type (lawn|terrace|path|driveway|pool|bed|hedge|fence|balcony|gravel|paving|
                   rockery), points,
                   railing (glass|bars|wood|none), railing_height, texture
@@ -374,7 +392,7 @@ settings          wall_exterior (0.24), wall_interior (0.12), wall_colors {exter
                         items [{id, type (chimney|skylight|pv), x, z, …}],
                         adjust [{lo, hi, a, b}] (Dach-Ebene)}, north (Grad),
                   cards [{id, title, icon, entities [{entity, name}]}] (bis 5), quick [{entity, name}],
-                  weather (Entität oder "none")
+                  weather (Entität oder "none"), title (Name oben links)
 ```
 
 - Räume werden auf der **Mitte der Innenwände** gezeichnet. Kanten, die zwei Räume teilen, werden zu

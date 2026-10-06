@@ -40,6 +40,7 @@ import { MEASURE_STYLE, MeasureMethods } from "./editor-measure.js";
 import { LineMethods } from "./editor-lines.js";
 import { PIPE_HINT, PipeMethods } from "./editor-pipes.js";
 import { NODE_HINT, NODE_STYLE, NodeMethods } from "./editor-nodes.js";
+import { AtticMethods } from "./editor-attic.js";
 import { PLAN_HINTS, PLAN_STYLE, PlanMethods } from "./editor-plan.js";
 import { furnitureThumb, renderThumbs } from "./thumbs.js";
 import { closeGaps, computeWalls, labelPoint, pieceFootprint, signedArea } from "./walls.js";
@@ -572,7 +573,7 @@ export class FloorEditor {
     const save = `<button data-act="cancel" title="Abbrechen"><ha-icon icon="mdi:close"></ha-icon><span>Abbrechen</span></button>
       <button data-act="interim" title="Zwischenspeichern (Editor bleibt offen)"${this.dirty ? "" : " disabled"}><ha-icon icon="mdi:content-save-outline"></ha-icon></button>
       <button data-act="save" class="primary" title="Speichern"><ha-icon icon="mdi:content-save"></ha-icon><span>Speichern</span></button>`;
-    const floorsel = `<select class="floorsel" title="Etage">${floors.map((f) => `<option value="${esc(f.id)}"${!this.roofMode && f.id === this.floorId ? " selected" : ""}>${esc(f.name)}</option>`).join("")}<option value="__roof"${this.roofMode ? " selected" : ""}>Dach</option></select>`;
+    const floorsel = `<select class="floorsel" title="Etage">${floors.map((f) => `<option value="${esc(f.id)}"${!this.roofMode && f.id === this.floorId ? " selected" : ""}>${esc(f.name)}</option>`).join("")}${this._atticOptions()}</select>`;
     bar.innerHTML = compact
       ? `${floorsel}
         <button data-menu="tools" class="menubtn sel" title="Werkzeug wählen"><ha-icon icon="${cur[1]}"></ha-icon><span class="always">${cur[2]}</span><ha-icon icon="mdi:menu-down"></ha-icon></button>
@@ -586,6 +587,13 @@ export class FloorEditor {
       : `${floorsel}<span class="sep"></span>${toolsHtml}<span class="sep"></span>${history}${moreHtml}<span class="grow"></span>${views}${save}`;
     bar.querySelector(".gridsel")?.addEventListener("change", (ev) => this.changeBuilding((b) => (b.settings.grid = Number(ev.target.value))));
     bar.querySelector(".floorsel").addEventListener("change", (ev) => {
+      if (ev.target.value === "__attic") {
+        this.roofMode = false;
+        this.tool = "select";
+        this.sel = null;
+        this._addAttic();
+        return;
+      }
       this.roofMode = ev.target.value === "__roof";
       // Dach-Ebene: Grundriss der Etage unter dem Dach
       this.floorId = this.roofMode ? (roofFloor(this.b, roofSettings(this.b.settings))?.id ?? this.floorId) : ev.target.value;
@@ -1644,6 +1652,7 @@ export class FloorEditor {
       el.innerHTML = `<h3>Etage ${esc(f.name)}</h3>
         <label>Name</label><input data-floor="name" value="${esc(f.name)}">
         <div class="row2">${num("elevation", "Höhe über Boden (m)", f.elevation)}${num("height", "Raumhöhe (m)", f.height)}</div>
+        ${this._atticFields(f)}
         ${haFloors.length ? `<label>Etage in Home Assistant</label><select data-floor="ha_floor"><option value="">–</option>${haFloors.map((x) => `<option value="${esc(x.floor_id)}"${x.floor_id === f.ha_floor ? " selected" : ""}>${esc(x.name)}</option>`).join("")}</select>` : ""}
         <div class="row2">${num("wall_exterior", "Außenwand (m)", this.b.settings.wall_exterior ?? 0.24, 0.01)}${num("wall_interior", "Innenwand (m)", this.b.settings.wall_interior ?? 0.12, 0.01)}</div>
         ${colorField("exterior", "Außenwände (Farbe außen)", this.b.settings.wall_colors?.exterior)}
@@ -1656,6 +1665,7 @@ export class FloorEditor {
         ${this._planFloorProps()}
         <div class="btns"><button data-act="addfloor">+ Etage</button><button data-act="delfloor" class="danger">Etage löschen</button></div>`;
       this._bindPlanFloorProps(el);
+      this._bindAtticFields(el);
       el.querySelector("[data-act=alignbelow]")?.addEventListener("click", () => {
         const { floor, moved } = alignToFloor(this.floor, below, this.b.settings ?? {});
         if (!moved.length) return this._toast(`Außenwände liegen schon bündig auf ${below.name} (oder weiter als 15 cm daneben).`);
@@ -1865,6 +1875,7 @@ export class FloorEditor {
         ${linkField("contact", "Kontakt (offen/zu)", ["binary_sensor", "sensor"], (s) => ["window", "door", "opening", "garage_door", undefined].includes(s.attributes.device_class))}
         ${linkField("cover", o.type === "garage" ? "Tor-Antrieb" : "Rollladen", ["cover"])}
         ${o.type === "window" ? linkField("tilt", "Kippsensor (optional)", ["binary_sensor", "sensor"], undefined, false) : ""}
+        ${o.type !== "garage" && o.style !== "passage" ? colorField("frame_color", "Rahmenfarbe", o.frame_color) : ""}
         <p class="muted">Im Plan entlang der Wand ziehen oder mit den Pfeilen schieben.</p>
         ${pad()}
         <div class="btns"><button data-act="del" class="danger">Löschen</button></div>`;
@@ -1877,7 +1888,7 @@ export class FloorEditor {
             x[k] = k === "leaves" ? Number(inp.value) : k === "style" ? inp.value || null : inp.value;
             if (k === "type") {
               const wall = x.wall;
-              Object.assign(x, newOpening(inp.value, { room: fl.rooms.find((r) => r.id === x.room_id) ?? { id: x.room_id }, edge: x.edge, offset: x.offset, len: openingGeometry(fl, x)?.len ?? 2 }, x.id), { contact: x.contact, cover: x.cover });
+              Object.assign(x, newOpening(inp.value, { room: fl.rooms.find((r) => r.id === x.room_id) ?? { id: x.room_id }, edge: x.edge, offset: x.offset, len: openingGeometry(fl, x)?.len ?? 2 }, x.id), { contact: x.contact, cover: x.cover, frame_color: x.frame_color ?? null });
               if (wall) x.wall = wall;
             }
           });
@@ -1898,6 +1909,9 @@ export class FloorEditor {
           fl.openings.find((y) => y.id === o.id)[inp.dataset.link] = inp.value.trim() || null;
         })),
       );
+      bindColors((fl, key, v) => {
+        fl.openings.find((y) => y.id === o.id)[key] = v || null;
+      });
       bindNums((fl, k, v) => {
         const x = fl.openings.find((y) => y.id === o.id);
         if (v === null) return;
@@ -2090,4 +2104,4 @@ export class FloorEditor {
 }
 
 // Tablet: Schalter, Zeichen-Leiste, Langdruck, Entwurf sichern (editor-touch.js)
-Object.assign(FloorEditor.prototype, TouchMethods, MeasureMethods, LineMethods, PlanMethods, PipeMethods, NodeMethods);
+Object.assign(FloorEditor.prototype, TouchMethods, MeasureMethods, LineMethods, PlanMethods, PipeMethods, NodeMethods, AtticMethods);

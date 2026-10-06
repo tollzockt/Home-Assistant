@@ -11,7 +11,7 @@ import { colorKey } from "./light.js";
 import { floorColor, textureFor } from "./model.js";
 import { getTexture, planarUVs } from "./textures.js";
 import { ambientInterval, lodState, resolveQuality, shouldRender } from "./perf.js";
-import { ROOF_ITEMS, adjustRoofParts, findPvShed, freeEdges, panelArraySlots, panelSlots, pvLayout, roofFaces, roofFloor, roofParts, roofRooms, roofSettings, roofSurfaceAt, roomRoofGroups, scatter, seeded, panelBasis, roofObstacles, dormerShape } from "./exterior.js";
+import { ROOF_ITEMS, roofBase, roofModel, atticKnee, adjustRoofParts, findPvShed, freeEdges, panelArraySlots, panelSlots, pvLayout, roofFaces, roofFloor, roofParts, roofRooms, roofSettings, roofSurfaceAt, roomRoofGroups, scatter, seeded, panelBasis, roofObstacles, dormerShape } from "./exterior.js";
 import { centroid, computeWalls, labelPoint, pieceFootprint, pointInPolygon, wallPieces } from "./walls.js";
 import { SceneFx } from "./scene-fx.js";
 import { SceneWalk } from "./scene-walk.js";
@@ -450,6 +450,9 @@ export class HouseScene {
     this.pvFields = new Map(); // PV-Feld-ID → {mesh, solar, …} (Dach-Ebene)
     // Deckenöffnungen (Treppen von unten, Treppenlöcher) einmal je Etage
     this._slabHoles = new Map((building.floors ?? []).map((f) => [f.id, slabOpenings(building, f.id)]));
+    // Dachgeschoss: Wände folgen den Dachschrägen (Modell ohne 3D, gleiche Flächen wie das Dach)
+    const attic = roofModel(building);
+    this._attic = attic?.floor?.attic ? attic : null;
     for (const floor of building.floors ?? []) this._buildFloor(floor, building.settings ?? {}, footing(building.floors, floor));
     this._buildRoof(building);
     this._buildEnergy(building);
@@ -497,7 +500,7 @@ export class HouseScene {
     const on = (name) => this.layers[name] !== false;
     for (const obj of [this.root, this.devicesGroup]) {
       obj.traverse((o) => {
-        if (o.userData.layer) o.visible = on(o.userData.layer);
+        if (o.userData.layer) o.visible = on(o.userData.layer) && (o.userData.layer !== "pipes" || on("flow")); // Leitungen gehören zum Energiefluss
       });
     }
     this.devicesGroup.visible = on("devices") && this._deviceList?.length > 0;
@@ -788,6 +791,8 @@ export class HouseScene {
     const { segments, openings, warnings } = computeWalls(floor, settings);
     this.warnings.push(...warnings.map((w) => `${floor.name}: ${w}`));
     const height = floor.height ?? 2.5;
+    const attic = this._attic?.floor?.id === floor.id ? this._attic : null;
+    const knee = attic ? atticKnee(floor) : height;
     const prisms = new PrismBuilder();
     const dark = this.dark;
     const cyber = this.style === "cyber";
@@ -832,9 +837,19 @@ export class HouseScene {
       const sides = seg.kind === "free" ? freeCol : [end, face(seg.roomRight), end, face(seg.roomLeft)];
       // Wandfuß unter dem Boden: schließt die Fuge zur Etage darunter (Deckenstärke)
       prisms.prism(pieceFootprint(seg, 0, seg.length), elev - base, elev, sides, colors.cap);
-      for (const piece of wallPieces(seg, openings, h)) {
-        const foot = pieceFootprint(seg, piece.s0, piece.s1);
-        prisms.prism(foot, elev + piece.y0, elev + piece.y1, sides, colors.cap);
+      const slope = attic && seg.height == null ? this._atticTop(attic, seg, elev, height, knee) : null;
+      for (const piece of wallPieces(seg, openings, slope ? (seg.kind === "exterior" ? knee : height) : h)) {
+        if (!slope) {
+          prisms.prism(pieceFootprint(seg, piece.s0, piece.s1), elev + piece.y0, elev + piece.y1, sides, colors.cap);
+          continue;
+        }
+        // in Stufen unter der Dachschräge (Außenwände enden am Kniestock, darüber liegt das Dach)
+        for (const [s0, s1, top] of slope) {
+          const a = Math.max(s0, piece.s0);
+          const b = Math.min(s1, piece.s1);
+          const y1 = Math.min(piece.y1, top);
+          if (b - a > 1e-4 && y1 - piece.y0 > 1e-3) prisms.prism(pieceFootprint(seg, a, b), elev + piece.y0, elev + y1, sides, colors.cap);
+        }
       }
     }
     const wallMeshes = prisms.geometries().map(({ key, geo }) => {
@@ -918,6 +933,45 @@ export class HouseScene {
     this.floors.set(floor.id, entry);
   }
 
+  /**
+   * Dachgeschoss: Oberkante einer Wand in Stufen (je ~25 cm) knapp unter der Dachfläche, zwischen
+   * Kniestock und Raumhöhe. Das Dach ist entlang einer Linie nach unten gewölbt, das Minimum der beiden
+   * Stufenenden bleibt also immer darunter. Außenwände enden am Kniestock.
+   * @returns {[number, number, number][]} [s0, s1, Höhe über Boden]
+   */
+  _atticTop(model, seg, elev, height, knee) {
+    if (seg.kind === "exterior") return [[0, seg.length, knee]];
+    const n = Math.max(1, Math.ceil(seg.length / 0.25));
+    const at = (s) => {
+      const p = [seg.a[0] + seg.u[0] * s, seg.a[1] + seg.u[1] * s];
+      const hit = roofSurfaceAt(model, p);
+      return hit ? hit.y - elev - 0.03 : height;
+    };
+    const out = [];
+    let prev = at(0);
+    for (let i = 0; i < n; i++) {
+      const s0 = (seg.length * i) / n;
+      const s1 = (seg.length * (i + 1)) / n;
+      const next = at(s1);
+      out.push([s0, s1, Math.max(knee, Math.min(height, prev, next))]);
+      prev = next;
+    }
+    return out;
+  }
+
+  /** Rahmen-Material in eigener Farbe (zwischengespeichert je Farbe und Stil), sonst das Standard-Material. */
+  _frameMat(color) {
+    if (!/^#[0-9a-f]{6}$/i.test(color ?? "")) return this.mats.frame;
+    if (this._frameMats?.base !== this.mats.frame) this._frameMats = { base: this.mats.frame, byColor: new Map() };
+    let m = this._frameMats.byColor.get(color);
+    if (!m) {
+      m = this.mats.frame.clone();
+      m.color.set(color);
+      this._frameMats.byColor.set(color, m);
+    }
+    return m;
+  }
+
   _buildOpening(seg, placed, elev, wallHeight) {
     const o = placed.opening;
     const width = placed.s1 - placed.s0;
@@ -940,13 +994,15 @@ export class HouseScene {
     };
     const rs = placed.roomSide; // Seite des Raums in lokalem z
     const f = 0.05; // Rahmenstärke
+    const frameMat = this._frameMat(o.frame_color); // eigene Rahmenfarbe je Fenster/Tür
+    item.frameMat = frameMat;
 
     if (o.type === "window") {
       for (const m of [
-        box(width, f, 0.08, this.mats.frame, 0, f / 2, 0),
-        box(width, f, 0.08, this.mats.frame, 0, h - f / 2, 0),
-        box(f, h, 0.08, this.mats.frame, -width / 2 + f / 2, h / 2, 0),
-        box(f, h, 0.08, this.mats.frame, width / 2 - f / 2, h / 2, 0),
+        box(width, f, 0.08, frameMat, 0, f / 2, 0),
+        box(width, f, 0.08, frameMat, 0, h - f / 2, 0),
+        box(f, h, 0.08, frameMat, -width / 2 + f / 2, h / 2, 0),
+        box(f, h, 0.08, frameMat, width / 2 - f / 2, h / 2, 0),
       ]) {
         group.add(m);
         item.frames.push(m);
@@ -960,7 +1016,7 @@ export class HouseScene {
       pane.renderOrder = 3;
       sash.add(pane);
       item.panes.push(pane);
-      for (const m of [box(sw, 0.03, 0.05, this.mats.frame, -side * (sw / 2), f + 0.015, 0), box(sw, 0.03, 0.05, this.mats.frame, -side * (sw / 2), h - f - 0.015, 0), box(0.03, h - 2 * f, 0.05, this.mats.frame, -side * 0.015, h / 2, 0), box(0.03, h - 2 * f, 0.05, this.mats.frame, -side * (sw - 0.015), h / 2, 0)]) {
+      for (const m of [box(sw, 0.03, 0.05, frameMat, -side * (sw / 2), f + 0.015, 0), box(sw, 0.03, 0.05, frameMat, -side * (sw / 2), h - f - 0.015, 0), box(0.03, h - 2 * f, 0.05, frameMat, -side * 0.015, h / 2, 0), box(0.03, h - 2 * f, 0.05, frameMat, -side * (sw - 0.015), h / 2, 0)]) {
         sash.add(m);
         item.frames.push(m);
       }
@@ -972,7 +1028,7 @@ export class HouseScene {
       const style = o.style ?? null;
       if (style !== "passage") {
         // Zarge
-        for (const m of [box(width, f, thick + 0.02, this.mats.frame, 0, h - f / 2, 0), box(f, h, thick + 0.02, this.mats.frame, -width / 2 + f / 2, h / 2, 0), box(f, h, thick + 0.02, this.mats.frame, width / 2 - f / 2, h / 2, 0)]) {
+        for (const m of [box(width, f, thick + 0.02, frameMat, 0, h - f / 2, 0), box(f, h, thick + 0.02, frameMat, -width / 2 + f / 2, h / 2, 0), box(f, h, thick + 0.02, frameMat, width / 2 - f / 2, h / 2, 0)]) {
           group.add(m);
           item.frames.push(m);
         }
@@ -996,7 +1052,7 @@ export class HouseScene {
             pane.renderOrder = 3;
             leaf.add(pane);
             item.panes.push(pane);
-            for (const m of [box(leafW, 0.05, 0.04, this.mats.frame, 0, 0.025, 0), box(leafW, 0.05, 0.04, this.mats.frame, 0, leafH - 0.025, 0), box(0.05, leafH, 0.04, this.mats.frame, -leafW / 2 + 0.025, leafH / 2, 0), box(0.05, leafH, 0.04, this.mats.frame, leafW / 2 - 0.025, leafH / 2, 0)]) {
+            for (const m of [box(leafW, 0.05, 0.04, frameMat, 0, 0.025, 0), box(leafW, 0.05, 0.04, frameMat, 0, leafH - 0.025, 0), box(0.05, leafH, 0.04, frameMat, -leafW / 2 + 0.025, leafH / 2, 0), box(0.05, leafH, 0.04, frameMat, leafW / 2 - 0.025, leafH / 2, 0)]) {
               leaf.add(m);
               item.frames.push(m);
             }
@@ -1277,7 +1333,7 @@ export class HouseScene {
         const inner = new THREE.Group();
         inner.userData.layer = "roof";
         holder.add(inner);
-        const top = (floor.elevation ?? 0) + (floor.height ?? 2.5);
+        const top = roofBase(floor); // beim Dachgeschoss auf dem Kniestock
         const res = this._roofGeometry(rooms, roof, top, wall, inner, { settings: building.settings });
         const model = { roof, parts: res.parts, top, eave: res.eave, tan: res.tan };
         this.roofModel = model; // für Kenndaten der PV-Felder (gleiche Flächen wie im Bild)
@@ -1897,7 +1953,7 @@ export class HouseScene {
         const tilted = !!s.security?.tilted.has(key);
         const open = s.open.has(key) && !tilted;
         const ok = !!s.security?.closed.has(key);
-        const frame = open ? this.mats.frameAlert : tilted ? this.mats.frameWarn : ok ? this.mats.frameOk : this.mats.frame;
+        const frame = open ? this.mats.frameAlert : tilted ? this.mats.frameWarn : ok ? this.mats.frameOk : item.frameMat ?? this.mats.frame;
         for (const m of item.frames) m.material = frame;
         // nachts leuchten Fenster beleuchteter Räume in der Lichtfarbe (Rollladen zu dimmt)
         const roomKey = item.roomId ? `${floorId}:${item.roomId}` : null;

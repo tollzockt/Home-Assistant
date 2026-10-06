@@ -2,7 +2,7 @@
 // Bearbeiten und Admin-Einstellungen haben je eine eigene PIN (Standard 0000). Eine falsche PIN löst
 // nichts aus; nur die richtige öffnet. Freigabe gilt bis „Beenden“/Fenster zu, längstens 10 min Ruhe.
 
-import { esc } from "./panel-util.js";
+import { DEFAULT_TITLE, esc, houseTitle } from "./panel-util.js";
 import { accessScope, canAdmin, canEdit, clearAccess, currentToken, pinKey, setAccess, touchAccess, withToken } from "./access.js";
 
 const CHECK_DELAY = 450; // ms nach der letzten Ziffer, dann still prüfen
@@ -161,6 +161,7 @@ export const AccessMethods = {
   _endAdmin() {
     if (!this._adminMode) return;
     this._adminMode = false;
+    if (this._sim) this._setSim(false); // Simulation gehört zum Admin-Modus
     if (this._adminOpen) this._closeDialog();
     this._adminOpen = false;
     if (!this._editMode) this._lockAccess();
@@ -189,6 +190,7 @@ export const AccessMethods = {
       if (this._editMode || this._adminMode) {
         this._editMode = false;
         this._adminMode = false;
+        if (this._sim) this._setSim(false);
         this._refreshEditUi();
         this._toast("Bearbeiten/Admin beendet (10 min nichts geändert).");
       }
@@ -218,6 +220,43 @@ export const AccessMethods = {
     box.querySelector(".plan")?.addEventListener("click", () => this._openEditor());
     box.querySelector(".open")?.addEventListener("click", () => this._openAdmin());
     box.querySelectorAll("[data-end]").forEach((b) => b.addEventListener("click", () => (b.dataset.end === "edit" ? this._endEdit() : this._endAdmin())));
+  },
+
+  /** Name oben links (settings.title); im Bearbeiten-Modus antippbar. */
+  _renderTitle() {
+    const el = this.shadowRoot?.querySelector("header .title");
+    if (!el || el.querySelector("input")) return;
+    el.textContent = houseTitle(this._building);
+    el.classList.toggle("editable", !!this._editMode);
+    el.title = this._editMode ? "Namen ändern" : "";
+  },
+
+  /** Name direkt in der Kopfzeile ändern: Enter/Verlassen speichert, Esc bricht ab, leer = „Haus 3D“. */
+  _editTitle() {
+    const el = this.shadowRoot.querySelector("header .title");
+    if (el.querySelector("input")) return;
+    const old = houseTitle(this._building);
+    const input = document.createElement("input");
+    input.className = "titlein";
+    input.maxLength = 60;
+    input.value = old;
+    el.replaceChildren(input);
+    input.focus();
+    input.select();
+    let done = false;
+    const finish = async (save) => {
+      if (done) return;
+      done = true;
+      const v = input.value.trim().slice(0, 60);
+      input.remove();
+      if (save && v !== old) await this._saveBuildingSettings({ title: v && v !== DEFAULT_TITLE ? v : null }, "Name gespeichert.");
+      this._renderTitle();
+    };
+    input.addEventListener("keydown", (ev) => {
+      if (ev.key === "Enter") finish(true);
+      if (ev.key === "Escape") finish(false);
+    });
+    input.addEventListener("blur", () => finish(true));
   },
 
   /**
@@ -250,6 +289,8 @@ export const ACCESS_STYLE = `
 .pinpad .keys button { height: 62px; border-radius: 16px; border: 1px solid var(--divider-color, rgba(127,127,127,.3)); background: var(--secondary-background-color, rgba(127,127,127,.08)); color: inherit; font: inherit; font-size: 24px; font-weight: 500; cursor: pointer; touch-action: manipulation; }
 .pinpad .keys button:active { background: var(--primary-color, #03a9f4); color: #fff; }
 .modes { display: flex; gap: 6px; flex: none; }
+header .title.editable { cursor: text; border-radius: 8px; outline: 1px dashed rgba(127,127,127,.6); outline-offset: 2px; padding-right: 6px; }
+header .title .titlein { font: inherit; width: min(240px, 40vw); padding: 2px 6px; border-radius: 8px; border: 1px solid var(--primary-color, #03a9f4); background: var(--card-background-color, #fff); color: var(--primary-text-color); }
 .modes[hidden] { display: none; }
 .mode { display: inline-flex; align-items: center; gap: 6px; height: 36px; padding: 0 3px 0 10px; border-radius: 18px; color: #fff; font-weight: 600; font-size: 14px; white-space: nowrap; box-shadow: 0 1px 4px rgba(0,0,0,.25); }
 .mode.m-edit { background: #2e7d32; }

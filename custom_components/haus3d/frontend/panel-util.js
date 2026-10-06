@@ -47,6 +47,40 @@ import { EDITOR_STYLE, FloorEditor } from "./editor.js";
 import { PANEL_STYLE } from "./panel-style.js";
 
 export const LONG_PRESS_MS = 550;
+/**
+ * Finger-Scrollen als Rückfallebene: Scrollt der Browser selbst, bricht er die Zeiger-Gesten ab
+ * (pointercancel) und hier passiert nichts. Blockiert etwas das native Scrollen (manche Tablet-Apps),
+ * schiebt die Hilfe die Liste selbst und verschluckt danach den Klick, damit kein Haken umspringt.
+ */
+export function touchScroll(el, { skip = ".rp-head, input:not([type=checkbox]), select, textarea" } = {}) {
+  let start = null;
+  el.addEventListener("pointerdown", (ev) => {
+    start = ev.pointerType === "touch" && !ev.target.closest(skip) ? { y: ev.clientY, top: el.scrollTop, moved: false } : null;
+  }, true);
+  el.addEventListener("pointermove", (ev) => {
+    if (!start || ev.pointerType !== "touch") return;
+    const dy = ev.clientY - start.y;
+    if (!start.moved && Math.abs(dy) < 8) return;
+    start.moved = true;
+    el.scrollTop = start.top - dy;
+  }, true);
+  el.addEventListener("pointercancel", () => (start = null), true);
+  el.addEventListener("pointerup", () => {
+    if (!start?.moved) return (start = null);
+    start = null;
+    const eat = (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+    };
+    el.addEventListener("click", eat, { capture: true, once: true });
+    setTimeout(() => el.removeEventListener("click", eat, { capture: true }), 350); // nur den Klick dieser Geste
+  }, true);
+}
+
+/** Name oben links: settings.title, sonst „Haus 3D“. */
+export const DEFAULT_TITLE = "Haus 3D";
+export const houseTitle = (building) => String(building?.settings?.title ?? "").trim() || DEFAULT_TITLE;
+
 export const esc = (v) => String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
 export const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
 

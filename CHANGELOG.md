@@ -1,5 +1,28 @@
 # Änderungen
 
+## 0.20.0
+
+### Neu
+- **Dachgeschoss als Etage**: In der Etagen-Auswahl des Editors legt „+ Dachgeschoss“ eine Etage für Räume
+  unter dem Dach an (oder Haken „Dachgeschoss“ in den Etagen-Eigenschaften). Ist in den Einstellungen ein
+  Dach an, sitzt es auf dem Kniestock des Dachgeschosses, die Dachflächen ergeben sich aus dessen Räumen und
+  Innenwände enden unter der Schräge. Der Eintrag „Dach“ (Kamin, Dachfenster, PV) erscheint nur noch, wenn
+  ein Dach an ist.
+- **Name oben links** im Bearbeiten-Modus antippen und ändern (leer = „Haus 3D“).
+- **Rahmenfarbe** für Fenster und Türen im Editor (Farbfeld wie bei Möbeln), auch in 3D.
+
+### Geändert
+- **Simulation nur im Admin-Modus**: Kachel im Zahnrad nur mit aktivem Admin, endet mit dem Admin-Modus und
+  startet beim Laden nie von selbst. Auf den aktuellen Stand gebracht: Beispielräume haben eine Leistung
+  (folgt dem Licht – Leitungen und Verteiler zeigen Fluss), Solar-Regler rechnet Hausverbrauch, Netzbezug/
+  Einspeisung und Speicher (auch eingebaute von PV/Balkonkraftwerk) passend zueinander, Einspeise-Verteiler
+  mit Zähler, Schloss ohne PIN, Ventile und Heizungsmodus.
+- **Energiefluss aus** (Rad) blendet die Leitungen im Haus ganz aus, nicht nur die Punkte.
+
+### Behoben
+- Tablet: Die Liste in „Geräte anpassen“ scrollt mit dem Finger (eigener Scrollbereich, Kopf und Knöpfe
+  bleiben stehen; Wischen schaltet keinen Haken um).
+
 ## 0.19.0
 
 ### Neu

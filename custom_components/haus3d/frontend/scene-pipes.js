@@ -227,7 +227,7 @@ export const ScenePipes = {
    * @returns {{pipe: string, at: number}|{pipeNode: string}|null} at = Länge entlang des Rohrs
    */
   pickPipe(clientX, clientY, maxPx = this.fingerPx ?? 30) {
-    if (this.layers?.pipes === false || !this._pipes?.size) return null;
+    if (this.layers?.pipes === false || this.layers?.flow === false || !this._pipes?.size) return null;
     const rect = this.renderer.domElement.getBoundingClientRect();
     const sx = clientX - rect.left;
     const sy = clientY - rect.top;

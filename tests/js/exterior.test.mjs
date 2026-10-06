@@ -254,3 +254,33 @@ test("Balkonkraftwerk-Raum: energy_role vor alter Erkennung", async () => {
   const b = { floors: [{ id: "eg", rooms: [{ id: "s", name: "Schuppen" }, { id: "g", name: "Gartenhaus 2", energy_role: "balkonkraftwerk" }] }] };
   assert.equal(findPvShed(b).room.id, "g");
 });
+
+test("Dachgeschoss: Dach setzt auf dem Kniestock an, Flächen über den Räumen des Dachgeschosses", async () => {
+  const { atticFloor, roofBase, roofModel, roofSurfaceAt } = await import("../../custom_components/haus3d/frontend/exterior.js");
+  const eg = { id: "eg", elevation: 0, height: 2.5, rooms: [rect(0, 0, 10, 6)] };
+  const dg = { id: "dg", elevation: 2.75, height: 2.4, attic: true, knee: 1, rooms: [rect(0, 0, 10, 6)] };
+  const b = { settings: { wall_exterior: 0, roof: { type: "gable", pitch: 45, overhang: 0 } }, floors: [eg, dg] };
+  assert.equal(atticFloor(b).id, "dg");
+  assert.equal(roofBase(dg), 3.75);
+  assert.equal(roofBase(eg), 2.5);
+  const m = roofModel(b);
+  assert.equal(m.floor.id, "dg");
+  assert.ok(Math.abs(roofSurfaceAt(m, [5, 0]).y - 3.75) < 1e-9); // Traufe auf dem Kniestock
+  assert.ok(Math.abs(roofSurfaceAt(m, [5, 3]).y - 6.75) < 1e-9); // First 3 m darüber (45°)
+  // Kniestock nie höher als die Raumhöhe; ohne Dachgeschoss wie bisher die oberste Etage
+  assert.equal(roofBase({ elevation: 0, height: 2, attic: true, knee: 5 }), 2);
+  assert.equal(roofModel({ ...b, floors: [eg, { ...dg, attic: false }] }).top, 2.75 + 2.4);
+  // Dachgeschoss ohne Räume trägt das Dach nicht
+  assert.equal(roofModel({ ...b, floors: [eg, { ...dg, rooms: [] }] }).floor.id, "eg");
+});
+
+test("Editor: Dachgeschoss anlegen, Dach-Eintrag nur mit Dach", async () => {
+  const { newAttic, roofOn } = await import("../../custom_components/haus3d/frontend/editor-attic.js");
+  const b = { settings: {}, floors: [{ id: "eg", elevation: 0, height: 2.5, rooms: [] }] };
+  const a = newAttic(b);
+  assert.equal(a.attic, true);
+  assert.equal(a.elevation, 2.75);
+  assert.equal(a.name, "Dachgeschoss");
+  assert.equal(roofOn(b), false);
+  assert.equal(roofOn({ settings: { roof: { type: "gable" } } }), true);
+});

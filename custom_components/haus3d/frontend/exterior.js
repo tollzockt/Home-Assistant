@@ -218,13 +218,32 @@ export function roofParts(rooms, { wall = 0.24, overhang = 0.4, direction = "aut
   });
 }
 
-/** Oberste Etage mit Räumen (oder die in roof.floor genannte). */
+/** Kniestock eines Dachgeschosses (m): Höhe der Außenwand bis zum Dachansatz. */
+export const DEFAULT_KNEE = 1.0;
+export function atticKnee(floor) {
+  const k = Number(floor?.knee ?? DEFAULT_KNEE);
+  return Math.max(0, Math.min(floor?.height ?? 2.5, Number.isFinite(k) ? k : DEFAULT_KNEE));
+}
+
+/** Höhe, auf der das Hausdach über einer Etage ansetzt: Kniestock beim Dachgeschoss, sonst Raumhöhe. */
+export function roofBase(floor) {
+  return (floor?.elevation ?? 0) + (floor?.attic ? atticKnee(floor) : floor?.height ?? 2.5);
+}
+
+/** Dachgeschoss mit Räumen (das Dach sitzt darauf), sonst null. */
+export function atticFloor(building) {
+  return (building?.floors ?? []).filter((f) => f.attic && (f.rooms ?? []).length).sort((a, b) => (b.elevation ?? 0) - (a.elevation ?? 0))[0] ?? null;
+}
+
+/** Etage unter dem Hausdach: roof.floor, sonst das Dachgeschoss, sonst die oberste Etage mit Räumen. */
 export function roofFloor(building, roof) {
   const floors = (building.floors ?? []).filter((f) => (f.rooms ?? []).length);
   if (roof?.floor) {
     const f = floors.find((x) => x.id === roof.floor);
     if (f) return f;
   }
+  const attic = atticFloor(building);
+  if (attic) return attic;
   return floors.reduce((top, f) => (!top || (f.elevation ?? 0) + (f.height ?? 2.5) > (top.elevation ?? 0) + (top.height ?? 2.5) ? f : top), null);
 }
 
@@ -679,7 +698,7 @@ export function roofModel(building) {
   const wall = building.settings?.wall_exterior ?? 0.24;
   const parts = adjustRoofParts(roofParts(rooms, { wall, overhang: roof.overhang, direction: roof.direction }), roof.adjust, !!roof.flip);
   const tan = Math.tan((roof.pitch * Math.PI) / 180);
-  const top = (floor.elevation ?? 0) + (floor.height ?? 2.5);
+  const top = roofBase(floor);
   for (const fr of parts) fr.hipEnds = partHipEnds(fr, roof);
   return { roof, floor, rooms, parts, top, eave: top - roof.overhang * tan, tan };
 }

@@ -49,7 +49,7 @@ import { closeGaps } from "./walls.js";
 import { EDITOR_STYLE, FloorEditor } from "./editor.js";
 import { PANEL_STYLE } from "./panel-style.js";
 
-import { LONG_PRESS_MS, esc, plural, ENERGY_CORE, ENERGY_GROUPS, energyRows, LAYERS, DEFAULT_SETTINGS, loadSettings, fmt, ICONS, CONTACT_ICONS, DOMAIN_ICONS, SENSOR_ICONS, fmtPower, setText, iconFor, isActive } from "./panel-util.js";
+import { LONG_PRESS_MS, esc, plural, ENERGY_CORE, ENERGY_GROUPS, energyRows, LAYERS, DEFAULT_SETTINGS, loadSettings, fmt, ICONS, CONTACT_ICONS, DOMAIN_ICONS, SENSOR_ICONS, fmtPower, setText, iconFor, isActive, touchScroll } from "./panel-util.js";
 
 export const DialogMethods = {
   /** Dialog statt „Weitere Infos“: Zustand des Geräts in der Simulation setzen. */
@@ -421,6 +421,7 @@ export const DialogMethods = {
     const hidden = new Set(room.hidden_entities ?? []);
     const extra = [...(room.panel ?? [])];
     const name = (id) => hass.states[id]?.attributes.friendly_name ?? id;
+    p.el.classList.add("rp-edit");
     const render = () => {
       p.el.innerHTML = `<div class="rp-head"><ha-icon class="grip" icon="mdi:drag"></ha-icon><b>Geräte: ${esc(room.name)}</b></div>
         <div class="rp-sub">Haken = im Modell und im Raumfenster anzeigen.</div>
@@ -430,6 +431,7 @@ export const DialogMethods = {
         </div>
         <div class="rp-add"><input list="rp-all" placeholder="Entität hinzufügen …"><datalist id="rp-all">${Object.keys(hass.states).sort().map((id) => `<option value="${esc(id)}">${esc(name(id))}</option>`).join("")}</datalist><button class="add">+</button></div>
         <div class="rp-btns"><button class="cancel">Abbrechen</button><button class="save primary">Speichern</button></div>`;
+      touchScroll(p.el.querySelector(".rp-list"));
       p.el.querySelectorAll("input[type=checkbox]").forEach((c) => c.addEventListener("change", () => (c.checked ? hidden.delete(c.dataset.id) : hidden.add(c.dataset.id))));
       p.el.querySelectorAll(".rm").forEach((b) => b.addEventListener("click", () => {
         extra.splice(Number(b.dataset.i), 1);
@@ -450,6 +452,7 @@ export const DialogMethods = {
       input.addEventListener("keydown", (ev) => ev.key === "Enter" && add());
       p.el.querySelector(".cancel").addEventListener("click", () => {
         p.editing = false;
+        p.el.classList.remove("rp-edit");
         this._renderRoomPanel();
       });
       p.el.querySelector(".save").addEventListener("click", async () => {
@@ -464,6 +467,7 @@ export const DialogMethods = {
         try {
           const res = await this._callLocked({ type: "haus3d/building/save", building, revision: this._revision }, "edit");
           p.editing = false;
+          p.el.classList.remove("rp-edit");
           this._setBuilding(res.building, res.revision, { keepCamera: true });
           this._toast("Geräte gespeichert.");
         } catch (err) {

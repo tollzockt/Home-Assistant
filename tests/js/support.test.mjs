@@ -19,3 +19,10 @@ test("Spenden-Hinweis: frühestens nach 14 Tagen, einmal, nie im Kiosk/Entwickle
   assert.equal(supportHintDue({ ...base, now: 20 * DAY, links: [] }), false);
   assert.equal(supportHintDue({ ...base, firstSeen: NaN, now: 20 * DAY }), false);
 });
+
+test("Name oben links: eigener Titel, sonst „Haus 3D“", async () => {
+  const { DEFAULT_TITLE, houseTitle } = await import("../../custom_components/haus3d/frontend/panel-util.js");
+  assert.equal(houseTitle(null), DEFAULT_TITLE);
+  assert.equal(houseTitle({ settings: { title: "  " } }), "Haus 3D");
+  assert.equal(houseTitle({ settings: { title: " Villa Kunterbunt " } }), "Villa Kunterbunt");
+});

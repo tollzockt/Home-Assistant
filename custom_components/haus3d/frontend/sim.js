@@ -1,7 +1,7 @@
 // Simulationsmodus: legt eine Schicht über das echte hass-Objekt. Zustände werden nur hier geändert,
 // Dienstaufrufe gehen nie an Home Assistant, Grundriss-Speichern bleibt lokal. Ohne DOM, mit node testbar.
 import { sunPosition } from "./sun.js";
-import { normalizeEnergy } from "./energymodel.js";
+import { hasOwnStorage, normalizeEnergy } from "./energymodel.js";
 
 const now = () => new Date().toISOString();
 
@@ -16,6 +16,33 @@ export const SIM_WEATHER = [
   ["snowy", "Schnee"],
   ["hail", "Hagel"],
 ];
+
+/** Grundlast eines Raums mit Beispielgeräten (W) und Zuschlag, solange sein Licht an ist. */
+export const SIM_ROOM_W = 35;
+export const SIM_LIGHT_W = 60;
+
+/**
+ * Energiebilanz der Simulation: Solarleistung auf PV/Balkonkraftwerk verteilen, Speicher (AC-Speicher und
+ * eingebaute Speicher von PV/BKW) laden mit dem Überschuss bzw. entladen bei Bedarf, Rest über das Netz.
+ * Vorzeichen wie in energyTotals: Speicherleistung positiv = laden, Netz positiv = Bezug.
+ * @returns {{haus:number, netz:number, gens:Map<string,number>, stores:Map<string,number>, soc:number}}
+ */
+export function simEnergy(cfg, solar, load = 450, soc = 60) {
+  const e = normalizeEnergy(cfg);
+  const gens = e.sources.filter((s) => s.type !== "speicher" && s.power);
+  const stores = e.sources.filter((s) => s.type === "speicher" || hasOwnStorage(s));
+  const genW = new Map(gens.map((s) => [s.id, Math.round(solar / gens.length)]));
+  const total = gens.length ? solar : 0;
+  const surplus = total - load;
+  const storeW = new Map();
+  for (const s of stores) {
+    const share = surplus / stores.length;
+    const w = share > 0 ? Math.min(share, 2000) : soc > (s.reserve ?? 10) ? Math.max(share, -1500) : 0;
+    storeW.set(s.id, Math.round(w));
+  }
+  const charge = [...storeW.values()].reduce((a, b) => a + b, 0);
+  return { haus: Math.round(load), netz: Math.round(load - total + charge), gens: genW, stores: storeW, soc };
+}
 
 export class Simulator {
   constructor() {
@@ -78,6 +105,8 @@ export class Simulator {
         add(`sensor.sim_${slug}_temperatur`, (19.5 + ((k * 1.7) % 5)).toFixed(1), { friendly_name: `${name} Temperatur (Sim)`, device_class: "temperature", unit_of_measurement: "°C" });
         add(`binary_sensor.sim_${slug}_fenster`, "off", { friendly_name: `${name} Fenster (Sim)`, device_class: "window" });
         add(`binary_sensor.sim_${slug}_bewegung`, k % 4 === 1 ? "on" : "off", { friendly_name: `${name} Bewegung (Sim)`, device_class: "motion" });
+        // Leistung des Raums: Grundlast, mit Licht mehr (für Leitungen und Verteiler)
+        add(`sensor.sim_${slug}_leistung`, String(SIM_ROOM_W), { friendly_name: `${name} Leistung (Sim)`, device_class: "power", unit_of_measurement: "W", sim_light: `light.sim_${slug}` });
         if (!room.area_id) room.area_id = area; // nur in der Sim-Kopie des Gebäudes
         k++;
       }
@@ -103,6 +132,14 @@ export class Simulator {
     if (c && c.realStates === real.states && c.realEntities === real.entities && c.building === building) return c.hass;
     const states = { ...real.states, ...this.demo.states };
     for (const [id, st] of this.overrides) states[id] = st;
+    // Leistung der Beispielräume folgt ihrem Licht
+    let demoLoad = 0;
+    for (const [id, st] of Object.entries(this.demo.states)) {
+      if (!st.attributes?.sim_light || this.overrides.has(id)) continue;
+      const w = SIM_ROOM_W + (states[st.attributes.sim_light]?.state === "on" ? SIM_LIGHT_W : 0);
+      demoLoad += w;
+      states[id] = { ...st, state: String(w) };
+    }
     // Tageszeit
     const sunBase = real.states["sun.sun"] ?? { entity_id: "sun.sun", attributes: {} };
     if (this.time !== null) {
@@ -122,19 +159,28 @@ export class Simulator {
       const wid = building?.settings?.weather && building.settings.weather !== "none" ? building.settings.weather : Object.keys(real.states).sort().find((e) => e.startsWith("weather.")) ?? "weather.simulation";
       states[wid] = { ...(real.states[wid] ?? { entity_id: wid, attributes: { friendly_name: "Wetter (Sim)" } }), state: this.weather };
     }
-    // Solarleistung
+    // Solarleistung: Erzeuger, Speicher (auch eingebaute von PV/BKW), Haus und Netz passend zueinander
     if (this.solar !== null) {
       const e = normalizeEnergy(building?.settings?.energy);
       const put = (id, v, unit = "W") => {
         if (id) states[id] = { ...(real.states[id] ?? { entity_id: id, attributes: {} }), state: String(v), attributes: { ...(real.states[id]?.attributes ?? {}), unit_of_measurement: unit } };
       };
-      // Solarleistung auf die Erzeuger verteilen, Überschuss geht ins Netz
-      const gens = e.sources.filter((s) => s.type !== "speicher" && s.power);
-      for (const s of gens) put(s.power, Math.round(this.solar / gens.length));
-      const feed = Math.round(this.solar * 0.92);
-      put(e.netz, feed * (e.netz_invert ? 1 : -1));
-      put(e.netz_einspeisung, feed);
-      put(e.netz_bezug, 0);
+      const b = simEnergy(building?.settings?.energy, this.solar, 400 + demoLoad);
+      for (const s of e.sources) {
+        if (b.gens.has(s.id)) put(s.power, b.gens.get(s.id));
+        if (!b.stores.has(s.id)) continue;
+        const w = b.stores.get(s.id) * (s.invert ? -1 : 1);
+        if (s.type === "speicher") put(s.power, w);
+        else put(s.bat_power, w);
+        put(s.soc, b.soc, "%");
+      }
+      put(e.haus, b.haus);
+      put(e.netz, e.netz_invert ? -b.netz : b.netz);
+      put(e.netz_bezug, Math.max(0, b.netz));
+      put(e.netz_einspeisung, Math.max(0, -b.netz));
+      // Einspeise-Verteiler mit eigenem Zähler (z. B. Balkonkraftwerk an der Unterverteilung)
+      const feeds = (building?.floors ?? []).flatMap((f) => f.nodes ?? []).filter((n) => n.kind === "einspeisung" && n.entity && !e.sources.some((s) => s.power === n.entity));
+      for (const n of feeds) put(n.entity, Math.round(this.solar / Math.max(1, feeds.length + e.sources.filter((s) => b.gens.has(s.id)).length)));
     }
     const entities = Object.keys(this.demo.entities).length ? { ...real.entities, ...this.demo.entities } : real.entities;
     const sim = this;
@@ -157,6 +203,12 @@ export class Simulator {
         if (msg.type === "haus3d/building/get") {
           if (sim.building) return { building: structuredClone(sim.building), revision: sim.revision };
           return real.callWS(msg);
+        }
+        // Tür-PIN: in der Simulation ohne PIN, nur der simulierte Zustand ändert sich
+        if (msg.type === "haus3d/lock/unlock") {
+          sim.service("lock", msg.service === "open" ? "open" : "unlock", msg.entity_id, states[msg.entity_id]);
+          onChange();
+          return { ok: true };
         }
         if (msg.type === "haus3d/building/save") {
           sim.building = structuredClone(msg.building);
@@ -192,7 +244,11 @@ export class Simulator {
       return this.set(entityId, p > 0 ? "open" : "closed", { current_position: p }, base);
     }
     if (service === "lock") return this.set(entityId, "locked", {}, base);
-    if (service === "unlock") return this.set(entityId, "unlocked", {}, base);
+    if (service === "unlock" || service === "open") return this.set(entityId, service === "open" ? "open" : "unlocked", {}, base);
+    if (service === "open_valve") return this.set(entityId, "open", {}, base);
+    if (service === "close_valve") return this.set(entityId, "closed", {}, base);
+    if (service === "set_hvac_mode") return this.set(entityId, data.hvac_mode ?? state, data.hvac_mode === "off" ? { hvac_action: "off" } : {}, base);
+    if (service === "set_preset_mode") return this.set(entityId, state, { preset_mode: data.preset_mode }, base);
     if (service === "media_play_pause") return toggle("playing", "paused");
     if (service === "set_temperature") {
       // heizt, solange das Soll über dem Ist liegt

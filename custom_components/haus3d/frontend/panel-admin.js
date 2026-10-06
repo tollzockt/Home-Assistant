@@ -62,7 +62,7 @@ export const AdminMethods = {
         <div class="qtiles">
           ${QUICK_LAYERS.map(([k, icon, name]) => tile(`data-layer="${k}"`, icon, name, st.layers[k] !== false)).join("")}
           ${tile('data-act="fullscreen"', document.fullscreenElement ? "mdi:fullscreen-exit" : "mdi:fullscreen", "Vollbild", !!document.fullscreenElement)}
-          ${tile('data-act="sim"', "mdi:test-tube", "Simulation", !!this._sim)}
+          ${this._adminMode || this._sim ? tile('data-act="sim"', "mdi:test-tube", "Simulation", !!this._sim) : ""}
         </div>
         <div class="bigtiles">
           <button class="bigtile edit${editing ? " active" : ""}"><ha-icon icon="${editing ? "mdi:check" : "mdi:pencil"}"></ha-icon><span>${editing ? "Beenden" : "Bearbeiten"}</span>${editing ? "" : '<ha-icon class="lk" icon="mdi:lock"></ha-icon>'}</button>
@@ -96,7 +96,7 @@ export const AdminMethods = {
       this._toggleFullscreen();
       setTimeout(() => this._dialog === el && this._openSettings(), 300);
     });
-    el.querySelector('[data-act="sim"]').addEventListener("click", () => {
+    el.querySelector('[data-act="sim"]')?.addEventListener("click", () => {
       this._closeDialog();
       this._setSim(!this._sim);
     });

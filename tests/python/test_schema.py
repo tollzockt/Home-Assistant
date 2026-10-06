@@ -121,3 +121,23 @@ def test_pipe_nodes_validated() -> None:
     except Exception:  # noqa: BLE001
         return
     raise AssertionError("unbekannte Verteiler-Art angenommen")
+
+
+def test_title_attic_and_frame_color_soft() -> None:
+    raw = _building(title="Villa am See")
+    raw["floors"] = [{"id": "dg", "name": "DG", "elevation": 2.75, "height": 2.4, "attic": True, "knee": 1.2,
+                      "rooms": [{"id": "r", "name": "Zimmer", "points": [[0, 0], [4, 0], [4, 3], [0, 3]]}],
+                      "openings": [{"id": "o", "room_id": "r", "edge": 0, "offset": 2, "width": 1, "height": 1.2, "type": "window", "frame_color": "#3a3a3a"}]}]
+    out = validate_building(raw)
+    floor = out["floors"][0]
+    assert out["settings"]["title"] == "Villa am See"
+    assert floor["attic"] is True and floor["knee"] == 1.2
+    assert floor["openings"][0]["frame_color"] == "#3a3a3a"
+    # ungültige Werte machen den Stand nicht kaputt, sie fallen auf den Standard zurück
+    raw["settings"]["title"] = "x" * 200
+    raw["floors"][0]["knee"] = 99
+    raw["floors"][0]["openings"][0]["frame_color"] = "rot"
+    out = validate_building(raw)
+    assert out["settings"]["title"] is None
+    assert out["floors"][0]["knee"] == 1.0
+    assert out["floors"][0]["openings"][0]["frame_color"] is None

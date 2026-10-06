@@ -102,6 +102,9 @@ export const PANEL_STYLE = `
   background: var(--card-background-color, #fff); color: var(--primary-text-color); border-radius: 14px; box-shadow: 0 4px 18px rgba(0,0,0,.35); }
 .rp-head { display: flex; align-items: center; gap: 4px; padding: 4px 4px 0 8px; font-size: 16px; cursor: grab; user-select: none; touch-action: none; position: sticky; top: 0; z-index: 1; background: inherit; }
 .rp-list { touch-action: pan-y; }
+.roompanel.rp-edit { display: flex; flex-direction: column; overflow: hidden; max-height: min(70%, 560px); }
+.roompanel.rp-edit .rp-head, .roompanel.rp-edit .rp-sub, .roompanel.rp-edit .rp-add, .roompanel.rp-edit .rp-btns { flex: none; }
+.roompanel.rp-edit .rp-list { flex: 1 1 auto; min-height: 80px; overflow-y: auto; overscroll-behavior: contain; -webkit-overflow-scrolling: touch; }
 .rp-group { padding: 8px 14px 2px; font-size: 11px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--secondary-text-color); }
 .rp-actions { display: flex; flex-wrap: wrap; gap: 6px; padding: 2px 12px 8px; }
 .rp-actions button { display: inline-flex; align-items: center; gap: 4px; min-height: 44px; padding: 0 12px; border-radius: 22px; border: 1px solid var(--divider-color, rgba(127,127,127,.35)); background: var(--secondary-background-color, rgba(127,127,127,.08)); color: inherit; font: inherit; font-size: 13px; cursor: pointer; --mdc-icon-size: 18px; }

@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { Simulator } from "../../custom_components/haus3d/frontend/sim.js";
+import { SIM_LIGHT_W, SIM_ROOM_W, Simulator, simEnergy } from "../../custom_components/haus3d/frontend/sim.js";
 
 function realHass() {
   const calls = [];
@@ -66,7 +66,9 @@ test("Wetter, Tageszeit, Solar und Beispielgeräte", () => {
   assert.equal(h.states["weather.simulation"].state, "snowy");
   assert.equal(h.states["sun.sun"].state, "below_horizon");
   assert.equal(h.states["sensor.solar"].state, "500");
-  assert.equal(h.states["sensor.feed"].state, "460");
+  // Haus = 400 W Grundlast + Beispielraum (Licht an): Rest geht ins Netz
+  assert.equal(h.states["sensor.sim_bad_leistung"].state, String(SIM_ROOM_W + SIM_LIGHT_W));
+  assert.equal(h.states["sensor.feed"].state, String(500 - 400 - SIM_ROOM_W - SIM_LIGHT_W));
   assert.equal(h.entities["light.sim_bad"].area_id, "sim_bad");
   assert.equal(building.floors[0].rooms[0].area_id, "sim_bad");
   assert.ok(!h.entities["light.sim_flur"]); // Flur hat schon Geräte
@@ -84,4 +86,47 @@ test("Uhrzeit: Sonnenstand aus Breite/Länge, Mitternacht unter dem Horizont, Mi
   const s3 = new Simulator();
   s3.daytime = "day";
   assert.equal(s3.wrap(real, { building: { floors: [] } }).states["sun.sun"].attributes.elevation, 45);
+});
+
+test("Beispielraum: Leistung folgt dem Licht (für Leitungen und Verteiler)", async () => {
+  const real = realHass();
+  const sim = new Simulator();
+  const building = { floors: [{ id: "eg", rooms: [{ id: "bad", name: "Bad", area_id: null }] }] };
+  sim.makeDemo(building, real);
+  let h = sim.wrap(real, { building });
+  assert.equal(h.states["sensor.sim_bad_leistung"].attributes.device_class, "power");
+  assert.equal(h.states["sensor.sim_bad_leistung"].state, String(SIM_ROOM_W + SIM_LIGHT_W));
+  await h.callService("light", "turn_off", { entity_id: "light.sim_bad" });
+  h = sim.wrap(real, { building });
+  assert.equal(h.states["sensor.sim_bad_leistung"].state, String(SIM_ROOM_W));
+});
+
+test("Energiebilanz: eigener Speicher an PV lädt mit dem Überschuss, Rest ins Netz; nachts Entladen", () => {
+  const cfg = { sources: [{ id: "pv_1", type: "pv", power: "sensor.pv", bat_power: "sensor.pv_bat", soc: "sensor.pv_soc" }] };
+  const day = simEnergy(cfg, 3000, 500);
+  assert.equal(day.gens.get("pv_1"), 3000);
+  assert.equal(day.stores.get("pv_1"), 2000); // Ladeleistung gedeckelt
+  assert.equal(day.netz, -500); // 3000 − 500 Haus − 2000 Laden
+  const night = simEnergy(cfg, 0, 500);
+  assert.equal(night.stores.get("pv_1"), -500);
+  assert.equal(night.netz, 0);
+  // ohne Speicher: alles über das Netz
+  assert.equal(simEnergy({ sources: [{ id: "bkw_1", type: "bkw", power: "sensor.bkw" }] }, 300, 500).netz, 200);
+});
+
+test("Simulation: eigener Speicher, Haus und Netz passen zusammen; Schloss ohne PIN", async () => {
+  const real = realHass();
+  const sim = new Simulator();
+  sim.solar = 1000;
+  const building = { settings: { energy: { haus: "sensor.haus", netz_bezug: "sensor.bezug", netz_einspeisung: "sensor.feed", sources: [{ id: "pv_1", type: "pv", power: "sensor.pv", bat_power: "sensor.pv_bat", soc: "sensor.pv_soc", invert: true }] } }, floors: [] };
+  const h = sim.wrap(real, { building });
+  assert.equal(h.states["sensor.pv"].state, "1000");
+  assert.equal(h.states["sensor.haus"].state, "400");
+  assert.equal(h.states["sensor.pv_bat"].state, "-600"); // invert: Sensor zählt Laden negativ
+  assert.equal(h.states["sensor.pv_soc"].state, "60");
+  assert.equal(h.states["sensor.bezug"].state, "0");
+  assert.equal(h.states["sensor.feed"].state, "0");
+  const res = await h.callWS({ type: "haus3d/lock/unlock", entity_id: "lock.haustuer", service: "unlock" });
+  assert.ok(res.ok);
+  assert.equal(sim.overrides.get("lock.haustuer").state, "unlocked");
 });
