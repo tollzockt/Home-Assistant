@@ -30,8 +30,8 @@ export const DEVICE_TEMPLATES = [
   { id: "deye", name: "Deye Hybrid (Solarman)", kinds: ["pv", "speicher"], platforms: ["solarman"], model: "inv_deye_hybrid", invert: true,
     roles: { pv: { power: P("pv_power$"), energy: P("today_production$", "daily_production$") }, speicher: { power: P("battery_power$"), soc: P("battery_soc$", "_battery$") } } },
   // Speicher
-  { id: "senec", name: "SENEC.Home (V2/V3/V4)", kinds: ["speicher", "pv"], platforms: ["senec"], model: "bat_senec_v3", capacity: 10,
-    roles: { pv: { power: P("solar_generated_power$"), energy: P("solar_generated_today$", "today_solar_generated$") }, speicher: { power: P("battery_state_power$", "battery_charge_power$"), soc: P("battery_charge_percent$") } } },
+  { id: "senec", name: "SENEC.Home (V2/V3/V4)", kinds: ["speicher", "pv"], platforms: ["senec", "senec_home", "senec_webapi"], model: "bat_senec_v3", capacity: 10,
+    roles: { pv: { power: P("powergenerated_now$", "solar_generated_power$"), energy: P("pv_erzeugung.*tag$", "solar_generated_today$", "today_solar_generated$") }, speicher: { power: P("battery_state_power$", "batterycharge_now$", "battery_charge_power$"), soc: P("battery_charge_percent$", "batterycharge.*percent", "_soc$") } } },
   { id: "anker", name: "Anker SOLIX Solarbank", kinds: ["speicher", "bkw"], platforms: ["anker_solix"], model: "bat_anker_solarbank", capacity: 1.6,
     roles: { bkw: { power: P("solar_power$"), energy: P("daily_solar_yield$", "solar_yield_today$", "solar_energy_today$") }, speicher: { power: P("battery_power$"), soc: P("state_of_charge$") } } },
   { id: "tesla", name: "Tesla Powerwall", kinds: ["speicher", "pv"], platforms: ["powerwall", "tesla_fleet", "teslemetry"], model: "bat_tesla_pw3", capacity: 13.5, invert: true,
@@ -75,7 +75,7 @@ const unitOk = (st, role) => {
  * Entitäten der genannten Integration(en) zuerst; ohne Registry-Infos alle Sensoren.
  * @returns {{values: object, found: number, platformSeen: boolean}}
  */
-export function suggestEntities(template, kind, hass) {
+export function suggestEntities(template, kind, hass, taken = []) {
   const roles = template?.roles?.[kind] ?? template?.roles?.pv ?? {};
   const ids = Object.keys(hass?.states ?? {}).filter((id) => id.startsWith("sensor.")).sort();
   const reg = hass?.entities ?? {};
@@ -85,7 +85,7 @@ export function suggestEntities(template, kind, hass) {
   let found = 0;
   for (const [role, patterns] of Object.entries(roles)) {
     for (const re of patterns) {
-      const hit = pool.find((id) => re.test(id) && unitOk(hass.states[id], role) && !Object.values(values).includes(id));
+      const hit = pool.find((id) => re.test(id) && unitOk(hass.states[id], role) && !Object.values(values).includes(id) && !taken.includes(id));
       if (hit) {
         values[role] = hit;
         found++;
@@ -98,12 +98,23 @@ export function suggestEntities(template, kind, hass) {
 
 /** Quelle mit Vorlage füllen: gefundene Entitäten, Vorzeichen, Kapazität, Name (nur wenn noch Standard). */
 export function applyTemplate(source, template, hass, defaultName = null) {
-  const { values, found, platformSeen } = suggestEntities(template, source.type, hass);
+  const { values, found: f1, platformSeen } = suggestEntities(template, source.type, hass);
   const next = { ...source, template: template.id };
   for (const [k, v] of Object.entries(values)) next[k] = v;
+  let found = f1;
   if (source.type === "speicher") {
     next.invert = !!template.invert;
     if (template.capacity && !source.capacity) next.capacity = template.capacity;
+  } else if (template.roles?.speicher && source.type in template.roles) {
+    // PV/Balkonkraftwerk mit eingebautem Speicher (Hybrid, Solarbank): Speicher-Sensoren gleich mit
+    const bat = suggestEntities({ ...template, roles: { speicher: template.roles.speicher } }, "speicher", hass, Object.values(values)).values;
+    if (bat.soc || bat.power) {
+      if (bat.soc) next.soc = bat.soc;
+      if (bat.power) next.bat_power = bat.power;
+      next.invert = !!template.invert;
+      if (template.capacity && !source.capacity) next.capacity = template.capacity;
+      found += (bat.soc ? 1 : 0) + (bat.power ? 1 : 0);
+    }
   }
   if (!source.name || source.name === defaultName) next.name = template.name.replace(/\s*\(.*\)$/, "");
   return { source: next, found, platformSeen };

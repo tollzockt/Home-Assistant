@@ -3,7 +3,7 @@
 // Unten die Summen, wie sie die Energie-Karte zeigt.
 
 import { SURPLUS_DEFAULTS, SHORT_CHOICES, formatPower, suggestEnergy } from "./energy.js";
-import { SOURCE_TYPES, energyTotals, newSource, normalizeEnergy } from "./energymodel.js";
+import { SOURCE_TYPES, energyTotals, hasOwnStorage, newSource, normalizeEnergy } from "./energymodel.js";
 import { DEVICE_TEMPLATES, applyTemplate, templatesFor } from "./energytemplates.js";
 import { esc, fmt } from "./panel-util.js";
 
@@ -17,6 +17,8 @@ export const EnergyCfgMethods = {
     let gridMode = e.netz_bezug || e.netz_einspeisung ? "two" : "one";
     let found = null;
     const tplMsg = new Map(); // Quelle → Hinweis nach Vorlagenwahl
+    const batOpen = new Set(e.sources.filter(hasOwnStorage).map((s) => s.id)); // PV/BKW mit eigenem Speicher
+    const storeFields = (s, powerAttr) => `${field('data-sf="soc"', "Ladestand (%)", s.soc)}${powerAttr}<div class="row3"><div><label class="en-row"><span>Kapazität (kWh)</span><input type="number" data-sn="capacity" min="0" step="0.1" value="${s.capacity ?? ""}"></label></div><div><label class="en-row"><span>Reserve (%)</span><input type="number" data-sn="reserve" min="0" max="100" step="1" value="${s.reserve ?? 10}"></label></div></div><label class="chkrow"><input type="checkbox" data-sinv${s.invert ? " checked" : ""}> Vorzeichen ${s.type === "speicher" ? "" : "der Speicherleistung "}umkehren</label>`;
     const lang = hass.locale?.language;
     const opts = `<datalist id="en-all">${Object.keys(hass.states).filter((id) => /^(sensor|input_number|number)\./.test(id)).sort().map((id) => `<option value="${esc(id)}">${esc(hass.states[id].attributes.friendly_name ?? "")}</option>`).join("")}</datalist>`;
     const field = (attr, label, v, hint = "") => `<label class="en-row"><span>${label}</span><input list="en-all" ${attr} value="${esc(v ?? "")}" placeholder="– keine –"></label>${hint ? `<p class="hint sub">${hint}</p>` : ""}`;
@@ -49,7 +51,9 @@ export const EnergyCfgMethods = {
           <label class="en-row"><span>Gerät</span><select data-tpl><option value="">– anderes / selbst eintragen –</option>${templatesFor(s.type).map((t) => `<option value="${t.id}"${s.template === t.id ? " selected" : ""}>${esc(t.name)}</option>`).join("")}</select></label>
           ${tplMsg.has(s.id) ? `<p class="hint sub tplmsg">${esc(tplMsg.get(s.id))}</p>` : ""}
           ${field('data-sf="power"', s.type === "speicher" ? "Leistung (+ laden / − entladen)" : "Leistung", s.power)}
-          ${s.type === "speicher" ? `${field('data-sf="soc"', "Ladestand (%)", s.soc)}<div class="row3"><div><label class="en-row"><span>Kapazität (kWh)</span><input type="number" data-sn="capacity" min="0" step="0.1" value="${s.capacity ?? ""}"></label></div><div><label class="en-row"><span>Reserve (%)</span><input type="number" data-sn="reserve" min="0" max="100" step="1" value="${s.reserve ?? 10}"></label></div></div><label class="chkrow"><input type="checkbox" data-sinv${s.invert ? " checked" : ""}> Vorzeichen umkehren</label>` : field('data-sf="energy"', "Ertrag heute (kWh)", s.energy)}
+          ${s.type === "speicher" ? storeFields(s, "") : `${field('data-sf="energy"', "Ertrag heute (kWh)", s.energy)}
+          <label class="chkrow ownbat"><input type="checkbox" data-ownbat${batOpen.has(s.id) ? " checked" : ""}> mit eigenem Speicher (z. B. Hybrid-Anlage, Solarbank)</label>
+          ${batOpen.has(s.id) ? `<div class="ownstore">${storeFields(s, field('data-sf="bat_power"', "Speicherleistung (+ laden / − entladen)", s.bat_power))}<p class="hint sub">Diesen Speicher nicht zusätzlich als AC-Speicher anlegen – sonst wird er doppelt gezählt.</p></div>` : ""}`}
         </div>`).join("")}
         <div class="btns left">${SOURCE_TYPES.map(([t, n, ic]) => `<button data-add="${t}"><ha-icon icon="${ic}"></ha-icon> + ${n}</button>`).join("")}</div>
         <h4>Summe (wie auf der Karte)</h4>
@@ -94,7 +98,17 @@ export const EnergyCfgMethods = {
           const isDefault = /^(PV-Anlage|Balkonkraftwerk|AC-Speicher)( \d+)?$/.test(s.name ?? "");
           const res = applyTemplate(s, tpl, hass, isDefault ? s.name : null);
           e.sources[i] = res.source;
+          if (hasOwnStorage(res.source)) batOpen.add(res.source.id);
           tplMsg.set(s.id, res.found ? `${res.found} passende Entität${res.found > 1 ? "en" : ""} vorgeschlagen – bitte prüfen.` : res.platformSeen ? "Integration gefunden, aber keine passenden Sensoren – bitte selbst wählen." : `Keine Entitäten der Integration „${tpl.platforms[0]}“ gefunden – ist sie in Home Assistant eingerichtet?`);
+          render();
+          summary();
+        });
+        el.querySelector("[data-ownbat]")?.addEventListener("change", (ev) => {
+          if (ev.target.checked) batOpen.add(s.id);
+          else {
+            batOpen.delete(s.id);
+            Object.assign(s, { soc: null, bat_power: null, capacity: null, invert: false });
+          }
           render();
           summary();
         });
@@ -207,6 +221,7 @@ export const ENERGYCFG_STYLE = `
 .src .srchead .sname:focus { border-color: var(--divider-color, rgba(127,127,127,.4)); }
 .src .srchead small { color: var(--secondary-text-color); }
 .hint.sub { margin-top: -4px; }
+.ownstore { margin-top: 6px; padding: 8px 10px; border-left: 3px solid #1e88e5; border-radius: 6px; background: rgba(30,136,229,.06); }
 .tplmsg { color: var(--primary-color, #03a9f4); }
 .src [data-tpl] { width: 100%; min-height: 34px; padding: 4px 8px; border-radius: 8px; border: 1px solid var(--divider-color, rgba(127,127,127,.35)); background: var(--card-background-color, #fff); color: inherit; font: inherit; }
 .en-sum { display: grid; gap: 2px; font-size: 14px; }

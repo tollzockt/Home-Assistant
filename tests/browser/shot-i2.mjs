@@ -76,10 +76,29 @@ const card = await E((i) => {
 }, n - 1);
 t.results.vorlage = card;
 t.check(card.power === "sensor.wr_power_photovoltaics" && card.energy === "sensor.wr_energy_day" && card.name === "Fronius" && /2 passende/.test(card.msg ?? ""), `Vorlage: ${JSON.stringify(card)}`);
+// eigener Speicher an der PV-Anlage
+await E(() => {
+  const h = window.panel._realHass;
+  for (const [id, v, u] of [["sensor.wr_bat_soc", "64", "%"], ["sensor.wr_bat_power", "500", "W"]]) {
+    h.states[id] = { entity_id: id, state: v, attributes: { unit_of_measurement: u, friendly_name: id } };
+  }
+});
+const pvCard = (sel) => `haus3d-panel .catbox .src[data-i="${n - 1}"] ${sel}`;
+await ed.locator(pvCard("[data-ownbat]")).check();
+await ed.waitForTimeout(150);
+for (const [f, v] of [["soc", "sensor.wr_bat_soc"], ["bat_power", "sensor.wr_bat_power"]]) {
+  await ed.locator(pvCard(`[data-sf="${f}"]`)).fill(v);
+  await ed.locator(pvCard(`[data-sf="${f}"]`)).dispatchEvent("change");
+}
+await ed.locator(pvCard('[data-sn="capacity"]')).fill("10");
+await ed.locator(pvCard('[data-sn="capacity"]')).dispatchEvent("change");
+const sumOwn = await E(() => window.panel.shadowRoot.querySelector(".catbox .en-sum").textContent.replace(/\s+/g, " "));
+t.results.eigenerSpeicher = sumOwn;
+t.check(/lädt/.test(sumOwn), `Summe mit eigenem Speicher: ${sumOwn}`);
 await E((i) => window.panel.shadowRoot.querySelector(`.catbox .src[data-i="${i}"]`).scrollIntoView(), n - 1);
 await t.shot(ed, "i3-vorlage.png");
 await ed.locator("haus3d-panel .catbox .en-save").click();
 await ed.waitForTimeout(500);
 const saved = await E(() => window.panel._building.settings.energy.sources.at(-1));
-t.check(saved.template === "fronius" && saved.power === "sensor.wr_power_photovoltaics", `gespeichert: ${JSON.stringify(saved)}`);
+t.check(saved.template === "fronius" && saved.power === "sensor.wr_power_photovoltaics" && saved.bat_power === "sensor.wr_bat_power" && saved.soc === "sensor.wr_bat_soc" && saved.capacity === 10, `gespeichert: ${JSON.stringify(saved)}`);
 await t.done();

@@ -143,7 +143,7 @@ export function evaluateAlerts({ building, hass, byArea, links, places, exterior
 
   // Akku leer
   if (c.akku_min > 0 && energy.akku_ladestand != null && energy.akku_ladestand < c.akku_min) {
-    const id = normalizeEnergy(building.settings?.energy).sources.find((s) => s.type === "speicher" && s.soc)?.soc;
+    const id = normalizeEnergy(building.settings?.energy).sources.find((s) => s.soc)?.soc; // AC-Speicher oder eingebauter Speicher
     push("akku_low", "info", "mdi:battery-alert", `Akku ${Math.round(energy.akku_ladestand)} %`, id ? [id] : ["akku"], places.get(id) ?? {});
   }
 

@@ -1,5 +1,13 @@
 # Änderungen
 
+## 0.18.3
+
+- **Eigener Speicher bei PV-Anlage und Balkonkraftwerk**: Haken „mit eigenem Speicher“ (z. B. Hybrid-Anlage,
+  Solarbank) mit Ladestand, Speicherleistung, Kapazität und Reserve. Wird beim Speicher mitgezählt und beim
+  berechneten Hausverbrauch berücksichtigt; kein zusätzlicher AC-Speicher nötig.
+- Gerätevorlagen (SENEC, Anker, Fronius, Huawei …) füllen bei PV/Balkonkraftwerk den eingebauten Speicher
+  gleich mit. SENEC findet jetzt auch die Namen der lokalen API (…powergenerated_now) und der WebAPI.
+
 ## 0.18.2
 
 - Spenden jetzt auch per PayPal (Zahnrad → ♥ Haus 3D unterstützen, Sponsor-Knopf im Repo).

@@ -18,6 +18,7 @@ export function chartSeries(cfg) {
   for (const s of e.sources) {
     const color = COLORS[s.type][n[s.type]++ % 3];
     if (s.power) out.push({ key: s.type === "speicher" ? "akku_leistung" : `src:${s.id}`, gen: s.type !== "speicher", name: s.name, color, unit: "W", id: s.power, invert: s.type === "speicher" && s.invert });
+    if (s.bat_power) out.push({ key: "akku_leistung", name: `${s.name} Speicher`, color: COLORS.speicher[n.speicher++ % 3], unit: "W", id: s.bat_power, invert: s.invert });
     if (s.soc) out.push({ key: "akku_ladestand", name: `${s.name} %`, color: "#00acc1", unit: "%", id: s.soc });
   }
   if (e.haus) out.push({ key: "verbrauch", name: "Hausverbrauch", color: "#8e24aa", unit: "W", id: e.haus });

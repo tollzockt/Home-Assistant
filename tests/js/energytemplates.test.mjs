@@ -77,3 +77,16 @@ test("Vorlagen: SENEC und Solarbank finden ihre Sensoren", () => {
   assert.equal(bat.soc, "sensor.sb_e1600_state_of_charge");
   assert.equal(bat.power, "sensor.sb_e1600_battery_power");
 });
+
+test("Vorlagen: PV mit SENEC holt Leistung (lokale Namen) und eingebauten Speicher gleich mit", () => {
+  const h = {
+    states: Object.fromEntries([["sensor.senec_home_powergenerated_now", "W"], ["sensor.senec_home_battery_charge_percent", "%"], ["sensor.senec_home_battery_state_power", "W"]].map(([id, u]) => [id, s(id, "1", u)])),
+    entities: { "sensor.senec_home_powergenerated_now": { platform: "senec" }, "sensor.senec_home_battery_charge_percent": { platform: "senec" }, "sensor.senec_home_battery_state_power": { platform: "senec" } },
+  };
+  const r = applyTemplate({ id: "pv_1", type: "pv", name: "PV-Anlage" }, DEVICE_TEMPLATES.find((t) => t.id === "senec"), h, "PV-Anlage");
+  assert.equal(r.source.power, "sensor.senec_home_powergenerated_now");
+  assert.equal(r.source.soc, "sensor.senec_home_battery_charge_percent");
+  assert.equal(r.source.bat_power, "sensor.senec_home_battery_state_power");
+  assert.equal(r.source.capacity, 10);
+  assert.equal(r.found, 3);
+});

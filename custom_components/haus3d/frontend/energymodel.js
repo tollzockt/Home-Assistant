@@ -60,6 +60,8 @@ export function normalizeEnergy(cfg) {
         power: isId(s.power) ? s.power : null,
         energy: isId(s.energy) ? s.energy : null,
         soc: isId(s.soc) ? s.soc : null,
+        // PV/Balkonkraftwerk mit eigenem Speicher (Hybrid, Solarbank): Leistung des Speichers
+        bat_power: s.type !== "speicher" && isId(s.bat_power) ? s.bat_power : null,
         invert: !!s.invert,
         capacity: Number(s.capacity) > 0 ? Number(s.capacity) : null,
         reserve: Number.isFinite(Number(s.reserve)) && s.reserve !== null && s.reserve !== "" ? Number(s.reserve) : 10,
@@ -81,7 +83,7 @@ export function normalizeEnergy(cfg) {
 export function energyEntities(cfg) {
   const e = normalizeEnergy(cfg);
   const ids = [e.haus, e.netz, e.netz_bezug, e.netz_einspeisung];
-  for (const s of e.sources) ids.push(s.power, s.energy, s.soc);
+  for (const s of e.sources) ids.push(s.power, s.energy, s.soc, s.bat_power);
   for (const x of e.extra) ids.push(typeof x === "string" ? x : x?.entity);
   return [...new Set(ids.filter(isId))];
 }
@@ -97,6 +99,9 @@ const sum = (list) => {
  * erzeugung/ertrag: Summe aller PV und Balkonkraftwerke; speicher.power: + laden / − entladen;
  * verbrauch: Sensor, sonst berechnet (Erzeugung + Bezug − Einspeisung − Laden + Entladen).
  */
+/** PV/Balkonkraftwerk mit eigenem Speicher (Ladestand oder Speicherleistung hinterlegt)? */
+export const hasOwnStorage = (s) => s.type !== "speicher" && !!(s.soc || s.bat_power);
+
 export function energyTotals(cfg, hass) {
   const e = normalizeEnergy(cfg);
   const st = (id) => (id ? hass?.states?.[id] : undefined);
@@ -112,10 +117,13 @@ export function energyTotals(cfg, hass) {
   const per = e.sources.map((s) => {
     let power = watt(st(s.power));
     if (power !== null && s.type === "speicher" && s.invert) power = -power;
-    return { ...s, value: power, today: kwh(st(s.energy)), level: s.soc ? num(st(s.soc)) : null };
+    let batPower = s.type === "speicher" ? power : watt(st(s.bat_power));
+    if (batPower !== null && s.type !== "speicher" && s.invert) batPower = -batPower;
+    return { ...s, value: power, batValue: batPower, today: kwh(st(s.energy)), level: s.soc ? num(st(s.soc)) : null };
   });
   const gens = per.filter((s) => s.type !== "speicher");
-  const stores = per.filter((s) => s.type === "speicher");
+  // Speicher: AC-Speicher und eingebaute Speicher von PV/Balkonkraftwerk
+  const stores = per.filter((s) => s.type === "speicher" || hasOwnStorage(s)).map((s) => ({ ...s, value: s.batValue }));
   const erzeugung = sum(gens.map((s) => (s.value === null ? null : Math.max(0, s.value))));
   const ertrag = sum(gens.map((s) => s.today));
   const sPower = sum(stores.map((s) => s.value));
@@ -166,7 +174,7 @@ export function energyRowSpecs(cfg, hass) {
   const e = normalizeEnergy(cfg);
   const has = (id) => !!(id && hass?.states?.[id]);
   const gens = e.sources.filter((s) => s.type !== "speicher" && has(s.power));
-  const stores = e.sources.filter((s) => s.type === "speicher");
+  const stores = e.sources.filter((s) => s.type === "speicher" || hasOwnStorage(s));
   const grid = has(e.netz) || has(e.netz_bezug) || has(e.netz_einspeisung);
   const avail = {
     verbrauch: has(e.haus) ? e.haus : grid || gens.length ? e.haus ?? e.netz ?? e.netz_bezug ?? gens[0]?.power : null,
@@ -174,7 +182,7 @@ export function energyRowSpecs(cfg, hass) {
     einspeisung: grid ? e.netz_einspeisung ?? e.netz : null,
     erzeugung: gens.length ? gens[0].power : null,
     akku_ladestand: stores.find((s) => has(s.soc))?.soc ?? null,
-    akku_leistung: stores.find((s) => has(s.power))?.power ?? null,
+    akku_leistung: stores.map((s) => (s.type === "speicher" ? s.power : s.bat_power)).find(has) ?? null,
     ertrag_heute: e.sources.find((s) => s.type !== "speicher" && has(s.energy))?.energy ?? null,
   };
   const rows = ENERGY_ROWS.filter(([k]) => avail[k] || (k === "verbrauch" && (grid || gens.length))).map(([key, icon, base]) => ({ id: key, key, icon, base, entity: avail[key] ?? null }));
@@ -208,5 +216,5 @@ export function newSource(type, sources) {
   const ids = new Set(sources.map((s) => s.id));
   let i = n;
   while (ids.has(`${type}_${i}`)) i++;
-  return { id: `${type}_${i}`, type, name: `${SOURCE_TYPES.find(([t]) => t === type)[1]}${n > 1 ? ` ${n}` : ""}`, power: null, energy: null, soc: null, invert: false, capacity: null, reserve: 10 };
+  return { id: `${type}_${i}`, type, name: `${SOURCE_TYPES.find(([t]) => t === type)[1]}${n > 1 ? ` ${n}` : ""}`, power: null, energy: null, soc: null, bat_power: null, invert: false, capacity: null, reserve: 10 };
 }

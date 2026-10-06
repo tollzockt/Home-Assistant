@@ -54,3 +54,28 @@ test("Ein Netz-Sensor mit Vorzeichen, Hausverbrauch als Sensor", () => {
   assert.equal(t.verbrauchCalc, false);
   assert.equal(newSource("pv", [{ id: "pv_1", type: "pv" }]).id, "pv_2");
 });
+
+test("PV/Balkonkraftwerk mit eigenem Speicher: zählt beim Speicher mit, Verbrauch berücksichtigt das Laden", async () => {
+  const { energyTotals, energyEntities, hasOwnStorage, normalizeEnergy } = await import("../../custom_components/haus3d/frontend/energymodel.js");
+  const st = (v, u = "W") => ({ state: String(v), attributes: { unit_of_measurement: u } });
+  const hass = { states: { "sensor.pv": st(2000), "sensor.pv_bat": st(500), "sensor.pv_soc": st(64, "%"), "sensor.netz": st(-300), "sensor.ac_bat": st(-200), "sensor.ac_soc": st(40, "%") } };
+  const cfg = { netz: "sensor.netz", sources: [{ id: "pv_1", type: "pv", power: "sensor.pv", bat_power: "sensor.pv_bat", soc: "sensor.pv_soc", capacity: 10 }] };
+  assert.equal(hasOwnStorage(normalizeEnergy(cfg).sources[0]), true);
+  let t = energyTotals(cfg, hass);
+  assert.equal(t.erzeugung, 2000);
+  assert.equal(t.speicher.soc, 64);
+  assert.equal(t.speicher.power, 500);
+  assert.equal(t.verbrauch, 2000 - 300 - 500);
+  assert.ok(energyEntities(cfg).includes("sensor.pv_bat"));
+  // Vorzeichen umkehren dreht nur die Speicherleistung
+  t = energyTotals({ ...cfg, sources: [{ ...cfg.sources[0], invert: true }] }, hass);
+  assert.equal(t.speicher.power, -500);
+  assert.equal(t.erzeugung, 2000);
+  // zusammen mit AC-Speicher: Ladestand nach Kapazität gewichtet, Leistung summiert
+  t = energyTotals({ ...cfg, sources: [...cfg.sources, { id: "s", type: "speicher", power: "sensor.ac_bat", soc: "sensor.ac_soc", capacity: 5 }] }, hass);
+  assert.ok(Math.abs(t.speicher.soc - (64 * 10 + 40 * 5) / 15) < 1e-9);
+  assert.equal(t.speicher.power, 300);
+  assert.equal(t.speicher.capacity, 15);
+  // ohne eigenen Speicher: wie bisher (kein Speicher)
+  assert.equal(energyTotals({ netz: "sensor.netz", sources: [{ id: "pv_1", type: "pv", power: "sensor.pv" }] }, hass).speicher, null);
+});
