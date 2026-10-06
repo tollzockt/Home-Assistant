@@ -102,7 +102,9 @@ export const AccessMethods = {
           press(b.dataset.k);
         });
       });
-      el.addEventListener("click", (ev) => ev.target === el && finish(false));
+      // Tipp, der das Feld geöffnet hat, erzeugt danach noch einen click: in den ersten 400 ms ignorieren
+      const opened = performance.now();
+      el.addEventListener("click", (ev) => ev.target === el && performance.now() - opened > 400 && finish(false));
       window.addEventListener("keydown", onKey, true);
       draw();
       this.shadowRoot.appendChild(el);
