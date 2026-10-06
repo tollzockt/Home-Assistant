@@ -28,14 +28,15 @@ t.check(c1.akku === "entlädt 32 W" && c1.bar === "76%", `Akku: ${JSON.stringify
 // Netz bezieht → kein Überschuss
 t.check(/niedrig/.test(c1.dot) && !c1.dotHidden, `Punkt: ${c1.dot}`);
 await t.shot(pg, "energie-karte.png");
-// Simulation: Solar 1200 W → Einspeisung → Punkt „hoch“
+// Simulation: Solar 1200 W → Speicher lädt
 await pg.evaluate(() => (window.panel._adminMode = true, window.panel._setSim(true)));
 await pg.waitForTimeout(400);
 await pg.locator("haus3d-panel .simbar [data-sim=solar]").fill("1200");
 await pg.waitForTimeout(600);
 const c2 = await card(pg);
 t.results.simulation = c2;
-t.check(/hoch/.test(c2.dot) && c2.solar === "1,2 kW" && c2.einsp === "1,1 kW", `Simulation 1200 W: ${JSON.stringify(c2)}`);
+// Bilanz wie echt: 400 W Haus, der Speicher lädt mit dem Überschuss (800 W), nichts geht ins Netz
+t.check(c2.solar === "1,2 kW" && c2.haus === "400 W" && c2.akku === "lädt 800 W" && c2.bezug === "0 W" && c2.einsp === "0 W", `Simulation 1200 W: ${JSON.stringify(c2)}`);
 await pg.evaluate(() => window.panel._setSim(false));
 await pg.waitForTimeout(300);
 // Einstellungen: HA-Energie übernehmen füllt nur die Felder, gespeichert wird erst mit „Speichern“
