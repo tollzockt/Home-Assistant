@@ -1,5 +1,9 @@
 # Änderungen
 
+## 0.18.2
+
+- Spenden jetzt auch per PayPal (Zahnrad → ♥ Haus 3D unterstützen, Sponsor-Knopf im Repo).
+
 ## 0.18.1
 
 ### Neu

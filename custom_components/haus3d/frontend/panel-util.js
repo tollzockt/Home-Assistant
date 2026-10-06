@@ -142,7 +142,7 @@ export const SUPPORT_LINKS = [
   ["github", "GitHub Sponsors", "https://github.com/sponsors/tollzockt", "mdi:github"],
   ["kofi", "Ko-fi", "", "mdi:coffee"],
   ["patreon", "Patreon", "", "mdi:patreon"],
-  ["paypal", "PayPal", "", "mdi:hand-heart"],
+  ["paypal", "PayPal", "https://paypal.me/RobinK24", "mdi:hand-heart"],
 ];
 
 export const fmt = (v, digits = 1) => (v == null ? "–" : v.toLocaleString("de-DE", { maximumFractionDigits: digits, minimumFractionDigits: 0 }));
