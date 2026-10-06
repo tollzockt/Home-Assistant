@@ -28,15 +28,17 @@ dort lassen sich direkt einlesen, und Exporte von Haus 3D kann NeonPlan wieder �
     Heidelberg, allgemeine Wallbox, E-Auto.
   - **Wechselrichter & Speicher**: Fronius GEN24, SMA STP SE, Huawei SUN2000/LUNA2000, Kostal PLENTICORE,
     SolarEdge Home Hub, Victron MultiPlus-II, Growatt, Sungrow, GoodWe, Deye; BYD HVS/HVM, Tesla Powerwall 3,
-    sonnenBatterie, E3/DC, SMA Home Storage, Pylontech, Zendure, EcoFlow, Marstek Venus, Growatt NOAH;
+    sonnenBatterie, SENEC.Home V3, E3/DC, SMA Home Storage, Pylontech, Anker SOLIX Solarbank 2, Zendure,
+    EcoFlow, Marstek Venus, Growatt NOAH;
     Mikrowechselrichter (Hoymiles, Deye, APsystems, EcoFlow PowerStream).
   - **Solar-Aufständerung**: Flachdach Süd (15°) und Ost-West (10°), Gartenständer (30°), Balkongeländer,
     Balkon mit Neigung, Fassade, Solar-Carport, Solarterrasse/Pergola.
   Wandgeräte hängen gleich in passender Höhe, Schreibtischgeräte stehen auf Tischhöhe (änderbar unter
   „Höhe über Boden“).
 - **Gerätevorlagen in der Energie-Einrichtung**: Bei PV, Balkonkraftwerk oder Speicher das **Gerät** wählen
-  (z. B. Fronius, SMA, Huawei, SolarEdge, Kostal, Victron, Growatt, Sungrow, GoodWe, Deye, Tesla, sonnen,
-  E3/DC, BYD, Zendure, EcoFlow, Marstek, Hoymiles, OpenDTU, APsystems) – Haus 3D sucht passende Sensoren
+  (z. B. SENEC (Integration „SENEC.Home“ von marq24), Anker SOLIX (Integration „Anker Solix“ von
+  thomluther), Fronius, SMA, Huawei, SolarEdge, Kostal, Victron, Growatt, Sungrow, GoodWe, Deye, Tesla,
+  sonnen, E3/DC, BYD, Zendure, EcoFlow, Marstek, Hoymiles, OpenDTU, APsystems) – Haus 3D sucht passende Sensoren
   der jeweiligen Integration, setzt das Vorzeichen des Speichers und die Kapazität. Bitte prüfen: Namen
   der Entitäten unterscheiden sich je nach Anlage und Integrationsversion.
 

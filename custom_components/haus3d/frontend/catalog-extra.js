@@ -117,6 +117,8 @@ export const EXTRA = {
   bat_ecoflow_delta: ["EcoFlow Delta 2", 0.4, 0.21, 0.28],
   bat_marstek_venus: ["Marstek Venus E (AC-Speicher)", 0.48, 0.153, 0.624],
   bat_growatt_noah: ["Growatt NOAH 2000", 0.406, 0.235, 0.27],
+  bat_senec_v3: ["SENEC.Home V3 hybrid", 0.535, 0.535, 1.135],
+  bat_anker_solarbank: ["Anker SOLIX Solarbank 2 E1600 Pro", 0.46, 0.249, 0.254],
   // Mikrowechselrichter (Balkonkraftwerk)
   micro_hoymiles: ["Hoymiles HMS-800W-2T", 0.261, 0.035, 0.18],
   micro_deye: ["Deye SUN-M80G4", 0.281, 0.04, 0.19],

@@ -20,9 +20,15 @@ def _building(**settings):
     return {"version": 1, "floors": [], "settings": settings}
 
 
+# Produktlisten (Katalog, Gerätevorlagen) dürfen Hersteller und Integrationen nennen – aber nie
+# Entitäts-IDs mit diesen Namen und nie die übrigen privaten Kennungen
+VENDOR_LISTS = {"catalog-extra.js", "energytemplates.js"}
+PRIVATE_IDS = re.compile(r"\b(sensor|switch|number|select|binary_sensor|button)\.\w*(anker|solix|shelly)|shelly|aktuell_pv", re.I)
+
+
 def test_no_private_ids_in_package() -> None:
     files = [PKG / "const.py", PKG / "haus-daten.json", *sorted((PKG / "frontend").glob("*.js")), ROOT / "tests/browser/harness.html"]
-    hits = [str(f.relative_to(ROOT)) for f in files if PRIVATE.search(f.read_text(encoding="utf-8"))]
+    hits = [str(f.relative_to(ROOT)) for f in files if (PRIVATE_IDS if f.name in VENDOR_LISTS else PRIVATE).search(f.read_text(encoding="utf-8"))]
     assert hits == []
 
 

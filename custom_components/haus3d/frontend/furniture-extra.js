@@ -643,7 +643,7 @@ function energy(type, w, d, h, M, g, bulbs) {
       bat_byd_hvs: [M.white, 4, x.red], bat_huawei_luna10: [M.white, 3, x.red], bat_huawei_luna15: [M.white, 4, x.red], bat_sma_home: [M.white, 3, x.orange],
       bat_sonnen10: [M.white, 1, x.orange], bat_tesla_pw3: [M.white, 1, M.dark], bat_e3dc: [M.white, 2, x.teal], bat_pylontech: [M.dark, 1, x.green],
       bat_zendure_sf800: [x.grey, 1, M.dark], bat_zendure_hyper: [x.grey, 3, M.dark], bat_ecoflow_stream: [x.grey, 1, M.dark], bat_ecoflow_delta: [x.grey, 1, M.dark],
-      bat_marstek_venus: [M.white, 1, M.dark], bat_growatt_noah: [M.white, 1, x.orange],
+      bat_marstek_venus: [M.white, 1, M.dark], bat_senec_v3: [M.white, 1, x.green], bat_growatt_noah: [M.white, 1, x.orange],
     }[type] ?? [M.white, 1, x.grey];
     const [mat, n, accent] = stack;
     const gap = 0.006;

@@ -30,6 +30,10 @@ export const DEVICE_TEMPLATES = [
   { id: "deye", name: "Deye Hybrid (Solarman)", kinds: ["pv", "speicher"], platforms: ["solarman"], model: "inv_deye_hybrid", invert: true,
     roles: { pv: { power: P("pv_power$"), energy: P("today_production$", "daily_production$") }, speicher: { power: P("battery_power$"), soc: P("battery_soc$", "_battery$") } } },
   // Speicher
+  { id: "senec", name: "SENEC.Home (V2/V3/V4)", kinds: ["speicher", "pv"], platforms: ["senec"], model: "bat_senec_v3", capacity: 10,
+    roles: { pv: { power: P("solar_generated_power$"), energy: P("solar_generated_today$", "today_solar_generated$") }, speicher: { power: P("battery_state_power$", "battery_charge_power$"), soc: P("battery_charge_percent$") } } },
+  { id: "anker", name: "Anker SOLIX Solarbank", kinds: ["speicher", "bkw"], platforms: ["anker_solix"], model: "bat_anker_solarbank", capacity: 1.6,
+    roles: { bkw: { power: P("solar_power$"), energy: P("daily_solar_yield$", "solar_yield_today$", "solar_energy_today$") }, speicher: { power: P("battery_power$"), soc: P("state_of_charge$") } } },
   { id: "tesla", name: "Tesla Powerwall", kinds: ["speicher", "pv"], platforms: ["powerwall", "tesla_fleet", "teslemetry"], model: "bat_tesla_pw3", capacity: 13.5, invert: true,
     roles: { pv: { power: P("solar_power$") }, speicher: { power: P("battery_power$"), soc: P("powerwall_charge$", "(^|_)charge$", "percentage_charged$") } } },
   { id: "sonnen", name: "sonnenBatterie", kinds: ["speicher"], platforms: ["sonnenbatterie", "sonnen"], model: "bat_sonnen10", capacity: 10, invert: true,

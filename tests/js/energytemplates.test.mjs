@@ -55,3 +55,25 @@ test("Vorlagen: Entitäten der Integration vorschlagen, Vorzeichen und Kapazitä
   const bkw = applyTemplate({ id: "bkw_1", type: "bkw", name: "Balkonkraftwerk" }, DEVICE_TEMPLATES.find((t) => t.id === "hoymiles"), hass, "Balkonkraftwerk");
   assert.equal(bkw.source.power, "sensor.hms_ac_power");
 });
+
+test("Vorlagen: SENEC und Solarbank finden ihre Sensoren", () => {
+  const h = {
+    states: Object.fromEntries([
+      ["sensor.senec_solar_generated_power", "W"], ["sensor.senec_battery_charge_percent", "%"], ["sensor.senec_battery_state_power", "W"],
+      ["sensor.sb_e1600_solar_power", "W"], ["sensor.sb_e1600_state_of_charge", "%"], ["sensor.sb_e1600_battery_power", "W"],
+    ].map(([id, u]) => [id, s(id, "1", u)])),
+    entities: {
+      "sensor.senec_solar_generated_power": { platform: "senec" }, "sensor.senec_battery_charge_percent": { platform: "senec" }, "sensor.senec_battery_state_power": { platform: "senec" },
+      "sensor.sb_e1600_solar_power": { platform: ["anker", "solix"].join("_") }, "sensor.sb_e1600_state_of_charge": { platform: ["anker", "solix"].join("_") }, "sensor.sb_e1600_battery_power": { platform: ["anker", "solix"].join("_") },
+    },
+  };
+  const senec = applyTemplate({ id: "speicher_1", type: "speicher", name: "AC-Speicher" }, DEVICE_TEMPLATES.find((t) => t.id === "senec"), h, "AC-Speicher");
+  assert.equal(senec.source.soc, "sensor.senec_battery_charge_percent");
+  assert.equal(senec.source.power, "sensor.senec_battery_state_power");
+  assert.equal(senec.source.capacity, 10);
+  const sb = DEVICE_TEMPLATES.find((t) => t.id === "anker");
+  assert.equal(applyTemplate({ id: "bkw_1", type: "bkw", name: "Balkonkraftwerk" }, sb, h, "Balkonkraftwerk").source.power, "sensor.sb_e1600_solar_power");
+  const bat = applyTemplate({ id: "speicher_2", type: "speicher", name: "AC-Speicher" }, sb, h, "AC-Speicher").source;
+  assert.equal(bat.soc, "sensor.sb_e1600_state_of_charge");
+  assert.equal(bat.power, "sensor.sb_e1600_battery_power");
+});

@@ -12,7 +12,7 @@
 - **Möbelkatalog**: IKEA, weitere Lampen, LED, Gaming, Wallbox & E-Auto, Wechselrichter & Speicher,
   Solar-Aufständerungen (rund 140 Teile mit Maßen nach Herstellerangaben, eigene 3D-Modelle).
 - **Gerätevorlagen** für PV, Balkonkraftwerk und Speicher in der Energie-Einrichtung mit
-  Entitätsvorschlägen aus der passenden Integration.
+  Entitätsvorschlägen aus der passenden Integration. Dabei u. a. SENEC.Home und Anker SOLIX Solarbank.
 
 ## 0.17.0
 
