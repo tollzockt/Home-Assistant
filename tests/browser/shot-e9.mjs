@@ -65,7 +65,7 @@ t.check(night.style === "night" && night.glow.visible && night.glow.b > night.gl
 t.check(night.hobby && night.offen && night.dunkel, `Fenster: ${JSON.stringify(night)}`);
 await t.shot(nt, "nacht-licht.png");
 // Simulation: Uhrzeit-Regler setzt sun.sun
-await nt.evaluate(() => window.panel._setSim(true));
+await nt.evaluate(() => (window.panel._adminMode = true, window.panel._setSim(true)));
 await nt.waitForTimeout(300);
 await nt.locator("haus3d-panel .simbar [data-sim=time]").fill("720");
 await nt.waitForTimeout(300);

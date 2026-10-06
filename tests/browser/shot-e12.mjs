@@ -60,19 +60,15 @@ const kio = await k.evaluate(() => ({ header: getComputedStyle(window.panel.shad
 t.results.kiosk = kio;
 t.check(kio.header === "none" && kio.filter === "eg" && kio.gear !== "none", `Kiosk: ${JSON.stringify(kio)}`);
 await t.shot(k, "wandtablet.png");
-// Simulation startet im Kiosk nicht still
+// Simulation startet nie von selbst (nur im Admin-Modus), auch nicht nach dem Neuladen
 await k.evaluate(() => {
   const s = JSON.parse(localStorage.getItem("haus3d.settings") ?? "{}");
   localStorage.setItem("haus3d.settings", JSON.stringify({ ...s, sim: true }));
 });
 await k.reload();
 await k.waitForTimeout(2500);
-const sim = await k.evaluate(() => ({ bar: !!window.panel.shadowRoot.querySelector(".simbar"), toast: window.panel.shadowRoot.querySelector(".toast")?.textContent ?? null }));
-t.check(!sim.bar && /Fortsetzen/.test(sim.toast ?? ""), `Simulation im Kiosk: ${JSON.stringify(sim)}`);
-await k.locator("haus3d-panel .toast button").click();
-await k.waitForTimeout(400);
-t.check(await k.evaluate(() => !!window.panel.shadowRoot.querySelector(".simbar")), "Fortsetzen startet die Simulation nicht");
-await k.evaluate(() => window.panel._setSim(false));
+const sim = await k.evaluate(() => ({ bar: !!window.panel.shadowRoot.querySelector(".simbar"), sim: !!window.panel._sim, saved: JSON.parse(localStorage.getItem("haus3d.settings") ?? "{}").sim }));
+t.check(!sim.bar && !sim.sim && !sim.saved, `Simulation im Kiosk: ${JSON.stringify(sim)}`);
 // Ruhemodus: nach 5 min ohne Eingabe Fenster zu, Startetage, Bild eingefroren
 await k.evaluate(() => {
   const p = window.panel;

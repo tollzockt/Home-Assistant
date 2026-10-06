@@ -347,6 +347,7 @@ console.log(JSON.stringify({ catalog, searchHits, magnet, nudged, pick3d: { hit:
 // Simulation: Schalten ohne echte Aufrufe, Dialog, Wetter, Beispielgeräte, lokales Speichern
 for (const p of browser.contexts().flatMap((c) => c.pages())) await p.close();
 const sm = await shot("simulation", "?lhaus", { width: 1280, height: 800 });
+await sm.evaluate(() => (window.panel._adminMode = true)); // Simulation nur im Admin-Modus
 await sm.locator("haus3d-panel .gear").click();
 await sm.locator("haus3d-panel .qtile[data-act=sim]").click();
 await sm.waitForTimeout(800);

@@ -29,7 +29,7 @@ t.check(c1.akku === "entlädt 32 W" && c1.bar === "76%", `Akku: ${JSON.stringify
 t.check(/niedrig/.test(c1.dot) && !c1.dotHidden, `Punkt: ${c1.dot}`);
 await t.shot(pg, "energie-karte.png");
 // Simulation: Solar 1200 W → Einspeisung → Punkt „hoch“
-await pg.evaluate(() => window.panel._setSim(true));
+await pg.evaluate(() => (window.panel._adminMode = true, window.panel._setSim(true)));
 await pg.waitForTimeout(400);
 await pg.locator("haus3d-panel .simbar [data-sim=solar]").fill("1200");
 await pg.waitForTimeout(600);

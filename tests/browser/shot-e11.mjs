@@ -55,7 +55,7 @@ await no.waitForTimeout(500);
 const empty = await no.evaluate(() => window.panel.shadowRoot.querySelector(".dialog.chart .hint")?.textContent ?? "");
 t.check(/Keine Verlaufsdaten/.test(empty), `leer: ${empty}`);
 // Simulation: Dialog ohne Fehler
-await no.evaluate(() => window.panel._setSim(true));
+await no.evaluate(() => (window.panel._adminMode = true, window.panel._setSim(true)));
 await no.waitForTimeout(300);
 await no.evaluate(() => window.panel._energyChart(-1));
 await no.waitForTimeout(500);

@@ -3,7 +3,7 @@ import { start, unlock } from "./lib.mjs";
 
 const t = await start(process.argv[2]);
 const pg = await t.page("e0", "?quality=schoen");
-await pg.evaluate(() => window.panel._setSim(true));
+await pg.evaluate(() => (window.panel._adminMode = true, window.panel._setSim(true)));
 await pg.waitForTimeout(500);
 await pg.evaluate(() => window.panel._toast("Test-Meldung"));
 const boxes = await pg.evaluate(() => {

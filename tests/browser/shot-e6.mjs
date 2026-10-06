@@ -51,7 +51,7 @@ t.check(/critical/.test(crit.cls ?? "") && /Wassermelder/.test(crit.text ?? ""),
 await t.shot(w, "hinweise-wasser.png");
 // Simulation: Wetter „Regen“ → Hinweis, keine echten Aufrufe
 const sim = await t.page("e6-sim", "", { width: 1024, height: 700 });
-await sim.evaluate(() => window.panel._setSim(true));
+await sim.evaluate(() => (window.panel._adminMode = true, window.panel._setSim(true)));
 await sim.waitForTimeout(400);
 await sim.locator('haus3d-panel .simbar select[data-sim="weather"]').selectOption("rainy");
 await sim.waitForTimeout(800);
