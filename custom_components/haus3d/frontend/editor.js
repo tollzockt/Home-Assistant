@@ -1898,7 +1898,7 @@ export class FloorEditor {
     if (sel.kind === "furniture") {
       const m = (f.furniture ?? []).find((x) => x.id === sel.id);
       if (!m) return this._clearSel();
-      const lamp = m.type.startsWith("lamp_") || m.type === "led_strip";
+      const lamp = m.type.startsWith("lamp_") || m.type.startsWith("led_");
       const custom = m.type.startsWith("custom_");
       el.innerHTML = `<h3>${esc(m.name || (FURNITURE[m.type]?.[0] ?? m.type))}</h3>
         <label>Typ</label><select data-m="type">${FURNITURE_CATEGORIES.map(([cat, types]) => `<optgroup label="${esc(cat)}">${types.map((k) => `<option value="${k}"${k === m.type ? " selected" : ""}>${esc(FURNITURE[k][0])}</option>`).join("")}</optgroup>`).join("")}</select>

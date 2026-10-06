@@ -5,6 +5,8 @@
 
 import * as THREE from "./vendor/three.module.min.js";
 import { stairLayout } from "./stairs.js";
+import { EXTRA, EXTRA_CATEGORIES, EXTRA_LAMPS, EXTRA_MOUNT } from "./catalog-extra.js";
+import { buildExtra } from "./furniture-extra.js";
 
 /** Deutsche Namen und Standardmaße (w, d, h in m) für den Editor. */
 export const FURNITURE = {
@@ -96,6 +98,7 @@ export const FURNITURE = {
   // eigene Körper (Maße und Farbe frei)
   custom_box: ["Quader (eigener)", 1.0, 1.0, 1.0],
   custom_cylinder: ["Zylinder (eigener)", 0.6, 0.6, 1.0],
+  ...EXTRA,
 };
 
 /** Kategorien für die Möbelauswahl im Editor (jeder Typ genau einmal). */
@@ -107,9 +110,10 @@ export const FURNITURE_CATEGORIES = [
   ["Bad & Wäsche", ["bathtub", "shower", "wc", "washbasin", "washer", "dryer"]],
   ["Büro", ["desk", "office_chair", "tall_cabinet", "coat_rack"]],
   ["Technik", ["network_cabinet", "server_rack", "boiler", "water_tank", "heat_pump", "fuse_box", "robot_vacuum"]],
-  ["Licht", ["lamp_ceiling", "lamp_downlight", "lamp_spot", "lamp_panel", "lamp_pendant", "lamp_floor", "lamp_table", "lamp_wall", "led_strip", "lamp_uplight", "lamp_bollard", "lamp_garden"]],
+  ["Licht", ["lamp_ceiling", "lamp_downlight", "lamp_spot", "lamp_panel", "lamp_pendant", "lamp_floor", "lamp_table", "lamp_wall", "led_strip", "lamp_uplight", "lamp_bollard", "lamp_garden", ...EXTRA_LAMPS]],
   ["Garten", ["tree", "tree_conifer", "tree_fruit", "bush", "flowers", "grass", "planter", "hot_tub", "composter", "rock", "rock_group", "stepping_stone", "lounger", "parasol", "garden_table", "bbq"]],
   ["Bau", ["stairs", "stairwell", "column", "pillar", "beam", "parking"]],
+  ...EXTRA_CATEGORIES,
   ["Eigene Körper", ["custom_box", "custom_cylinder"]],
 ];
 
@@ -614,7 +618,7 @@ function buildModel(type, w, d, h, M, item = {}) {
       break;
     }
     default:
-      box(g, M.light, w, h, d);
+      if (!buildExtra(type, w, d, h, M, g, bulbs)) box(g, M.light, w, h, d);
   }
   g.userData.bulbs = bulbs;
   return g;
@@ -648,7 +652,8 @@ export function buildFurniture(item, M, elev, floorHeight) {
   const g = buildModel(item.type, w, d, h, colored(M, item.color), item);
   const ceiling = ["lamp_ceiling", "lamp_panel", "lamp_downlight", "lamp_pendant", "kitchen_wall", "beam"].includes(item.type);
   const wall = ["lamp_wall", "lamp_spot", "tv_wall", "radiator", "fuse_box"].includes(item.type);
-  let y = item.mount_y ?? (ceiling ? floorHeight - h - 0.01 : wall ? (item.type === "radiator" ? 0.1 : item.type === "fuse_box" ? 1.2 : 1.6) : 0);
+  const em = EXTRA_MOUNT[item.type];
+  let y = item.mount_y ?? (ceiling || em === "ceiling" ? floorHeight - h - 0.01 : typeof em === "number" ? em : wall ? (item.type === "radiator" ? 0.1 : item.type === "fuse_box" ? 1.2 : 1.6) : 0);
   if (item.type === "kitchen_wall" && item.mount_y == null) y = 1.45;
   if (item.type === "radiator" && item.mount_y == null) y = 0;
   g.position.set(item.x, elev + y, item.z);

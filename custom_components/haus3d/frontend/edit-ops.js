@@ -2,6 +2,7 @@
 // Alle Koordinaten in Metern, Plan [x, z].
 
 import { alignAxes, computeWalls, pointInPolygon, signedArea } from "./walls.js";
+import { EXTRA_FREE } from "./catalog-extra.js";
 
 const r3 = (v) => Math.round(v * 1000) / 1000;
 
@@ -386,7 +387,8 @@ export function wallFaces(segments) {
 }
 
 /** Möbeltypen, die nicht an Wänden einrasten (liegen frei im Raum oder hängen an der Decke). */
-const FREE_TYPES = new Set(["beam", "column", "rug", "parking", "stairwell", "robot_vacuum", "table", "table_round", "coffee_table", "island", "lamp_ceiling", "lamp_downlight", "lamp_panel", "lamp_pendant", "chair", "stool", "bar_stool", "custom_box", "custom_cylinder"]);
+const FREE_EXTRA = new Set(EXTRA_FREE);
+const FREE_TYPES = new Set([...EXTRA_FREE, "beam", "column", "rug", "parking", "stairwell", "robot_vacuum", "table", "table_round", "coffee_table", "island", "lamp_ceiling", "lamp_downlight", "lamp_panel", "lamp_pendant", "chair", "stool", "bar_stool", "custom_box", "custom_cylinder"]);
 
 /**
  * Möbel an der nächsten Wand ausrichten (Rückseite bündig, Vorderseite zum Raum) und, wenn nah,
@@ -442,7 +444,7 @@ export function snapToWall(item, faces, { tol = 0.3 } = {}) {
  * @returns {{x: number, z: number}|null} neue Lage oder null, wenn nichts zu tun ist
  */
 export function pushOutOfWalls(item, faces) {
-  if (["rug", "parking", "stairwell", "led_strip"].includes(item.type) || item.type.startsWith("lamp_")) return null;
+  if (["rug", "parking", "stairwell"].includes(item.type) || /^(lamp|led)_/.test(item.type) || FREE_EXTRA.has(item.type)) return null;
   const a = ((item.rotation || 0) * Math.PI) / 180;
   const ux = [Math.cos(a), Math.sin(a)]; // lokale Breite
   const uz = [-Math.sin(a), Math.cos(a)]; // lokale Tiefe

@@ -90,7 +90,7 @@ export function manualPositions(building) {
   const map = new Map();
   for (const floor of building.floors ?? []) {
     for (const m of floor.furniture ?? []) {
-      if (typeof m.type !== "string" || !m.type.startsWith("lamp_")) continue;
+      if (typeof m.type !== "string" || !/^(lamp|led)_/.test(m.type)) continue;
       if (!m.entity || m.entity === "none" || map.has(m.entity)) continue;
       map.set(m.entity, { floorId: floor.id, x: m.x, z: m.z, y: m.mount_y ?? null });
     }
