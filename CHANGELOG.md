@@ -1,5 +1,19 @@
 # Änderungen
 
+## 0.19.0
+
+### Neu
+- **Leitungsnetz**: Verteiler (Haupt-/Unterverteilung mit Zähler, Einspeisung, Router, Switch,
+  Wasseranschluss, Warmwasser, Durchführung über Etagen), Abzweige an bestehenden Leitungen, Fluss je
+  Leitungsstück von der Wurzel bis zu den Verbrauchern – Menge als Dichte und Tempo der Punkte, Richtung
+  nach Flussrichtung. Antippen zeigt Wert und angeschlossene Verbraucher.
+- **Leitungen bearbeiten**: Punkte ziehen, einfügen, löschen; Höhe je Punkt oder für alle.
+- Leitungstyp **Netzwerk**; Leitungsende an einem **Gerät** (Alternative zu Raum/Sensor).
+
+### Behoben
+- Strom auf Zubringern ohne eigenes Ziel (z. B. Hauptverteilung → Garage → Büro) fließt jetzt auf dem
+  ganzen Weg.
+
 ## 0.18.3
 
 - **Eigener Speicher bei PV-Anlage und Balkonkraftwerk**: Haken „mit eigenem Speicher“ (z. B. Hybrid-Anlage,

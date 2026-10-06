@@ -7,6 +7,23 @@ Energiefluss.
 Das Datenformat ist kompatibel mit [NeonPlan 3D](https://github.com/Mastershort/neonplan3d): Exporte von
 dort lassen sich direkt einlesen, und Exporte von Haus 3D kann NeonPlan wieder öffnen.
 
+## Neu in 0.19: Leitungsnetz mit Verteilern und Abzweigen
+
+- **Verteiler** (Editor → „Verteiler“): Hauptverteilung, Unterverteilungen (optional mit eigenem Zähler),
+  Einspeisung (PV/Balkonkraftwerk/Speicher), Router und Switch, Wasser-Hausanschluss, Warmwasser und
+  **Durchführungen** zwischen Etagen (Gegenstück entsteht automatisch auf der Zieletage).
+- **Abzweige**: Eine neue Leitung, die auf einer bestehenden Leitung oder an einem Verteiler beginnt oder
+  endet, rastet dort ein (Markierung „Abzweig“) und ist verbunden.
+- **Fluss auf dem ganzen Weg**: Haus 3D rechnet das Netz von der Hauptverteilung (bzw. Hausanschluss,
+  Router) bis zu den Verbrauchern an den Leitungsenden (Raum, Gerät oder Sensor) durch. Jedes Stück zeigt,
+  was hindurchfließt – auch Zubringer ohne eigenes Ziel. Mehr Watt (l/min, Mbit/s) = mehr und schnellere
+  Punkte; die Richtung zeigt, wohin es fließt (Einspeisung fließt zur Hauptverteilung).
+- **Antippen** einer Leitung oder eines Verteilers zeigt Wert, Richtung und was daran hängt (größte zuerst);
+  eine Unterverteilung mit Zähler zeigt zusätzlich, was „nicht zugeordnet“ ist.
+- **Leitungen bearbeiten**: gewählte Leitung → Punkte ziehen, Strecke antippen fügt einen Punkt ein, Punkt
+  antippen ändert **seine Höhe** (oder alle auf einmal), Punkt löschen.
+- Neuer Leitungstyp **Netzwerk** (Datenrate z. B. aus UniFi-Sensoren oder Gerät online).
+
 ## Unterstützen
 
 Haus 3D ist kostenlos und bleibt es. Wenn es dir gefällt, freue ich mich über eine Spende – über den
