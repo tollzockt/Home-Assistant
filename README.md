@@ -7,6 +7,16 @@ Energiefluss.
 Das Datenformat ist kompatibel mit [NeonPlan 3D](https://github.com/Mastershort/neonplan3d): Exporte von
 dort lassen sich direkt einlesen, und Exporte von Haus 3D kann NeonPlan wieder öffnen.
 
+## Neu in 0.21: Alltag, Zeitstrahl, Szenen, Favoriten
+
+- **Admin → Alltag**: Waschmaschine/Trockner/Spülmaschine (läuft/fertig aus der Leistung), Kalender und
+  Müllabfuhr, Strompreis (fest oder dynamisch), Lüften-Timer, Schimmelgefahr, Heizung bei offenem Fenster
+  automatisch pausieren, PV-Leistung (kWp) für die Vorhersage.
+- **Zeitstrahl** (Funktionsrad): Tag zurückspulen und Vorhersage der nächsten 24 h im Modell.
+- **Bodenfarbe** jetzt auch CO₂ und Energie heute.
+- **Raum-Szenen** (Bearbeiten → Raumfenster → „+ Szene“) und **Favoriten-Leiste** unten.
+- **Urlaub**: Anwesenheit simulieren („Haus verlassen“ oder Dienst `haus3d.away`), läuft im Hintergrund.
+
 ## Neu in 0.20: Dachgeschoss, eigener Name, Rahmenfarbe
 
 - **Dachgeschoss als Etage**: Editor → Etagen-Auswahl → „+ Dachgeschoss“ (oder Haken „Dachgeschoss“ in den
@@ -154,6 +164,9 @@ Name unter Zahnrad → Wandtablet → „Name dieses Geräts“ steht; ohne `tar
 
 `view` ist `iso`, `oben`, `sued`, `nord`, `ost`, `west` oder der Name einer gemerkten Ansicht; `room` die
 Raum-ID oder der Raumname. `haus3d.reload` lädt den Grundriss neu.
+
+`haus3d.away` (`on: true/false`) schaltet die Anwesenheitssimulation – z. B. in einer Automation „alle weg
+seit 24 h“. Sie läuft in Home Assistant selbst, ohne offenes Tablet.
 
 ## Neu in 0.14
 
@@ -374,7 +387,7 @@ floors[]          id, name, elevation, height, ha_floor, attic (Dachgeschoss), k
                   floor_texture, wall_texture, exterior_texture (Textur, "none" = glatt),
                   edge_styles {Kante: {color, texture, exterior_color, exterior_texture}},
                   roof {type, pitch, overhang, color, direction, flip, texture},
-                  solar_panels (eigenes Dach je Raum)
+                  solar_panels (eigenes Dach je Raum), scenes [{id, name, icon}] (Raum-Szenen)
   openings[]      id, room_id, edge, offset, width, type (window|door|garage), sill, height,
                   hinge, swing, style (passage|glass|front_glass|…), contact, cover,
                   frame_color ("#rrggbb")
@@ -393,7 +406,9 @@ settings          wall_exterior (0.24), wall_interior (0.12), wall_colors {exter
                         items [{id, type (chimney|skylight|pv), x, z, …}],
                         adjust [{lo, hi, a, b}] (Dach-Ebene)}, north (Grad),
                   cards [{id, title, icon, entities [{entity, name}]}] (bis 5), quick [{entity, name}],
-                  weather (Entität oder "none"), title (Name oben links)
+                  weather (Entität oder "none"), title (Name oben links),
+                  daily {appliances [{id, name, kind, power, remaining}], calendars, price, price_entity,
+                         kwp, vent_min, mold, waste_hour, window_heat {auto, minutes}}
 ```
 
 - Räume werden auf der **Mitte der Innenwände** gezeichnet. Kanten, die zwei Räume teilen, werden zu

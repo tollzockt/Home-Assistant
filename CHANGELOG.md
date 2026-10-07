@@ -1,5 +1,33 @@
 # Änderungen
 
+## 0.21.0
+
+### Alltag (Admin → Alltag)
+- **Waschmaschine, Trockner, Spülmaschine**: erkannt am Leistungssensor (Vorschläge nach Namen). Chip „läuft
+  0:42 h“ bzw. Restzeit, Meldung „fertig“ mit Knopf „Erledigt“.
+- **Termine & Müllabfuhr**: Kalender und Abfall-Sensoren (z. B. Waste Collection Schedule) – Chip mit dem
+  nächsten Termin, Liste der nächsten 7 Tage, abends „Morgen: Gelbe Tonne rausstellen“.
+- **Strompreis**: fest (ct/kWh) oder dynamisch (Tibber, Nordpool, EPEX …) – „Kosten jetzt“ und „Günstig ab
+  …“ in der Energie-Karte, Kosten je Raum im Raumfenster.
+- **Lüften**: Knopf im Raumfenster startet einen Timer, danach „genug gelüftet – Fenster schließen“.
+  **Schimmelgefahr** je Raum (Feuchte an der kalten Wand, mit Außentemperatur).
+- **Heizung pausieren** bei offenem Fenster: Knopf am Hinweis oder automatisch nach n Minuten; läuft im
+  Hintergrund (auch ohne Tablet) und stellt die Heizung wieder her, sobald das Fenster zu ist.
+- **Urlaub**: „Haus verlassen“ → Anwesenheit simulieren – abends gehen einzelne Lichter an und aus (im
+  Hintergrund, auch Dienst `haus3d.away`).
+
+### Ansicht
+- **Zeitstrahl** (Funktionsrad): den heutigen Tag zurückspulen (Licht, Fenster, Türen, Personen aus dem
+  Verlauf) und in die nächsten 24 h schauen (Wetter, Sonne, erwartete PV-Leistung mit kWp aus „Alltag“).
+  Abspielen, „Jetzt“; im Zeitstrahl wird nichts geschaltet.
+- **Bodenfarbe CO₂** und **Energie heute** (kWh je Raum aus der HA-Statistik).
+
+### Bedienung
+- **Raum-Szenen**: im Bearbeiten-Modus „+ Szene“ im Raumfenster speichert den jetzigen Zustand als echte
+  HA-Szene (Kino, Lesen, Putzen …), danach ein Knopf im Raumfenster.
+- **Favoriten-Leiste** unten: die meistgenutzten Geräte dieses Tablets (lernt mit; im Bearbeiten-Modus
+  ausblendbar, Ebene „Favoriten-Leiste“).
+
 ## 0.20.1
 
 - **Kamera-Sichtbereich ausblendbar**: eigener Schalter „Kamera-Sicht“ im Zahnrad (Kachel), in den Ebenen
