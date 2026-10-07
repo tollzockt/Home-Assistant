@@ -2,7 +2,7 @@
 // je Raum, Schimmel-Risiko, Stromkosten und günstige Stunden, „Heizung pausieren“ bei offenem Fenster.
 // Einstellungen in settings.daily (Admin → Alltag). Logik in smart.js.
 
-import { placesOf, roomClimate, roomPower } from "./devices.js";
+import { placesOf, roomClimate, roomEnergySensors, roomPower } from "./devices.js";
 import { energyEntities } from "./energymodel.js";
 import { weatherEntity } from "./exterior.js";
 import { esc, fmt } from "./panel-util.js";
@@ -23,6 +23,7 @@ export function normalizeDaily(d) {
     vent_min: Math.min(60, Math.max(1, Number(x.vent_min) || 10)),
     mold: x.mold !== false,
     waste_hour: Math.min(23, Math.max(0, Number.isFinite(Number(x.waste_hour)) && x.waste_hour !== null && x.waste_hour !== "" ? Number(x.waste_hour) : 16)),
+    kwp: Number.isFinite(Number(x.kwp)) && Number(x.kwp) > 0 ? Math.min(100, Number(x.kwp)) : null,
     window_heat: { auto: !!x.window_heat?.auto, minutes: Math.min(60, Math.max(1, Number(x.window_heat?.minutes) || 3)) },
   };
 }
@@ -67,6 +68,31 @@ export const SmartMethods = {
     }
     const vent = ventTimers(this._ventTimers());
     this._needTick("smart", busy || vent.running.length > 0);
+    if (this._view === "energy" && !this._kwhLoading && now - (this._kwhAt ?? 0) > 10 * 60000) this._loadRoomEnergy();
+  },
+
+  /** Bodenfarbe „Energie heute“: Verbrauch je Raum seit Mitternacht aus der HA-Statistik (alle 10 min). */
+  async _loadRoomEnergy() {
+    const hass = this._realHass ?? this._hass;
+    if (!hass?.callWS || !this._building) return;
+    this._kwhLoading = true;
+    this._kwhAt = Date.now();
+    const exclude = new Set(energyEntities(this._building.settings?.energy));
+    const perRoom = new Map();
+    for (const floor of this._building.floors) for (const room of placesOf(floor)) perRoom.set(`${floor.id}:${room.id}`, roomEnergySensors(room, hass, this._byArea, exclude));
+    const ids = [...new Set([...perRoom.values()].flat())];
+    try {
+      const start = new Date();
+      start.setHours(0, 0, 0, 0);
+      const res = ids.length ? await hass.callWS({ type: "recorder/statistics_during_period", start_time: start.toISOString(), period: "day", statistic_ids: ids, types: ["change"], units: { energy: "kWh" } }) : {};
+      const change = (id) => (res?.[id] ?? []).reduce((s, r) => s + (Number(r.change) || 0), 0);
+      this._roomKwh = new Map([...perRoom].filter(([, list]) => list.length).map(([key, list]) => [key, list.reduce((s, id) => s + change(id), 0)]));
+    } catch {
+      this._roomKwh = new Map();
+    } finally {
+      this._kwhLoading = false;
+    }
+    this._updateStates();
   },
 
   _ventTimers(next) {
@@ -325,6 +351,7 @@ export const SmartMethods = {
         <h4>Strompreis</h4>
         <label class="en-row"><span>Fester Preis (ct/kWh)</span><input type="number" step="0.1" min="0" data-price value="${d.price ?? ""}" placeholder="z. B. 32"></label>
         <label class="en-row"><span>oder dynamischer Preis (Sensor)</span><input data-pe list="dl_pow" value="${esc(d.price_entity ?? "")}" placeholder="Tibber, Nordpool, EPEX …"></label>
+        <label class="en-row"><span>PV-Leistung (kWp, für die Vorhersage im Zeitstrahl)</span><input type="number" step="0.1" min="0" data-kwp value="${d.kwp ?? ""}" placeholder="z. B. 9,8"></label>
         <h4>Lüften & Heizen</h4>
         <label class="en-row"><span>Lüften-Timer (min)</span><input type="number" min="1" max="60" data-vent value="${d.vent_min}"></label>
         <label class="chkrow"><input type="checkbox" data-mold${d.mold ? " checked" : ""}> Schimmelgefahr melden (Feuchte an der kalten Wand)</label>
@@ -362,6 +389,7 @@ export const SmartMethods = {
           price: v("[data-price]"),
           price_entity: v("[data-pe]").trim() || null,
           vent_min: v("[data-vent]"),
+          kwp: v("[data-kwp]"),
           waste_hour: v("[data-wh]"),
           mold: box.querySelector("[data-mold]").checked,
           window_heat: { auto: box.querySelector("[data-wauto]").checked, minutes: v("[data-wmin]") },

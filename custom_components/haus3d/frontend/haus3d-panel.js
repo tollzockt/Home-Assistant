@@ -17,6 +17,7 @@ import {
   roomLit,
   roomHeating,
   roomPower,
+  roomSensorMean,
   VIEW_MODES,
   viewColor,
   dewPoint,
@@ -53,6 +54,8 @@ import { NETWORK_STYLE, NetworkMethods } from "./panel-network.js";
 import { SUPPORT_STYLE, SupportMethods } from "./panel-support.js";
 import { PIPENET_STYLE, PipeNetMethods } from "./panel-pipes.js";
 import { SMART_STYLE, SmartMethods } from "./panel-smart.js";
+import { TIMELINE_STYLE, TimelineMethods } from "./panel-timeline.js";
+import { SCENES_STYLE, SceneMethods } from "./panel-scenes.js";
 import { doorGuard } from "./access.js";
 import { ENERGYCFG_STYLE, EnergyCfgMethods } from "./panel-energycfg.js";
 import { energyEntities, energyTotals } from "./energymodel.js";
@@ -103,7 +106,8 @@ class Haus3DPanel extends HTMLElement {
     this._realHass = real;
     // Simulation: Schicht über dem echten hass, nichts geht an Home Assistant
     // Schlösser entriegeln/öffnen nur mit der Tür-PIN (Simulation schaltet ohnehin nichts Echtes)
-    const hass = this._sim ? this._sim.wrap(real, { building: this._building, onChange: () => this._simChanged(), onToast: (t) => this._toast(t) }) : doorGuard(real, (svc, data) => this._doorUnlock(svc, data));
+    // Zeitstrahl: Zustände zum gewählten Zeitpunkt (nur ansehen)
+    const hass = this._tl && !this._sim ? this._tlWrap(real) : this._sim ? this._sim.wrap(real, { building: this._building, onChange: () => this._simChanged(), onToast: (t) => this._toast(t) }) : doorGuard(real, (svc, data) => this._doorUnlock(svc, data));
     const prev = this._hass;
     this._hass = hass;
     if (!this._built) return;
@@ -374,7 +378,7 @@ class Haus3DPanel extends HTMLElement {
   _build() {
     this._built = true;
     this.shadowRoot.innerHTML = `
-      <style>${PANEL_STYLE}${MEDIA_STYLE}${FX_STYLE}${CLIMATE_STYLE}${NETWORK_STYLE}${SUPPORT_STYLE}${PIPENET_STYLE}${SMART_STYLE}${ENERGYCFG_STYLE}${USER_STYLE}${ACCESS_STYLE}${ADMIN_STYLE}${EDITOR_STYLE}</style>
+      <style>${PANEL_STYLE}${MEDIA_STYLE}${FX_STYLE}${CLIMATE_STYLE}${NETWORK_STYLE}${SUPPORT_STYLE}${PIPENET_STYLE}${SMART_STYLE}${TIMELINE_STYLE}${SCENES_STYLE}${ENERGYCFG_STYLE}${USER_STYLE}${ACCESS_STYLE}${ADMIN_STYLE}${EDITOR_STYLE}</style>
       <div class="wrap">
         <header>
           <button class="icon menu" title="Menü"><ha-icon icon="mdi:menu"></ha-icon></button>
@@ -855,6 +859,7 @@ class Haus3DPanel extends HTMLElement {
 
   /** Tipp auf ein Gerät im Haus (Bubble, Raumfenster, 3D-Objekt, Karte). */
   _activate(entityId) {
+    this._favCount(entityId);
     return this._runAction(entityId, { source: "tap" });
   }
 
@@ -1003,7 +1008,7 @@ class Haus3DPanel extends HTMLElement {
         const climate = roomClimate(room, hass, this._byArea);
         const th = roomHeating(room, hass, this._byArea);
         if (th?.action === "heating") heatRooms.add(key);
-        const value = view === "temp" ? climate.temperature : view === "humidity" ? climate.humidity : view === "power" ? roomPower(room, hass, this._byArea, energyIds) : null;
+        const value = view === "temp" ? climate.temperature : view === "humidity" ? climate.humidity : view === "power" ? roomPower(room, hass, this._byArea, energyIds) : view === "co2" ? roomSensorMean(room, hass, this._byArea, "carbon_dioxide") : view === "energy" ? this._roomKwh?.get(key) ?? null : null;
         temps.set(key, value);
         // offene Kontakte im Bereich, die keiner Öffnung zugeordnet sind
         const unassigned = (this._byArea.get(room.area_id) ?? []).filter(
@@ -1382,6 +1387,7 @@ class Haus3DPanel extends HTMLElement {
       b.title = c.text;
     }
     this._updateFloorBadges(status.perFloor);
+    this._renderFavs();
   }
 
   /** Zahl offener Fenster bzw. brennender Lichter an den Etagen der Leiste. */
@@ -1956,6 +1962,7 @@ class Haus3DPanel extends HTMLElement {
       network: { icon: "mdi:lan", name: "Netzwerk", on: false, run: () => this._networkDialog() },
       goodnight: { icon: "mdi:weather-night", name: "Gute Nacht", on: false, run: () => this._checkSheet("goodnight") },
       walk: { icon: "mdi:walk", name: "Begehen", on: false, run: () => this._startWalk() },
+      timeline: { icon: "mdi:timeline-clock-outline", name: "Zeitstrahl", on: !!this._tl, run: () => this._timelineOpen() },
       shadows: layer("shadows", "mdi:box-shadow", "Schatten"),
       fit: { icon: "mdi:fit-to-screen-outline", name: "Ansicht einpassen", on: false, run: () => this._resetView() },
       view: { icon: "mdi:camera-switch-outline", name: "Blickwinkel", on: false, run: () => this._viewChips() },
@@ -2006,6 +2013,7 @@ class Haus3DPanel extends HTMLElement {
     this._store("haus3d.view", this._view);
     // Leistungssensoren nur in der Ansicht „Leistung“ beobachten
     if ((before === "power") !== (this._view === "power")) this._rewatch();
+    if (this._view === "energy") this._loadRoomEnergy();
     this._renderToolbar();
     this._updateStates();
   }
@@ -2068,7 +2076,7 @@ class Haus3DPanel extends HTMLElement {
 }
 
 // Dialoge und Energie-Verlauf einmischen (panel-dialogs.js, panel-energy.js)
-Object.assign(Haus3DPanel.prototype, DialogMethods, EnergyMethods, TabletMethods, MediaMethods, FxMethods, UserMethods, AccessMethods, AdminMethods, ClimateMethods, EnergyCfgMethods, NetworkMethods, SupportMethods, PipeNetMethods, SmartMethods);
+Object.assign(Haus3DPanel.prototype, DialogMethods, EnergyMethods, TabletMethods, MediaMethods, FxMethods, UserMethods, AccessMethods, AdminMethods, ClimateMethods, EnergyCfgMethods, NetworkMethods, SupportMethods, PipeNetMethods, SmartMethods, TimelineMethods, SceneMethods);
 
 // Nach einem Update ohne Neuladen ist das Element der alten Version noch registriert: ein zweites
 // define würfe einen Fehler und das Panel ließe sich gar nicht laden

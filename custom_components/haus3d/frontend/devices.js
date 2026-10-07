@@ -360,7 +360,7 @@ export function watchedEntities(building, hass, byArea, { links = null, extra = 
         const d = domainOf(id);
         if (d === "sensor") {
           const cls = hass.states[id]?.attributes?.device_class;
-          if (cls === "temperature" || cls === "humidity") ids.add(id);
+          if (cls === "temperature" || cls === "humidity" || cls === "carbon_dioxide") ids.add(id);
         } else if (iconKind(hass.states[id])) ids.add(id);
         else if (d === "lock" || d === "alarm_control_panel") ids.add(id); // Statusleiste
         else if (d === "binary_sensor" && ["moisture", "smoke", "gas", "carbon_monoxide", "heat", "safety"].includes(hass.states[id]?.attributes?.device_class)) ids.add(id); // Hinweise
@@ -586,8 +586,27 @@ export function ventAdvice(inside, outside, { margin = 1, moldRh = 65 } = {}) {
 export const VIEW_MODES = {
   temp: { label: "Temperatur", unit: "°C", range: [18, 26], icon: "mdi:thermometer", digits: 1 },
   humidity: { label: "Feuchte", unit: "%", range: [30, 70], warn: 65, icon: "mdi:water-percent", digits: 0 },
+  co2: { label: "CO₂", unit: "ppm", range: [400, 1600], icon: "mdi:molecule-co2", digits: 0 },
   power: { label: "Leistung", unit: "W", range: [0, 2000], icon: "mdi:flash", digits: 0 },
+  energy: { label: "Energie heute", unit: "kWh", range: [0, 10], icon: "mdi:lightning-bolt-outline", digits: 2 },
 };
+
+/** Mittelwert der Sensoren einer Geräteklasse im Bereich des Raums (z. B. carbon_dioxide); null ohne Sensor. */
+export function roomSensorMean(room, hass, byArea, cls) {
+  const vals = (byArea.get(room?.area_id) ?? [])
+    .filter((id) => domainOf(id) === "sensor" && hass.states[id]?.attributes?.device_class === cls)
+    .map((id) => Number(hass.states[id].state))
+    .filter((v) => Number.isFinite(v));
+  return vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : null;
+}
+
+/** Energiesensoren (kWh, Zähler) im Bereich eines Raums – für „Energie heute“ aus der Statistik. */
+export function roomEnergySensors(room, hass, byArea, exclude = new Set()) {
+  return (byArea.get(room?.area_id) ?? []).filter((id) => {
+    const a = hass.states[id]?.attributes ?? {};
+    return domainOf(id) === "sensor" && !exclude.has(id) && a.device_class === "energy" && ["total", "total_increasing"].includes(a.state_class);
+  });
+}
 
 /** Farbe [r, g, b] (0..1) für einen Wert in einer Ansicht; null ohne Wert. */
 export function viewColor(mode, v) {
@@ -598,6 +617,16 @@ export function viewColor(mode, v) {
     if (v >= (VIEW_MODES.humidity.warn ?? 65)) return hsl(280 / 360, 0.6, 0.5);
     const f = Math.min(1, Math.max(0, (v - 30) / 35));
     return hsl((30 + f * 180) / 360, 0.7, 0.5);
+  }
+  if (mode === "co2") {
+    // gut (grün) bis 800 ppm, ab 1000 gelb, ab 1400 rot
+    const f = Math.min(1, Math.max(0, (v - 600) / 900));
+    return hsl(((1 - f) * 120) / 360, 0.75, 0.48);
+  }
+  if (mode === "energy") {
+    // logarithmisch: 0,05 kWh grün … 10 kWh rot
+    const f = Math.min(1, Math.max(0, Math.log10(Math.max(0.05, v) / 0.05) / Math.log10(200)));
+    return hsl(((1 - f) * 120) / 360, 0.8, 0.48);
   }
   if (mode === "power") {
     // logarithmisch: 10 W grün … 2 kW rot

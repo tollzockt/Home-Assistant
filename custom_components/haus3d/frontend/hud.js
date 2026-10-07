@@ -87,7 +87,7 @@ export const LEGACY_FUNCTION_KEYS = ["flow", "temp", "style", "roof", "grid", "w
 /** Eingebaute Funktionen des Funktionsrads (Reihenfolge = Standard). */
 // Stil, Dach, Raster, Wetter, Raumnamen, Geräte, Möbel, Anwesenheit, Schatten und Vollbild stehen seit
 // 0.16 im Zahnrad; gespeicherte Listen verlieren sie still (normalizeFunctions).
-export const FUNCTION_KEYS = ["flow", "temp", "security", "network", "goodnight", "view", "walk", "fit"];
+export const FUNCTION_KEYS = ["flow", "temp", "timeline", "security", "network", "goodnight", "view", "walk", "fit"];
 
 /**
  * Einträge des Funktionsrads aus den Einstellungen: eingebaute (key) und eigene (entity), ohne Doppelte.
@@ -140,14 +140,16 @@ export function nextStyle(style) {
   return order[(order.indexOf(style) + 1) % order.length];
 }
 
-/** Bodenfarbe durchschalten: aus → Temperatur → Feuchte → Leistung → aus. */
+export const VIEW_ORDER = ["none", "temp", "humidity", "co2", "power", "energy"];
+
+/** Bodenfarbe durchschalten: aus → Temperatur → Feuchte → CO₂ → Leistung → Energie heute → aus. */
 export function nextView(view) {
-  const order = ["none", "temp", "humidity", "power"];
+  const order = VIEW_ORDER;
   return order[(order.indexOf(view) + 1) % order.length] ?? "temp";
 }
 
 /** Gespeicherte Bodenfarbe lesen; alte Einstellung haus3d.temp ("1") = Temperatur. */
 export function migrateView(viewRaw, tempRaw) {
-  if (["none", "temp", "humidity", "power"].includes(viewRaw)) return viewRaw;
+  if (VIEW_ORDER.includes(viewRaw)) return viewRaw;
   return tempRaw === "1" ? "temp" : "none";
 }

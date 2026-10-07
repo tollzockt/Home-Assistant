@@ -154,6 +154,7 @@ export const LAYERS = [
   ["energy", "Energieanzeige"],
   ["status", "Statusleiste (Licht, offen, Schlösser)"],
   ["presence", "Anwesenheit (Personen, Bewegung)"],
+  ["favorites", "Favoriten-Leiste (meistgenutzte Geräte)"],
   ["sun", "Sonnenstand (Licht aus Richtung der echten Sonne)"],
   ["lightcolor", "Lichtfarbe und Helligkeit übernehmen"],
 ];

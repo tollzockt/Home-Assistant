@@ -75,7 +75,7 @@ test("Funktionsrad: neue eingebaute Schlüssel kommen einmal dazu, ausgeblendete
 
 test("Bodenfarbe: durchschalten und alte Einstellung übernehmen", async () => {
   const { nextView, migrateView } = await import("../../custom_components/haus3d/frontend/hud.js");
-  assert.deepEqual(["none", "temp", "humidity", "power"].map(nextView), ["temp", "humidity", "power", "none"]);
+  assert.deepEqual(["none", "temp", "humidity", "co2", "power", "energy"].map(nextView), ["temp", "humidity", "co2", "power", "energy", "none"]);
   assert.equal(migrateView(null, "1"), "temp");
   assert.equal(migrateView(null, "0"), "none");
   assert.equal(migrateView("humidity", "1"), "humidity");
