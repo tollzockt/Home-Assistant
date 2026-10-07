@@ -176,39 +176,49 @@ export const UserMethods = {
     const ui = document.createElement("div");
     ui.className = "walkui";
     ui.innerHTML = `<div class="walkbar"><ha-icon icon="mdi:walk"></ha-icon><span>Begehen: ${esc(floor.name)}</span><button class="primary exit">Verlassen</button></div>
-      <div class="joy" title="Gehen"><div class="knob"></div></div>
-      <p class="walkhint">Ziehen = umsehen · Tippen auf den Boden = hingehen · Joystick, WASD oder Pfeiltasten = gehen</p>`;
+      <div class="joy move" title="Gehen: vor, zurück, seitlich"><div class="knob"><ha-icon icon="mdi:walk"></ha-icon></div></div>
+      <div class="joy look" title="Umsehen"><div class="knob"><ha-icon icon="mdi:eye-outline"></ha-icon></div></div>
+      <p class="walkhint">Links gehen · rechts umsehen · Tippen auf den Boden = hingehen · WASD/Pfeiltasten</p>`;
     ui.querySelector(".exit").addEventListener("click", () => this._stopWalk());
-    const joy = ui.querySelector(".joy");
-    const knob = ui.querySelector(".knob");
-    let jp = null;
-    const set = (ev) => {
-      const r = joy.getBoundingClientRect();
-      const R = r.width / 2;
-      let dx = ev.clientX - (r.left + R);
-      let dy = ev.clientY - (r.top + R);
-      const len = Math.hypot(dx, dy);
-      if (len > R) {
-        dx = (dx / len) * R;
-        dy = (dy / len) * R;
-      }
-      knob.style.transform = `translate(${dx}px, ${dy}px)`;
-      this._scene.walkInput(-dy / R, dx / R);
+    // zwei Joysticks, gleichzeitig mit zwei Fingern bedienbar (je eigener Zeiger)
+    const stick = (joy, apply) => {
+      const knob = joy.querySelector(".knob");
+      let jp = null;
+      const set = (ev) => {
+        const r = joy.getBoundingClientRect();
+        const R = r.width / 2;
+        let dx = ev.clientX - (r.left + R);
+        let dy = ev.clientY - (r.top + R);
+        const len = Math.hypot(dx, dy);
+        if (len > R) {
+          dx = (dx / len) * R;
+          dy = (dy / len) * R;
+        }
+        knob.style.transform = `translate(${dx}px, ${dy}px)`;
+        apply(dx / R, dy / R);
+      };
+      joy.addEventListener("pointerdown", (ev) => {
+        ev.stopPropagation();
+        ev.preventDefault();
+        joy.setPointerCapture(ev.pointerId);
+        jp = ev.pointerId;
+        joy.classList.add("held");
+        set(ev);
+      });
+      joy.addEventListener("pointermove", (ev) => ev.pointerId === jp && set(ev));
+      const end = (ev) => {
+        if (ev.pointerId !== jp) return;
+        jp = null;
+        joy.classList.remove("held");
+        knob.style.transform = "";
+        apply(0, 0);
+      };
+      joy.addEventListener("pointerup", end);
+      joy.addEventListener("pointercancel", end);
+      joy.addEventListener("lostpointercapture", end);
     };
-    joy.addEventListener("pointerdown", (ev) => {
-      ev.stopPropagation();
-      joy.setPointerCapture(ev.pointerId);
-      jp = ev.pointerId;
-      set(ev);
-    });
-    joy.addEventListener("pointermove", (ev) => ev.pointerId === jp && set(ev));
-    const end = () => {
-      jp = null;
-      knob.style.transform = "";
-      this._scene.walkInput(0, 0);
-    };
-    joy.addEventListener("pointerup", end);
-    joy.addEventListener("pointercancel", end);
+    stick(ui.querySelector(".joy.move"), (x, y) => this._scene.walkInput(-y, x));
+    stick(ui.querySelector(".joy.look"), (x, y) => this._scene.walkLookInput(-x, -y));
     this._els.stage.appendChild(ui);
     this._walkUi = ui;
     this._walkEsc = (ev) => ev.key === "Escape" && this._stopWalk();
@@ -239,7 +249,11 @@ export const USER_STYLE = `
 .walkui { position: absolute; inset: 0; pointer-events: none; z-index: 6; }
 .walkui .walkbar { pointer-events: auto; position: absolute; top: 12px; left: 50%; transform: translateX(-50%); display: flex; align-items: center; gap: 10px; padding: 6px 6px 6px 14px; border-radius: 24px; background: var(--card-background-color, #fff); box-shadow: 0 2px 10px rgba(0,0,0,.3); font-weight: 600; }
 .walkui .walkbar button { font: inherit; border: 0; border-radius: 18px; min-height: 40px; padding: 0 16px; cursor: pointer; background: var(--primary-color, #03a9f4); color: #fff; }
-.walkui .joy { pointer-events: auto; position: absolute; left: 24px; bottom: 24px; width: 132px; height: 132px; border-radius: 50%; background: rgba(0,0,0,.25); border: 2px solid rgba(255,255,255,.6); touch-action: none; }
-.walkui .knob { position: absolute; left: 41px; top: 41px; width: 50px; height: 50px; border-radius: 50%; background: rgba(255,255,255,.9); box-shadow: 0 2px 6px rgba(0,0,0,.3); }
-.walkui .walkhint { position: absolute; right: 16px; bottom: 16px; margin: 0; max-width: 46%; padding: 6px 10px; border-radius: 10px; background: rgba(0,0,0,.45); color: #fff; font-size: 12px; }
+.walkui .joy { pointer-events: auto; position: absolute; bottom: 28px; width: 140px; height: 140px; border-radius: 50%; background: rgba(0,0,0,.25); border: 2px solid rgba(255,255,255,.6); touch-action: none; user-select: none; -webkit-user-select: none; }
+.walkui .joy.move { left: 28px; }
+.walkui .joy.look { right: 28px; }
+.walkui .joy.held { background: rgba(0,0,0,.35); border-color: #fff; }
+.walkui .knob { position: absolute; left: 43px; top: 43px; width: 54px; height: 54px; border-radius: 50%; background: rgba(255,255,255,.92); box-shadow: 0 2px 6px rgba(0,0,0,.3); display: grid; place-items: center; color: #455a64; pointer-events: none; }
+.walkui .walkhint { position: absolute; left: 50%; top: 68px; transform: translateX(-50%); margin: 0; max-width: calc(100% - 32px); padding: 6px 10px; border-radius: 10px; background: rgba(0,0,0,.45); color: #fff; font-size: 12px; text-align: center; }
+@media (max-width: 600px) { .walkui .joy { width: 120px; height: 120px; bottom: 20px; } .walkui .knob { left: 35px; top: 35px; width: 50px; height: 50px; } .walkui .joy.move { left: 16px; } .walkui .joy.look { right: 16px; } }
 `;

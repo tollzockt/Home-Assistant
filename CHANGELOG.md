@@ -23,6 +23,9 @@
 - **Bodenfarbe CO₂** und **Energie heute** (kWh je Raum aus der HA-Statistik).
 
 ### Bedienung
+- **Begehen** mit zwei Joysticks: links gehen (vor, zurück, seitlich), rechts umsehen – gleichzeitig mit zwei
+  Fingern. Behoben: In beleuchteten Räumen und an Türblättern blieb man hängen (nur noch Wände halten auf,
+  man gleitet an ihnen entlang).
 - **Raum-Szenen**: im Bearbeiten-Modus „+ Szene“ im Raumfenster speichert den jetzigen Zustand als echte
   HA-Szene (Kino, Lesen, Putzen …), danach ein Knopf im Raumfenster.
 - **Favoriten-Leiste** unten: die meistgenutzten Geräte dieses Tablets (lernt mit; im Bearbeiten-Modus

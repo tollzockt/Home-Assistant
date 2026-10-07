@@ -1,6 +1,6 @@
-// Begehen-Modus (Mixin für HouseScene): Blick aus Augenhöhe durch eine Etage. Ziehen schaut sich um,
-// Tippen auf den Boden geht dorthin, Joystick/WASD/Pfeiltasten/Mausrad gehen; Wände halten auf
-// (Türen sind Löcher in den Wänden und lassen durch).
+// Begehen-Modus (Mixin für HouseScene): Blick aus Augenhöhe durch eine Etage. Linker Joystick/WASD gehen
+// (vor, zurück, seitlich), rechter Joystick/Ziehen/Pfeiltasten links-rechts schauen, Tippen auf den Boden
+// geht dorthin. Nur Wände halten auf (Türen sind Löcher in den Wänden und lassen durch).
 
 import * as THREE from "./vendor/three.module.min.js";
 import { labelPoint, signedArea } from "./walls.js";
@@ -23,7 +23,7 @@ export const SceneWalk = {
     const big = [...rooms].sort((a, b) => Math.abs(signedArea(b.points)) - Math.abs(signedArea(a.points)))[0];
     const p = at ?? labelPoint(big.points);
     const elev = entry.floor.elevation ?? 0;
-    this._walk = { floorId, elev, saved: this.getView(), fov: this.camera.fov, yaw: 0, pitch: -0.08, move: [0, 0], glide: null };
+    this._walk = { floorId, elev, saved: this.getView(), fov: this.camera.fov, yaw: 0, pitch: -0.08, move: [0, 0], turn: [0, 0], glide: null };
     this.controls.enabled = false;
     this.camera.fov = 70;
     this.camera.updateProjectionMatrix();
@@ -44,6 +44,7 @@ export const SceneWalk = {
     const w = this._walk;
     if (!w) return;
     this._walk = null;
+    this._walkWalls = null;
     clearInterval(this._walkTimer);
     this._walkTimer = null;
     this._unbindWalk?.();
@@ -62,20 +63,45 @@ export const SceneWalk = {
     this.invalidate();
   },
 
-  /** Joystick/Tasten: forward, strafe in -1..1 (wird bis zum nächsten Aufruf gehalten). */
+  /** Linker Joystick/Tasten: forward, strafe in -1..1 (wird bis zum nächsten Aufruf gehalten). */
   walkInput(forward, strafe) {
     const w = this._walk;
     if (!w) return;
     w.move = [forward, strafe];
-    const active = Math.abs(forward) > 0.05 || Math.abs(strafe) > 0.05;
+    this._walkRun();
+  },
+
+  /** Rechter Joystick: drehen (yaw, + = links) und auf/ab schauen (pitch, + = hoch) in -1..1. */
+  walkLookInput(yaw, pitch) {
+    const w = this._walk;
+    if (!w) return;
+    w.turn = [yaw, pitch];
+    this._walkRun();
+  },
+
+  /** Ein Takt für Gehen und Schauen, solange einer der Joysticks ausgelenkt ist. */
+  _walkRun() {
+    const w = this._walk;
+    const dead = (v) => (Math.abs(v) > 0.08 ? v : 0);
+    const active = w && [...w.move, ...w.turn].some((v) => dead(v) !== 0);
     if (active && !this._walkTimer) {
       let last = performance.now();
       this._walkTimer = setInterval(() => {
         const now = performance.now();
         const dt = Math.min(0.1, (now - last) / 1000);
         last = now;
-        const [f, s] = this._walk?.move ?? [0, 0];
-        this.walkStep(f * 1.4 * dt, s * 1.1 * dt);
+        const ww = this._walk;
+        if (!ww) return;
+        const [f, s] = ww.move.map(dead);
+        const [ty, tp] = ww.turn.map(dead);
+        // Kurve: feine Bewegung nahe der Mitte, schnell am Rand
+        const curve = (v) => Math.sign(v) * v * v;
+        if (ty || tp) {
+          ww.yaw += curve(ty) * 2.2 * dt;
+          ww.pitch = Math.max(-1.2, Math.min(1.2, ww.pitch + curve(tp) * 1.3 * dt));
+          this._walkLook();
+        }
+        if (f || s) this.walkStep(f * 1.6 * dt, s * 1.3 * dt);
       }, 33);
     } else if (!active) {
       clearInterval(this._walkTimer);
@@ -122,8 +148,13 @@ export const SceneWalk = {
     this._walkRay ??= new THREE.Raycaster();
     this._walkRay.set(from, dir);
     this._walkRay.far = len + RADIUS;
-    const targets = [];
-    entry.group.traverse((o) => o.isMesh && o.visible !== false && o.userData.layer !== "furniture" && !o.userData.blob && targets.push(o));
+    // nur Wände (auch freistehende): Lichtschein, Türblätter, Leitungen, Möbel und Geräte lassen durch
+    let targets = (this._walkWalls ??= new Map()).get(w.floorId) ?? [];
+    if (!targets.length || !targets[0].parent) {
+      targets = []; // nach einem Neuaufbau der Etage neu sammeln
+      entry.group.traverse((o) => o.isMesh && o.userData.layer === "walls" && targets.push(o));
+      this._walkWalls.set(w.floorId, targets);
+    }
     return this._walkRay.intersectObjects(targets, false).some((h) => Math.abs(h.face?.normal?.y ?? 0) < 0.5);
   },
 
@@ -182,6 +213,7 @@ export const SceneWalk = {
     };
     const keys = new Set();
     const keyMap = { w: [1, 0], arrowup: [1, 0], s: [-1, 0], arrowdown: [-1, 0], a: [0, -1], d: [0, 1] };
+    this._walkWalls = null; // Wände der Etage beim ersten Schritt neu sammeln
     const turn = { arrowleft: 1, arrowright: -1, q: 1, e: -1 };
     const sync = () => {
       let f = 0;

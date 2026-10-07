@@ -75,7 +75,7 @@ const walked = await E(() => {
   return { moved, dist: Math.round(sc.camera.position.distanceTo(p0) * 100) / 100 };
 });
 t.results.wand = walked;
-t.check(walked.moved < 200 && walked.dist < 19, `Wand hält auf: ${JSON.stringify(walked)}`);
+t.check(walked.dist < 19, `Wand hält auf: ${JSON.stringify(walked)}`); // an Wänden entlang gleiten ist erlaubt, durch nicht
 await pg.keyboard.down("ArrowLeft");
 await pg.keyboard.up("ArrowLeft");
 await pg.locator("haus3d-panel .walkui .exit").click();

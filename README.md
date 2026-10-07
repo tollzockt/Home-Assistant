@@ -15,6 +15,7 @@ dort lassen sich direkt einlesen, und Exporte von Haus 3D kann NeonPlan wieder �
 - **Zeitstrahl** (Funktionsrad): Tag zurückspulen und Vorhersage der nächsten 24 h im Modell.
 - **Bodenfarbe** jetzt auch CO₂ und Energie heute.
 - **Raum-Szenen** (Bearbeiten → Raumfenster → „+ Szene“) und **Favoriten-Leiste** unten.
+- **Begehen** mit zwei Joysticks: links gehen, rechts umsehen.
 - **Urlaub**: Anwesenheit simulieren („Haus verlassen“ oder Dienst `haus3d.away`), läuft im Hintergrund.
 
 ## Neu in 0.20: Dachgeschoss, eigener Name, Rahmenfarbe
