@@ -1157,7 +1157,7 @@ class Haus3DPanel extends HTMLElement {
     const sur = surplus({ netz: energy.netz, einspeisung: energy.einspeisung }, cfg.ueberschuss, this._surplusLevel);
     this._surplusLevel = sur.level;
     const texts = {};
-    for (const row of this._energyEl.querySelectorAll(".row")) {
+    for (const row of this._energyEl.querySelectorAll(".row[data-i]")) {
       const r = this._energyRows[Number(row.dataset.i)];
       const v = energy[r.key];
       let text;

@@ -156,6 +156,20 @@ if (params.has("sun")) {
 }
 if (params.get("light") === "rgb") states["light.wohnzimmer_decke"].attributes = { ...states["light.wohnzimmer_decke"].attributes, rgb_color: [0, 0, 255], brightness: 255 };
 if (params.get("weather")) add(st("weather.zuhause", params.get("weather"), { friendly_name: "Zuhause" }), null);
+// ?daily: Alltag – Waschmaschine (Leistung), Abfallkalender (morgen Gelbe Tonne), dynamischer Strompreis,
+// CO₂ und Energiezähler im Wohnzimmer, Thermostat im Bad, Szene
+if (params.has("daily")) {
+  const dayIso = (d) => { const x = new Date(); x.setDate(x.getDate() + d); x.setHours(0, 0, 0, 0); return `${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2, "0")}-${String(x.getDate()).padStart(2, "0")} 00:00:00`; };
+  add(st("sensor.waschmaschine_leistung", params.get("wm") ?? "0", { device_class: "power", unit_of_measurement: "W", friendly_name: "Waschmaschine Leistung" }), "waschraum");
+  add(st("calendar.abfall", "off", { message: "Gelbe Tonne", start_time: dayIso(1), all_day: true, friendly_name: "Abfall" }), null);
+  const h0 = new Date(); h0.setMinutes(0, 0, 0);
+  const raw = Array.from({ length: 12 }, (_, i) => ({ start: new Date(h0.getTime() + i * 3600000).toISOString(), end: new Date(h0.getTime() + (i + 1) * 3600000).toISOString(), value: [32, 30, 28, 18, 14, 15, 25, 33, 36, 34, 31, 30][i] }));
+  add(st("sensor.strompreis", "32", { unit_of_measurement: "ct/kWh", friendly_name: "Strompreis", raw_today: raw }), null);
+  add(st("sensor.wohnzimmer_co2", "1350", { device_class: "carbon_dioxide", unit_of_measurement: "ppm" }), "wohnzimmer");
+  add(st("sensor.wohnzimmer_energie", "120.5", { device_class: "energy", state_class: "total_increasing", unit_of_measurement: "kWh" }), "wohnzimmer");
+  add(st("climate.bad", "heat", { hvac_modes: ["off", "heat"], hvac_action: "heating", temperature: 22, current_temperature: 21, friendly_name: "Heizung Bad" }), "badezimmer");
+  add(st("scene.wohnzimmer_kino", "2026-10-07T10:00:00+00:00", { id: "haus3d_wohnzimmer_kino_x", friendly_name: "Wohnzimmer: Kino" }), null);
+}
 // ?lan: Netzwerkgeräte wie aus „UniFi Network“ (Access Point im Flur, Client im Wohnzimmer, einer offline)
 const devices = {};
 const tokensAdmin = (t) => (window.tokens ?? {})[t];
@@ -239,6 +253,7 @@ const hass = {
     // Statistik: 5-min-Mittelwerte (Sonnenbogen für PV, Ladestand steigt), ?nohistory = leer
     if (msg.type === "recorder/statistics_during_period") {
       if (params.has("nohistory")) return {};
+      if (msg.types?.includes("change")) return Object.fromEntries(msg.statistic_ids.map((id) => [id, [{ start: Date.now(), change: 1.25 }]]));
       const s = Date.parse(msg.start_time);
       const e = Date.parse(msg.end_time);
       const out = {};
@@ -254,11 +269,16 @@ const hass = {
       }
       return out;
     }
-    if (msg.type === "history/history_during_period") return {};
+    if (msg.type === "history/history_during_period") return window.historyData ?? {};
+    if (msg.type === "call_service" && msg.service === "get_forecasts") {
+      const id = msg.target.entity_id;
+      return { response: { [id]: { forecast: Array.from({ length: 24 }, (_, i) => ({ datetime: new Date(Date.now() + i * 3600000).toISOString(), condition: i < 6 ? "sunny" : "cloudy", cloud_coverage: i < 6 ? 5 : 85, temperature: 14 + (i % 5) })) } } };
+    }
     if (msg.type === "energy/get_prefs") return params.has("noprefs") ? {} : structuredClone(energyPrefs);
     return {};
   },
   callService: async (domain, service, d) => { window.calls.push({ domain, service, ...d }); },
+  callApi: async (method, path, body) => { (window.apiCalls ??= []).push({ method, path, body }); return { result: "ok" }; },
   // Dienst-Abo: window.sendCommand({service: "notify", …}) schickt einen Befehl wie Home Assistant
   connection: {
     subscribeMessage: async (cb, msg) => {
