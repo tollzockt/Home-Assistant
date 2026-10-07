@@ -1,5 +1,10 @@
 # Änderungen
 
+## 0.20.1
+
+- **Kamera-Sichtbereich ausblendbar**: eigener Schalter „Kamera-Sicht“ im Zahnrad (Kachel), in den Ebenen
+  und als Funktion fürs Rad. Die Kamera-Symbole bleiben, nur die blauen Sichtkegel verschwinden.
+
 ## 0.20.0
 
 ### Neu

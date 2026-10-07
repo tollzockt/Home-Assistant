@@ -1931,6 +1931,7 @@ class Haus3DPanel extends HTMLElement {
       weather: layer("weather", "mdi:weather-pouring", "Wetter"),
       labels: layer("labels", "mdi:label-outline", "Raumnamen"),
       devices: layer("devices", "mdi:lightbulb-group-outline", "Geräte"),
+      cameras: layer("cameras", "mdi:cctv", "Kamera-Sicht"),
       furniture: layer("furniture", "mdi:sofa-outline", "Möbel"),
       presence: layer("presence", "mdi:motion-sensor", "Anwesenheit"),
       security: { icon: "mdi:shield-home-outline", name: "Sicherheit", on: this._securityView, run: () => {

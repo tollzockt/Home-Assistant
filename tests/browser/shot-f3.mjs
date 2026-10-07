@@ -8,6 +8,16 @@ const E = (fn, arg) => pg.evaluate(fn, arg);
 // Sichtkegel der fest platzierten Kamera
 const cones = await E(() => window.panel._scene.conesGroup?.children.filter((o) => o.isMesh && o.userData.cone).length ?? 0);
 t.check(cones === 1, `Sichtkegel: ${cones}`);
+// eigener Schalter „Kamera-Sicht“: Kegel weg, Kamera-Symbol bleibt
+const coneVis = (layers) => E((l) => {
+  const s = window.panel._scene;
+  s.setLayers({ ...s.layers, ...l });
+  return s.conesGroup.visible;
+}, layers);
+t.check((await coneVis({ cameras: false })) === false, "Kamera-Sicht aus blendet die Kegel nicht aus");
+t.check((await coneVis({ cameras: true })) === true, "Kamera-Sicht an zeigt die Kegel nicht");
+t.check((await coneVis({ devices: false })) === false, "Kegel ohne Geräte sichtbar");
+await coneVis({ devices: true });
 
 // Klingel: neuer Zeitstempel am event-Element öffnet die Klingel-Kamera
 await E(() => {

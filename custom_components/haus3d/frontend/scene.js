@@ -500,7 +500,8 @@ export class HouseScene {
     const on = (name) => this.layers[name] !== false;
     for (const obj of [this.root, this.devicesGroup]) {
       obj.traverse((o) => {
-        if (o.userData.layer) o.visible = on(o.userData.layer) && (o.userData.layer !== "pipes" || on("flow")); // Leitungen gehören zum Energiefluss
+        // Leitungen gehören zum Energiefluss, Kamera-Sichtkegel zu den Geräten
+        if (o.userData.layer) o.visible = on(o.userData.layer) && (o.userData.layer !== "pipes" || on("flow")) && (o.userData.layer !== "cameras" || on("devices"));
       });
     }
     this.devicesGroup.visible = on("devices") && this._deviceList?.length > 0;
@@ -548,7 +549,7 @@ export class HouseScene {
   setCameraCones(list) {
     if (!this.conesGroup) {
       this.conesGroup = new THREE.Group();
-      this.conesGroup.userData.layer = "devices";
+      this.conesGroup.userData.layer = "cameras"; // eigener Schalter „Kamera-Sicht“ (und nur mit Geräten)
       this.root.add(this.conesGroup);
     }
     for (const child of [...this.conesGroup.children]) this._dispose(child);

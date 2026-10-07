@@ -148,6 +148,7 @@ export const LAYERS = [
   ["flow", "Energiefluss"],
   ["pipes", "Leitungen (Strom, Wasser)"],
   ["devices", "Geräte"],
+  ["cameras", "Kamera-Sichtbereich"],
   ["labels", "Raumnamen"],
   ["climate", "Temperatur & Feuchte"],
   ["energy", "Energieanzeige"],

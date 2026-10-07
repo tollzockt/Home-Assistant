@@ -32,7 +32,7 @@ const basics = await E(() => {
   return { segs: [...d.querySelectorAll(".seg")].map((s) => s.dataset.key), tiles: [...d.querySelectorAll(".qtile span")].map((s) => s.textContent), big: [...d.querySelectorAll(".bigtile span")].map((s) => s.textContent), h4: d.querySelectorAll("h4").length };
 });
 t.results.zahnrad = basics;
-t.check(basics.segs.join() === "style,quality,deviceMode" && basics.tiles.length === 10 && !basics.tiles.includes("Simulation") && basics.tiles.includes("Leitungen") && basics.big.join() === "Bearbeiten,Admin-Einstellungen", `Zahnrad: ${JSON.stringify(basics)}`);
+t.check(basics.segs.join() === "style,quality,deviceMode" && basics.tiles.length === 11 && basics.tiles.includes("Kamera-Sicht") && !basics.tiles.includes("Simulation") && basics.tiles.includes("Leitungen") && basics.big.join() === "Bearbeiten,Admin-Einstellungen", `Zahnrad: ${JSON.stringify(basics)}`);
 await t.shot(pg, "zahnrad.png");
 // Kachel Raster schaltet um
 const g0 = await E(() => window.panel._settings.layers.grid !== false);

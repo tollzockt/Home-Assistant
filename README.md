@@ -18,6 +18,7 @@ dort lassen sich direkt einlesen, und Exporte von Haus 3D kann NeonPlan wieder �
 - **Simulation nur im Admin-Modus**, passend zum aktuellen Stand (Leitungsfluss, Speicher an PV/BKW,
   Haus/Netz-Bilanz); endet mit dem Admin-Modus.
 - **Energiefluss aus** im Rad blendet die Leitungen ganz aus.
+- **Kamera-Sicht** (Zahnrad-Kachel, 0.20.1): blaue Sichtkegel der Kameras ein/aus.
 - Tablet: „Geräte anpassen“ scrollt mit dem Finger.
 
 ## Neu in 0.19: Leitungsnetz mit Verteilern und Abzweigen

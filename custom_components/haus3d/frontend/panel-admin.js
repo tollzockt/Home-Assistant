@@ -20,6 +20,7 @@ const QUICK_LAYERS = [
   ["furniture", "mdi:sofa-outline", "Möbel"],
   ["presence", "mdi:motion-sensor", "Anwesenheit"],
   ["pipes", "mdi:pipe", "Leitungen"],
+  ["cameras", "mdi:cctv", "Kamera-Sicht"],
 ];
 
 const CATEGORIES = [
