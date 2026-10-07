@@ -127,7 +127,7 @@ t.check(!ended.band && !ended.cedit && ended.tokens === 0, `Beenden: ${JSON.stri
 await unlock(pg, "admin");
 const cats = await E(() => [...window.panel.shadowRoot.querySelectorAll(".cats .cat b")].map((b) => b.textContent));
 t.results.kategorien = cats;
-t.check(cats.length === 10 && cats.includes("PIN & Zugang") && cats.includes("Daten & Verlauf"), `Kategorien: ${JSON.stringify(cats)}`);
+t.check(cats.length === 11 && cats.includes("Alltag") && cats.includes("PIN & Zugang") && cats.includes("Daten & Verlauf"), `Kategorien: ${JSON.stringify(cats)}`);
 await t.shot(pg, "admin-kategorien.png");
 await pg.locator('haus3d-panel .cat[data-cat="house"]').click();
 const house = await q(".catbox .house-save");

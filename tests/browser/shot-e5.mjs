@@ -6,7 +6,7 @@ const pg = await t.page("e5", "?power&humid=72&climate&weather=cloudy", { width:
 await pg.evaluate(() => window.panel._setFilter("eg"));
 const legend = async () => pg.evaluate(() => window.panel.shadowRoot.querySelector(".legend .lt")?.textContent ?? null);
 const out = {};
-for (const [mode, file] of [["Temperatur", "boden-temperatur.png"], ["Feuchte", "boden-feuchte.png"], ["Leistung", "boden-leistung.png"]]) {
+for (const [mode, file] of [["Temperatur", "boden-temperatur.png"], ["Feuchte", "boden-feuchte.png"], ["CO₂", "boden-co2.png"], ["Leistung", "boden-leistung.png"]]) {
   await t.fnToggle(pg, "Bodenfarbe");
   await pg.waitForTimeout(800);
   out[mode] = await legend();
@@ -17,6 +17,9 @@ for (const [mode, file] of [["Temperatur", "boden-temperatur.png"], ["Feuchte", 
 const power = await pg.evaluate(() => ({ label: window.panel._overlays.get("room:eg:kueche").parts.clim.textContent, watched: window.panel._watched.includes("sensor.kueche_steckdose_leistung") }));
 out.leistung = power;
 t.check(/320 W/.test(power.label) && power.watched, `Leistung Küche: ${JSON.stringify(power)}`);
+await t.fnToggle(pg, "Bodenfarbe"); // Energie heute
+await pg.waitForTimeout(400);
+t.check((await legend()) === "Bodenfarbe: Energie heute", `Legende Energie heute: ${await legend()}`);
 await t.fnToggle(pg, "Bodenfarbe"); // aus
 await pg.waitForTimeout(400);
 t.check((await legend()) === null, "Legende bleibt nach „aus“ stehen");

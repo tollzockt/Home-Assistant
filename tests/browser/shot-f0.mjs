@@ -36,7 +36,7 @@ const layersBefore = await pg.evaluate(() => JSON.stringify(window.panel._settin
 await pg.locator(`haus3d-panel .wheel.right .bub.vis[title="${tapped}"]`).tap();
 await pg.waitForTimeout(300);
 const layersAfter = await pg.evaluate(() => JSON.stringify(window.panel._settings.layers) + window.panel._settings.style + window.panel._view);
-t.check(layersAfter !== layersBefore || /Blickwinkel|Gute Nacht|Vollbild|einpassen|Netzwerk|Begehen/i.test(tapped), `Tipp nach Drehen wirkt nicht: ${tapped}`);
+t.check(layersAfter !== layersBefore || /Blickwinkel|Gute Nacht|Vollbild|einpassen|Netzwerk|Begehen|Sicherheit|Zeitstrahl/i.test(tapped), `Tipp nach Drehen wirkt nicht: ${tapped}`);
 // Überdeckung: Karten (Energie aufgeklappt) gegen Etagenleiste
 for (const [name, w, h] of [["tablet-quer", 1024, 768], ["tablet-hoch", 800, 1280], ["handy", 390, 844]]) {
   const q = await t.page(`f0-${name}`, "?netz=450", { width: w, height: h, touch: true });
