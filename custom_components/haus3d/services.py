@@ -34,6 +34,10 @@ SERVICES: dict[str, vol.Schema] = {
 }
 
 
+# Dienste mit Wirkung im Hintergrund (daily.py)
+AWAY_SCHEMA = vol.Schema({vol.Required("on"): cv.boolean})
+
+
 @callback
 def async_register_services(hass: HomeAssistant) -> None:
     """Registriert die Dienste (einmal je Lauf)."""
@@ -46,8 +50,16 @@ def async_register_services(hass: HomeAssistant) -> None:
         if not hass.services.has_service(DOMAIN, name):
             hass.services.async_register(DOMAIN, name, handle, schema=schema)
 
+    async def away(call: ServiceCall) -> None:
+        # Anwesenheit simulieren (Urlaub), z. B. aus einer Automation „alle weg“
+        if (data := hass.data.get(DOMAIN)) is not None:
+            await data.daily.async_set_away(call.data["on"])
+
+    if not hass.services.has_service(DOMAIN, "away"):
+        hass.services.async_register(DOMAIN, "away", away, schema=AWAY_SCHEMA)
+
 
 @callback
 def async_remove_services(hass: HomeAssistant) -> None:
-    for name in SERVICES:
+    for name in [*SERVICES, "away"]:
         hass.services.async_remove(DOMAIN, name)

@@ -86,6 +86,16 @@
           "description": "Wall tablet name (Settings → wall tablet); empty = all."
         }
       }
+    },
+    "away": {
+      "name": "Anwesenheit simulieren",
+      "description": "Urlaub: abends einzelne Lichter im Haus zufällig an und aus (läuft im Hintergrund).",
+      "fields": {
+        "on": {
+          "name": "An",
+          "description": "Simulation an oder aus."
+        }
+      }
     }
   }
 }

@@ -52,6 +52,7 @@ import { CLIMATE_STYLE, ClimateMethods } from "./panel-climate.js";
 import { NETWORK_STYLE, NetworkMethods } from "./panel-network.js";
 import { SUPPORT_STYLE, SupportMethods } from "./panel-support.js";
 import { PIPENET_STYLE, PipeNetMethods } from "./panel-pipes.js";
+import { SMART_STYLE, SmartMethods } from "./panel-smart.js";
 import { doorGuard } from "./access.js";
 import { ENERGYCFG_STYLE, EnergyCfgMethods } from "./panel-energycfg.js";
 import { energyEntities, energyTotals } from "./energymodel.js";
@@ -95,7 +96,7 @@ class Haus3DPanel extends HTMLElement {
     this._overlays = new Map(); // key -> {el, position: Vector3, floorId}
     this._watched = [];
     this._watchedRefs = [];
-    this._extraWatched = () => this._panelIds();
+    this._extraWatched = () => [...this._panelIds(), ...this._smartIds()];
   }
 
   set hass(real) {
@@ -373,7 +374,7 @@ class Haus3DPanel extends HTMLElement {
   _build() {
     this._built = true;
     this.shadowRoot.innerHTML = `
-      <style>${PANEL_STYLE}${MEDIA_STYLE}${FX_STYLE}${CLIMATE_STYLE}${NETWORK_STYLE}${SUPPORT_STYLE}${PIPENET_STYLE}${ENERGYCFG_STYLE}${USER_STYLE}${ACCESS_STYLE}${ADMIN_STYLE}${EDITOR_STYLE}</style>
+      <style>${PANEL_STYLE}${MEDIA_STYLE}${FX_STYLE}${CLIMATE_STYLE}${NETWORK_STYLE}${SUPPORT_STYLE}${PIPENET_STYLE}${SMART_STYLE}${ENERGYCFG_STYLE}${USER_STYLE}${ACCESS_STYLE}${ADMIN_STYLE}${EDITOR_STYLE}</style>
       <div class="wrap">
         <header>
           <button class="icon menu" title="Menü"><ha-icon icon="mdi:menu"></ha-icon></button>
@@ -1195,6 +1196,7 @@ class Haus3DPanel extends HTMLElement {
       ueberschuss: sur.level ? `☀ Überschuss ${formatPower(sur.w, lang)}` : null,
     }[cfg.kurz] ?? this._energyEl.querySelector(".row b")?.textContent ?? "";
     setText(this._energyEl.querySelector(".short"), short);
+    this._smartEnergy(tot);
   }
 
   /** Ausgeblendete Hinweise (dieses Gerät): {key: Zeitpunkt}. */
@@ -1215,11 +1217,16 @@ class Haus3DPanel extends HTMLElement {
   _evalAlerts(energy) {
     const hass = this._hass;
     const weather = weatherKind(this._weatherRef ?? null).kind;
+    this._smartStep();
     const res = evaluateAlerts({
       building: this._building, hass, byArea: this._byArea, links: this._links, places: this._places ?? new Map(), exterior: this._exterior ?? new Set(),
       weather, energy, now: Date.now(), cfg: this._building.settings?.alerts, humidityMax: Number(this._building.settings?.climate?.humidity_max) || 65,
     });
     this._needTick("alerts", res.pending);
+    // Alltag: Gerät fertig, Müll, Lüften, Schimmel; Aktionen (Heizung pausieren …)
+    res.alerts.push(...this._smartAlerts(res.alerts));
+    const order = { critical: 0, warn: 1, info: 2 };
+    res.alerts.sort((a, b) => order[a.level] - order[b.level]);
     // Ausblenden gilt, bis der Hinweis verschwindet (dann darf er wiederkommen)
     let ack = this._alertAck();
     const keys = new Set(res.alerts.map((a) => a.key));
@@ -1269,9 +1276,10 @@ class Haus3DPanel extends HTMLElement {
       const el = document.createElement("div");
       el.className = `alertbar ${a.level}`;
       el.setAttribute("role", "alert");
-      el.innerHTML = `<ha-icon icon="${esc(a.icon)}"></ha-icon><span class="at"></span>${list.length > 1 ? `<button class="more" title="Alle Hinweise">+${list.length - 1}</button>` : ""}${a.roomId ? `<button class="show">Zeigen</button>` : ""}<button class="ack" title="Ausblenden, bis sich etwas ändert">Ausblenden</button>`;
+      el.innerHTML = `<ha-icon icon="${esc(a.icon)}"></ha-icon><span class="at"></span>${list.length > 1 ? `<button class="more" title="Alle Hinweise">+${list.length - 1}</button>` : ""}${a.action ? `<button class="act">${esc(a.action.label)}</button>` : ""}${a.roomId ? `<button class="show">Zeigen</button>` : ""}<button class="ack" title="Ausblenden, bis sich etwas ändert">Ausblenden</button>`;
       el.querySelector(".at").textContent = a.text;
       el.querySelector(".show")?.addEventListener("click", () => this._showAlert(a));
+      el.querySelector(".act")?.addEventListener("click", () => this._alertAction(a));
       el.querySelector(".ack").addEventListener("click", () => this._ackAlert(a));
       el.querySelector(".more")?.addEventListener("click", (ev) => {
         ev.stopPropagation();
@@ -1334,7 +1342,9 @@ class Haus3DPanel extends HTMLElement {
 
   _onTick() {
     if (!this.isConnected || document.hidden) return;
-    if (this._tickers?.has("presence") || this._tickers?.has("alerts")) this._queueUpdate();
+    if (this._tickers?.has("presence") || this._tickers?.has("alerts") || this._tickers?.has("smart")) {
+      this._queueUpdate();
+    }
   }
 
   /** Statusleiste in der Kopfzeile: Chips werden nur neu gebaut, wenn sich ihre Art ändert. */
@@ -1350,6 +1360,7 @@ class Haus3DPanel extends HTMLElement {
     const chips = statusChips(status);
     // Solarüberschuss: guter Moment für Waschmaschine & Co.
     if (this._surplusLevel === "hoch" && this._energyEl && !this._energyEl.hidden) chips.push({ key: "sun", icon: "mdi:solar-power", text: "Überschuss", level: "ok" });
+    chips.push(...this._smartChips());
     const keys = chips.map((c) => c.key).join(",");
     if (keys !== this._chipKeys) {
       this._chipKeys = keys;
@@ -1360,6 +1371,7 @@ class Haus3DPanel extends HTMLElement {
           if (this._energyEl?.classList.contains("collapsed")) this._energyEl.querySelector("h3").click();
           return;
         }
+        if (this._smartChipTap(b.dataset.key)) return;
         this._statusPopup(b.dataset.key);
       }));
     }
@@ -1680,6 +1692,7 @@ class Haus3DPanel extends HTMLElement {
     for (const id of acts.scenes) html += `<button class="chip act-scene" data-entity="${esc(id)}"><ha-icon icon="mdi:palette"></ha-icon><span>${esc(hass.states[id]?.attributes?.friendly_name ?? id)}</span></button>`;
     bar.innerHTML = html;
     bar.hidden = !html;
+    this._roomExtras(p, floor, room, bar);
     const bulk = (domain, service, list) => {
       if (!list.length) return;
       this._hass.callService(domain, service, { entity_id: list }).catch((err) => this._toast(`Fehlgeschlagen: ${err.message ?? err}`));
@@ -1769,6 +1782,7 @@ class Haus3DPanel extends HTMLElement {
       vent.className = `vent ${adv?.level ?? ""}`;
       climEl.hidden = !bits.length && !adv;
     }
+    this._roomExtrasUpdate(p, floor, room, climate);
     const light = p.el.querySelector(".act-light span");
     if (light) {
       const on = p.actions.lights.on.length;
@@ -2054,7 +2068,7 @@ class Haus3DPanel extends HTMLElement {
 }
 
 // Dialoge und Energie-Verlauf einmischen (panel-dialogs.js, panel-energy.js)
-Object.assign(Haus3DPanel.prototype, DialogMethods, EnergyMethods, TabletMethods, MediaMethods, FxMethods, UserMethods, AccessMethods, AdminMethods, ClimateMethods, EnergyCfgMethods, NetworkMethods, SupportMethods, PipeNetMethods);
+Object.assign(Haus3DPanel.prototype, DialogMethods, EnergyMethods, TabletMethods, MediaMethods, FxMethods, UserMethods, AccessMethods, AdminMethods, ClimateMethods, EnergyCfgMethods, NetworkMethods, SupportMethods, PipeNetMethods, SmartMethods);
 
 // Nach einem Update ohne Neuladen ist das Element der alten Version noch registriert: ein zweites
 // define würfe einen Fehler und das Panel ließe sich gar nicht laden

@@ -21,6 +21,7 @@ from .const import (
     VERSION,
 )
 from .access import Access
+from .daily import Daily
 from .storage import Haus3DData
 from .services import async_register_services, async_remove_services
 from .websocket import async_register_commands
@@ -50,6 +51,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     await data.async_load()
     data.access = Access(hass)
     await data.access.async_load()
+    data.daily = Daily(hass, data)
+    await data.daily.async_start()
     hass.data[DOMAIN] = data
 
     if not hass.data.get(_WS_REGISTERED):
@@ -86,7 +89,8 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Entfernt das Panel; Daten bleiben in .storage erhalten."""
     _async_remove_panel(hass)
     async_remove_services(hass)
-    hass.data.pop(DOMAIN, None)
+    if (data := hass.data.pop(DOMAIN, None)) is not None and getattr(data, "daily", None) is not None:
+        data.daily.async_stop()
     return True
 
 

@@ -86,6 +86,16 @@
           "description": "Wall tablet name (Settings → wall tablet); empty = all."
         }
       }
+    },
+    "away": {
+      "name": "Simulate presence",
+      "description": "Vacation: switch single lights in the house on and off randomly in the evening (runs in the background).",
+      "fields": {
+        "on": {
+          "name": "On",
+          "description": "Turn the simulation on or off."
+        }
+      }
     }
   }
 }

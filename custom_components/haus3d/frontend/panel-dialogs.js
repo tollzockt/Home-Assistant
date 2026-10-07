@@ -138,8 +138,19 @@ export const DialogMethods = {
           ${sections.map((sec, si) => !sec.items.length ? "" : `<h4>${esc(sec.title)} (${sec.items.length})</h4>
             ${sec.items.map((it, ii) => `<div class="crow">${sec.info ? `<ha-icon icon="mdi:window-open-variant"></ha-icon>` : `<input type="checkbox" data-s="${si}" data-i="${ii}"${it.checked ? " checked" : ""}>`}<button class="go" data-s="${si}" data-i="${ii}"></button></div>`).join("")}
             ${sec.info ? `<p class="hint">Fenster und Türen bitte von Hand schließen – Tipp auf eine Zeile zeigt den Raum.</p>` : `<div class="btns"><button class="secrun" data-s="${si}">${esc({ garage: "Tore schließen", locks: "Abschließen", lights: "Lichter aus", covers: "Rollläden runter" }[sec.key] ?? "Ausführen")}</button></div>`}`).join("")}
+          ${mode === "leave" ? `<label class="chkrow away"><input type="checkbox" data-away${this._away ? " checked" : ""}> Urlaub: Anwesenheit simulieren (abends einzelne Lichter, läuft im Hintergrund)</label>` : ""}
           <div class="btns"><button class="finish primary">${mode === "goodnight" ? "Fertig – Gute Nacht" : "Fertig – Haus verlassen"}</button></div>
         </div></div>`;
+      el.querySelector("[data-away]")?.addEventListener("change", async (ev) => {
+        try {
+          await this._hass.callWS({ type: "haus3d/away/set", on: ev.target.checked });
+          this._away = ev.target.checked;
+          this._toast(this._away ? "Anwesenheit wird simuliert – abends gehen einzelne Lichter an und aus." : "Anwesenheitssimulation aus.");
+        } catch (err) {
+          ev.target.checked = !ev.target.checked;
+          this._toast(`Fehlgeschlagen: ${err.message ?? err.code ?? err}`);
+        }
+      });
       el.querySelectorAll(".go").forEach((g) => {
         const it = sections[Number(g.dataset.s)].items[Number(g.dataset.i)];
         g.textContent = it.label;
@@ -177,6 +188,13 @@ export const DialogMethods = {
       });
     };
     render();
+    if (mode === "leave") {
+      this._hass.callWS({ type: "haus3d/away/status" }).then((r) => {
+        this._away = !!r?.on;
+        const c = el.querySelector("[data-away]");
+        if (c) c.checked = this._away;
+      }).catch(() => {});
+    }
     el.addEventListener("click", (ev) => {
       if (ev.target === el) this._closeDialog();
     });

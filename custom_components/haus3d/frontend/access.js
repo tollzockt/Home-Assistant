@@ -63,7 +63,7 @@ export function newPinError(a, b) {
 }
 
 /** Einstellungen, die nur mit der Admin-PIN gespeichert werden (wie ADMIN_SETTINGS in access.py). */
-export const ADMIN_KEYS = ["energy", "alerts", "routines", "security", "safety", "doorbell", "weather", "climate", "season", "house_flow", "presence", "north"];
+export const ADMIN_KEYS = ["energy", "alerts", "routines", "security", "safety", "doorbell", "weather", "climate", "season", "house_flow", "presence", "north", "daily"];
 
 /**
  * hass mit Tür-Schutz: lock.unlock und lock.open gehen an guard(service, data) (Tür-PIN), alles andere

@@ -183,6 +183,9 @@ const hass = {
   callWS: async (msg) => {
     window.calls.push(msg);
     if (msg.type === "haus3d/building/get") return { building: data, revision: 1 };
+    if (msg.type === "haus3d/away/status") return { on: !!window.away, lights: 3, paused: [] };
+    if (msg.type === "haus3d/away/set") return { on: (window.away = msg.on) };
+    if (msg.type === "haus3d/climate/pause") return { ok: true };
     if (msg.type.startsWith("haus3d/pin/")) {
       const pins = (window.pins ??= { edit: "0000", admin: "0000", door: "0000" });
       const tokens = (window.tokens ??= {});

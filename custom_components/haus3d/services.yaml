@@ -60,3 +60,10 @@ reload:
     target:
       selector:
         text:
+away:
+  fields:
+    on:
+      required: true
+      example: true
+      selector:
+        boolean:

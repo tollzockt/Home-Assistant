@@ -22,7 +22,7 @@ from .storage import Haus3DData, RevisionConflict
 @callback
 def async_register_commands(hass: HomeAssistant) -> None:
     """Registriert die Befehle (nur einmal pro HA-Lauf, siehe __init__.py)."""
-    for command in (ws_get, ws_save, ws_history_list, ws_history_snapshot, ws_history_restore, ws_background_get, ws_background_set, ws_subscribe, ws_pin_status, ws_pin_verify, ws_pin_set, ws_pin_lock, ws_lock_unlock, ws_dev_set, ws_dev_clear):
+    for command in (ws_get, ws_save, ws_history_list, ws_history_snapshot, ws_history_restore, ws_background_get, ws_background_set, ws_subscribe, ws_pin_status, ws_pin_verify, ws_pin_set, ws_pin_lock, ws_lock_unlock, ws_dev_set, ws_dev_clear, ws_climate_pause, ws_away_status, ws_away_set):
         websocket_api.async_register_command(hass, command)
 
 
@@ -261,3 +261,53 @@ async def ws_dev_clear(hass: HomeAssistant, connection: websocket_api.ActiveConn
         return
     await data.access.async_clear_dev()
     connection.send_result(msg["id"], {"ok": True})
+
+
+def _may_control(connection: websocket_api.ActiveConnection, ids: list[str]) -> bool:
+    user = connection.user
+    return user is None or user.is_admin or all(user.permissions.check_entity(e, POLICY_CONTROL) for e in ids)
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): "haus3d/climate/pause",
+        vol.Required("entity_id"): vol.All(str, vol.Match(r"^climate\.[\w-]+$")),
+        vol.Optional("contacts", default=list): [vol.All(str, vol.Match(r"^binary_sensor\.[\w-]+$"))],
+    }
+)
+@websocket_api.async_response
+async def ws_climate_pause(hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict[str, Any]) -> None:
+    """Heizung pausieren, bis die Fenster zu sind (ok: false, wenn keins offen ist)."""
+    if (data := _data(hass, connection, msg)) is None:
+        return
+    if not _may_control(connection, [msg["entity_id"]]):
+        connection.send_error(msg["id"], "unauthorized", "Keine Berechtigung für diese Heizung")
+        return
+    try:
+        ok = await data.daily.async_pause(msg["entity_id"], msg["contacts"], context=connection.context(msg))
+    except HomeAssistantError as err:
+        connection.send_error(msg["id"], "failed", str(err))
+        return
+    connection.send_result(msg["id"], {"ok": ok})
+
+
+@websocket_api.websocket_command({vol.Required("type"): "haus3d/away/status"})
+@callback
+def ws_away_status(hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict[str, Any]) -> None:
+    """Anwesenheitssimulation und pausierte Heizungen."""
+    if (data := _data(hass, connection, msg)) is None:
+        return
+    connection.send_result(msg["id"], {"on": bool(data.daily.away.get("on")), "lights": len(data.daily.away_lights()), "paused": sorted(data.daily.paused)})
+
+
+@websocket_api.websocket_command({vol.Required("type"): "haus3d/away/set", vol.Required("on"): bool})
+@websocket_api.async_response
+async def ws_away_set(hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict[str, Any]) -> None:
+    """Anwesenheitssimulation an/aus (wer die Lichter schalten darf)."""
+    if (data := _data(hass, connection, msg)) is None:
+        return
+    if not _may_control(connection, data.daily.away_lights()):
+        connection.send_error(msg["id"], "unauthorized", "Keine Berechtigung für die Lichter")
+        return
+    await data.daily.async_set_away(msg["on"])
+    connection.send_result(msg["id"], {"on": msg["on"]})
